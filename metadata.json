@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Parle - French Practice",
+  "description": "A French speaking practice app with manual turn-taking and variable speed playback.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
