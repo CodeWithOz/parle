@@ -1,5 +1,6 @@
 
 import { base64ToBlob, decodeAudioData } from "./audioUtils";
+import { VoiceResponse } from "../types";
 
 const SYSTEM_INSTRUCTION = `
 You are a friendly and patient French language tutor. 
@@ -19,14 +20,14 @@ You: "Bonjour! Oh, tu es fatigué ? Pourquoi es-tu fatigué aujourd'hui ? ... He
 `;
 
 /**
- * Sends a user audio blob to OpenAI models and returns the response audio buffer.
+ * Sends a user audio blob to OpenAI models and returns the response with audio and text.
  * Pipeline: gpt-4o-mini-transcribe (STT) -> gpt-5-nano (Chat) -> gpt-4o-mini-tts (Speech)
  */
 export const sendVoiceMessageOpenAI = async (
   audioBase64: string,
   mimeType: string,
   audioContext: AudioContext
-): Promise<AudioBuffer> => {
+): Promise<VoiceResponse> => {
   const apiKey = process.env.OPENAI_API_KEY;
 
   if (!apiKey) {
@@ -107,7 +108,13 @@ export const sendVoiceMessageOpenAI = async (
     const audioArrayBuffer = await ttsRes.arrayBuffer();
 
     // Decode the standard MP3/WAV returned by OpenAI
-    return await decodeAudioData(new Uint8Array(audioArrayBuffer), audioContext);
+    const audioBuffer = await decodeAudioData(new Uint8Array(audioArrayBuffer), audioContext);
+
+    return {
+      audioBuffer,
+      userText,
+      modelText
+    };
 
   } catch (error) {
     console.error("Error communicating with OpenAI:", error);

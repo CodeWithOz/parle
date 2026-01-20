@@ -1,5 +1,6 @@
 import { GoogleGenAI, Chat, Modality } from "@google/genai";
 import { base64ToBytes, decodeAudioData } from "./audioUtils";
+import { VoiceResponse } from "../types";
 
 // Define the system instruction to enforce the language constraint
 const SYSTEM_INSTRUCTION = `
@@ -40,13 +41,13 @@ export const initializeSession = () => {
 };
 
 /**
- * Sends a user audio blob to the model and returns the response audio buffer.
+ * Sends a user audio blob to the model and returns the response with audio and text.
  */
 export const sendVoiceMessage = async (
-  audioBase64: string, 
+  audioBase64: string,
   mimeType: string,
   audioContext: AudioContext
-): Promise<AudioBuffer> => {
+): Promise<VoiceResponse> => {
   if (!chatSession || !ai) {
     initializeSession();
     if (!chatSession || !ai) {
@@ -55,7 +56,25 @@ export const sendVoiceMessage = async (
   }
 
   try {
-    // Step 1: Send User Audio to Chat Model to get Text Response
+    // Step 1: Transcribe user audio
+    const transcribeResponse = await ai.models.generateContent({
+      model: 'gemini-2.0-flash-exp',
+      contents: [{
+        parts: [
+          { text: "Transcribe this audio exactly as spoken. Only output the transcription, nothing else." },
+          {
+            inlineData: {
+              data: audioBase64,
+              mimeType: mimeType,
+            },
+          },
+        ],
+      }],
+    });
+
+    const userText = transcribeResponse.text || "";
+
+    // Step 2: Send User Audio to Chat Model to get Text Response
     const chatResponse = await chatSession.sendMessage({
       message: [
         {
@@ -67,16 +86,16 @@ export const sendVoiceMessage = async (
       ],
     });
 
-    const textResponse = chatResponse.text; // Access text property directly
+    const modelText = chatResponse.text; // Access text property directly
 
-    if (!textResponse) {
+    if (!modelText) {
       throw new Error("No text response received from chat model.");
     }
 
-    // Step 2: Send Text Response to TTS Model to get Audio
+    // Step 3: Send Text Response to TTS Model to get Audio
     const ttsResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash-preview-tts',
-        contents: [{ parts: [{ text: textResponse }] }],
+        contents: [{ parts: [{ text: modelText }] }],
         config: {
             responseModalities: [Modality.AUDIO],
             speechConfig: {
@@ -92,7 +111,7 @@ export const sendVoiceMessage = async (
     // Extract audio from TTS response
     const candidate = ttsResponse.candidates?.[0];
     const parts = candidate?.content?.parts;
-    
+
     if (!parts || parts.length === 0) {
       throw new Error("No content received from TTS model.");
     }
@@ -106,8 +125,12 @@ export const sendVoiceMessage = async (
 
     const audioBytes = base64ToBytes(audioPart.inlineData.data);
     const audioBuffer = await decodeAudioData(audioBytes, audioContext);
-    
-    return audioBuffer;
+
+    return {
+      audioBuffer,
+      userText,
+      modelText
+    };
 
   } catch (error) {
     console.error("Error communicating with Gemini:", error);

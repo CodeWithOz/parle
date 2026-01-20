@@ -11,6 +11,12 @@ export type Provider = 'gemini' | 'openai';
 
 export interface Message {
   role: 'user' | 'model';
-  text?: string; // Optional text representation if we decide to add it later
+  text: string;
   timestamp: number;
+}
+
+export interface VoiceResponse {
+  audioBuffer: AudioBuffer;
+  userText: string;
+  modelText: string;
 }

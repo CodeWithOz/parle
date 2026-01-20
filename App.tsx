@@ -1,16 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { AppState, Provider } from './types';
+import { AppState, Provider, Message } from './types';
 import { useAudio } from './hooks/useAudio';
 import { initializeSession, sendVoiceMessage } from './services/geminiService';
 import { sendVoiceMessageOpenAI } from './services/openaiService';
 import { Orb } from './components/Orb';
 import { Controls } from './components/Controls';
+import { ConversationHistory } from './components/ConversationHistory';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [provider, setProvider] = useState<Provider>('gemini');
   const [hasStarted, setHasStarted] = useState(false);
+  const [messages, setMessages] = useState<Message[]>([]);
 
   const {
     isRecording,
@@ -57,16 +59,23 @@ const App: React.FC = () => {
       // Get AudioContext for decoding
       const ctx = getAudioContext();
 
-      let responseBuffer: AudioBuffer;
+      const response = provider === 'gemini'
+        ? await sendVoiceMessage(base64, mimeType, ctx)
+        : await sendVoiceMessageOpenAI(base64, mimeType, ctx);
 
-      if (provider === 'gemini') {
-        responseBuffer = await sendVoiceMessage(base64, mimeType, ctx);
-      } else {
-        responseBuffer = await sendVoiceMessageOpenAI(base64, mimeType, ctx);
-      }
+      const { audioBuffer, userText, modelText } = response;
+
+      // Add messages to history (prepend for reverse chronological order)
+      const timestamp = Date.now();
+      const newMessages: Message[] = [
+        { role: 'model', text: modelText, timestamp: timestamp + 1 },
+        { role: 'user', text: userText, timestamp },
+        ...messages
+      ];
+      setMessages(newMessages);
 
       setAppState(AppState.PLAYING);
-      playAudio(responseBuffer, playbackSpeed, () => {
+      playAudio(audioBuffer, playbackSpeed, () => {
         setAppState(AppState.IDLE);
       });
 
@@ -117,7 +126,7 @@ const App: React.FC = () => {
       </header>
 
       {/* Main Visualizer Area */}
-      <main className="flex-grow flex flex-col items-center justify-center w-full max-w-2xl px-4 z-10 pb-12">
+      <main className="flex-grow flex flex-col items-center w-full max-w-2xl px-4 z-10 pb-12 pt-8 overflow-y-auto">
 
         <div className="mb-12 relative">
           <Orb state={appState} volume={volume} />
@@ -144,6 +153,9 @@ const App: React.FC = () => {
           onStartRecording={handleStartRecording}
           onStopRecording={handleStopRecording}
         />
+
+        {/* Conversation History */}
+        <ConversationHistory messages={messages} />
 
       </main>
 
