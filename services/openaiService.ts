@@ -20,7 +20,7 @@ You: "Bonjour! Oh, tu es fatigué ? Pourquoi es-tu fatigué aujourd'hui ? ... He
 
 /**
  * Sends a user audio blob to OpenAI models and returns the response audio buffer.
- * Pipeline: Whisper (STT) -> GPT-4o (Chat) -> TTS-1 (Speech)
+ * Pipeline: gpt-4o-mini-transcribe (STT) -> gpt-5-nano (Chat) -> gpt-4o-mini-tts (Speech)
  */
 export const sendVoiceMessageOpenAI = async (
   audioBase64: string,
@@ -34,7 +34,7 @@ export const sendVoiceMessageOpenAI = async (
   }
 
   try {
-    // --- Step 1: STT (Whisper) ---
+    // --- Step 1: STT (gpt-4o-mini-transcribe) ---
     const audioBlob = base64ToBlob(audioBase64, mimeType);
     const formData = new FormData();
     
@@ -47,7 +47,7 @@ export const sendVoiceMessageOpenAI = async (
     else if (lowerMime.includes('mp3')) extension = 'mp3';
 
     formData.append("file", audioBlob, `input.${extension}`);
-    formData.append("model", "whisper-1");
+    formData.append("model", "gpt-4o-mini-transcribe");
 
     const sttRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",
@@ -62,7 +62,7 @@ export const sendVoiceMessageOpenAI = async (
     const sttJson = await sttRes.json();
     const userText = sttJson.text;
 
-    // --- Step 2: Chat (GPT-4o) ---
+    // --- Step 2: Chat (gpt-5-nano) ---
     const chatRes = await fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -70,7 +70,7 @@ export const sendVoiceMessageOpenAI = async (
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: "gpt-4o",
+        model: "gpt-5-nano",
         messages: [
           { role: "system", content: SYSTEM_INSTRUCTION },
           { role: "user", content: userText }
@@ -85,7 +85,7 @@ export const sendVoiceMessageOpenAI = async (
     const chatJson = await chatRes.json();
     const modelText = chatJson.choices[0].message.content;
 
-    // --- Step 3: TTS (tts-1) ---
+    // --- Step 3: TTS (gpt-4o-mini-tts) ---
     const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
       headers: {
@@ -93,9 +93,10 @@ export const sendVoiceMessageOpenAI = async (
         Authorization: `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: "tts-1",
+        model: "gpt-4o-mini-tts",
         input: modelText,
-        voice: "alloy"
+        voice: "coral",
+        instructions: "Speak clearly with a friendly, encouraging tone. When speaking French, use a natural French accent."
       })
     });
 
