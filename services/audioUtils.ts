@@ -13,6 +13,14 @@ export function base64ToBytes(base64: string): Uint8Array {
 }
 
 /**
+ * Converts a base64 string to a Blob
+ */
+export function base64ToBlob(base64: string, mimeType: string): Blob {
+  const bytes = base64ToBytes(base64);
+  return new Blob([bytes], { type: mimeType });
+}
+
+/**
  * Encodes a blob to a base64 string
  */
 export function blobToBase64(blob: Blob): Promise<string> {
@@ -33,25 +41,24 @@ export function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
- * Decodes raw PCM data or Wav data from Gemini into an AudioBuffer
+ * Decodes raw PCM data or Wav data from Gemini/OpenAI into an AudioBuffer
  */
 export async function decodeAudioData(
   audioData: Uint8Array,
   audioContext: AudioContext,
   sampleRate: number = 24000 // Default for Gemini 2.5 Flash TTS
 ): Promise<AudioBuffer> {
-  // First, try standard browser decoding (handles WAV, MP3, etc.)
+  // 1. Try standard browser decoding (handles WAV, MP3, etc. from OpenAI)
   try {
-    // decodeAudioData detaches the buffer, so we slice it to keep the original if needed, 
-    // or just pass a copy to be safe.
+    // decodeAudioData detaches the buffer, so we copy it to keep the original safe if needed
     const bufferForDecoding = audioData.buffer.slice(
       audioData.byteOffset, 
       audioData.byteOffset + audioData.byteLength
     );
     return await audioContext.decodeAudioData(bufferForDecoding);
   } catch (error) {
-    // If native decoding fails, assume it is raw PCM (Int16, Little Endian)
-    // which is the standard output for Gemini Live/TTS models.
+    // 2. If native decoding fails, assume it is raw PCM (Int16, Little Endian)
+    // This is the format returned by Gemini Live/TTS models.
     
     const numChannels = 1; // Gemini usually returns mono
     // Ensure we are working with 16-bit aligned data

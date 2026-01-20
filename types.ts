@@ -1,3 +1,4 @@
+
 export enum AppState {
   IDLE = 'IDLE',
   RECORDING = 'RECORDING',
@@ -5,6 +6,8 @@ export enum AppState {
   PLAYING = 'PLAYING',
   ERROR = 'ERROR'
 }
+
+export type Provider = 'gemini' | 'openai';
 
 export interface Message {
   role: 'user' | 'model';

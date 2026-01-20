@@ -27,7 +27,7 @@ let chatSession: Chat | null = null;
  * Must be called with a valid API Key.
  */
 export const initializeSession = () => {
-  ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   // We use gemini-2.0-flash-exp for the logic/conversation as it handles audio input well, 
   // but we will ask for TEXT output to maintain REST compatibility, then TTS it.
   chatSession = ai.chats.create({
