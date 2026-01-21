@@ -20,3 +20,14 @@ export interface VoiceResponse {
   userText: string;
   modelText: string;
 }
+
+export type ScenarioMode = 'none' | 'setup' | 'practice';
+
+export interface Scenario {
+  id: string;
+  name: string;
+  description: string;
+  aiSummary?: string;
+  createdAt: number;
+  isActive: boolean;
+}

@@ -1,7 +1,7 @@
-
 import { base64ToBlob, decodeAudioData } from "./audioUtils";
-import { VoiceResponse } from "../types";
+import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
+import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt } from "./scenarioService";
 
 const SYSTEM_INSTRUCTION = `
 You are a friendly and patient French language tutor. 
@@ -19,6 +19,88 @@ Example interaction:
 User: "Bonjour, je suis fatigue." (User means "I am tired" but mispronounced)
 You: "Bonjour! Oh, tu es fatigué ? Pourquoi es-tu fatigué aujourd'hui ? ... Hello! Oh, you are tired? Why are you tired today?"
 `;
+
+// Track the active scenario for scenario-aware prompting
+let activeScenario: Scenario | null = null;
+
+/**
+ * Sets the active scenario for OpenAI service.
+ */
+export const setScenarioOpenAI = (scenario: Scenario | null) => {
+  activeScenario = scenario;
+};
+
+/**
+ * Gets AI's understanding/summary of a scenario description using OpenAI.
+ */
+export const processScenarioDescriptionOpenAI = async (description: string): Promise<string> => {
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("Missing OpenAI API Key");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: "gpt-5-nano",
+      messages: [
+        { role: "user", content: generateScenarioSummaryPrompt(description) }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI Error: ${response.status} ${errorText}`);
+  }
+
+  const json = await response.json();
+  return json.choices[0].message.content || "I understand the scenario. Ready to begin when you are!";
+};
+
+/**
+ * Transcribes audio to text using OpenAI.
+ */
+export const transcribeAudioOpenAI = async (audioBase64: string, mimeType: string): Promise<string> => {
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    throw new Error("Missing OpenAI API Key");
+  }
+
+  const audioBlob = base64ToBlob(audioBase64, mimeType);
+  const formData = new FormData();
+
+  // Determine appropriate extension based on mimeType
+  let extension = 'wav';
+  const lowerMime = mimeType.toLowerCase();
+  if (lowerMime.includes('webm')) extension = 'webm';
+  else if (lowerMime.includes('mp4') || lowerMime.includes('m4a') || lowerMime.includes('aac')) extension = 'm4a';
+  else if (lowerMime.includes('ogg')) extension = 'ogg';
+  else if (lowerMime.includes('mp3')) extension = 'mp3';
+
+  formData.append("file", audioBlob, `input.${extension}`);
+  formData.append("model", "gpt-4o-mini-transcribe");
+
+  const response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}` },
+    body: formData
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI STT Error: ${response.status} ${errorText}`);
+  }
+
+  const json = await response.json();
+  return json.text || "";
+};
 
 /**
  * Sends a user audio blob to OpenAI models and returns the response with audio and text.
@@ -66,9 +148,14 @@ export const sendVoiceMessageOpenAI = async (
 
     // --- Step 2: Chat (gpt-5-nano) ---
     // Build messages array with system instruction, shared conversation history, and current user message
+    // Use scenario-aware instructions if a scenario is active
+    const systemInstruction = activeScenario
+      ? generateScenarioSystemInstruction(activeScenario)
+      : SYSTEM_INSTRUCTION;
+
     const conversationHistory = getConversationHistory();
     const messages = [
-      { role: "system" as const, content: SYSTEM_INSTRUCTION },
+      { role: "system" as const, content: systemInstruction },
       ...conversationHistory,
       { role: "user" as const, content: userText }
     ];
