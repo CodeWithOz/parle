@@ -27,7 +27,7 @@ const App: React.FC = () => {
 
   // Initialize session on mount (Gemini)
   useEffect(() => {
-    initializeSession();
+    initializeSession().catch(console.error);
   }, []);
 
   // Handle Playback Speed updates

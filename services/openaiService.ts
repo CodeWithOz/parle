@@ -1,6 +1,7 @@
 
 import { base64ToBlob, decodeAudioData } from "./audioUtils";
 import { VoiceResponse } from "../types";
+import { getConversationHistory, addToHistory } from "./conversationHistory";
 
 const SYSTEM_INSTRUCTION = `
 You are a friendly and patient French language tutor. 
@@ -18,9 +19,6 @@ Example interaction:
 User: "Bonjour, je suis fatigue." (User means "I am tired" but mispronounced)
 You: "Bonjour! Oh, tu es fatigué ? Pourquoi es-tu fatigué aujourd'hui ? ... Hello! Oh, you are tired? Why are you tired today?"
 `;
-
-// Module-level conversation history for maintaining context across messages
-let conversationHistory: Array<{ role: "user" | "assistant"; content: string }> = [];
 
 /**
  * Sends a user audio blob to OpenAI models and returns the response with audio and text.
@@ -67,7 +65,8 @@ export const sendVoiceMessageOpenAI = async (
     const userText = sttJson.text;
 
     // --- Step 2: Chat (gpt-5-nano) ---
-    // Build messages array with system instruction, conversation history, and current user message
+    // Build messages array with system instruction, shared conversation history, and current user message
+    const conversationHistory = getConversationHistory();
     const messages = [
       { role: "system" as const, content: SYSTEM_INSTRUCTION },
       ...conversationHistory,
@@ -93,11 +92,9 @@ export const sendVoiceMessageOpenAI = async (
     const chatJson = await chatRes.json();
     const modelText = chatJson.choices[0].message.content;
 
-    // Add user and assistant messages to conversation history
-    conversationHistory.push(
-      { role: "user", content: userText },
-      { role: "assistant", content: modelText }
-    );
+    // Add user and assistant messages to shared conversation history
+    addToHistory("user", userText);
+    addToHistory("assistant", modelText);
 
     // --- Step 3: TTS (gpt-4o-mini-tts) ---
     const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {

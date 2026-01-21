@@ -1,6 +1,7 @@
 import { GoogleGenAI, Chat, Modality } from "@google/genai";
 import { base64ToBytes, decodeAudioData } from "./audioUtils";
 import { VoiceResponse } from "../types";
+import { getConversationHistory, addToHistory } from "./conversationHistory";
 
 // Define the system instruction to enforce the language constraint
 const SYSTEM_INSTRUCTION = `
@@ -22,15 +23,20 @@ You: "Bonjour! Oh, tu es fatigué ? Pourquoi es-tu fatigué aujourd'hui ? ... He
 
 let ai: GoogleGenAI | null = null;
 let chatSession: Chat | null = null;
+// Track how many messages from shared history have been synced to the session
+let syncedMessageCount = 0;
 
 /**
  * Initializes the Gemini Chat session.
  * Must be called with a valid API Key.
+ * Creates a fresh session without replaying history (history is synced lazily when needed).
  */
-export const initializeSession = () => {
+export const initializeSession = async () => {
   ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
   // We use gemini-2.0-flash-exp for the logic/conversation as it handles audio input well, 
   // but we will ask for TEXT output to maintain REST compatibility, then TTS it.
+  
+  // Create a fresh session - history will be synced lazily when sending a message
   chatSession = ai.chats.create({
     model: 'gemini-2.0-flash-exp', 
     config: {
@@ -38,6 +44,9 @@ export const initializeSession = () => {
       // No responseModalities needed, defaults to text
     },
   });
+  
+  // Reset sync counter - we'll sync lazily when actually sending a message
+  syncedMessageCount = 0;
 };
 
 /**
@@ -74,6 +83,29 @@ export const sendVoiceMessage = async (
 
     const userText = transcribeResponse.text || "";
 
+    // Sync session with shared history if needed (lazy sync when actually sending a message)
+    // This happens when switching back to Gemini from another provider
+    const sharedHistory = getConversationHistory();
+    
+    // Only replay messages that haven't been synced yet
+    // We replay user messages to rebuild context (assistant responses are tracked by the session)
+    if (sharedHistory.length > syncedMessageCount) {
+      // Replay user messages that haven't been synced to rebuild context
+      // Note: This will generate API responses, but we ignore them - we just need the context
+      for (let i = syncedMessageCount; i < sharedHistory.length; i += 2) {
+        const userMsg = sharedHistory[i];
+        // Only replay user messages (they're at even indices)
+        if (userMsg && userMsg.role === "user") {
+          // Send user message to rebuild context
+          await chatSession.sendMessage({
+            message: [{ text: userMsg.content }],
+          });
+        }
+      }
+      // Mark all messages as synced
+      syncedMessageCount = sharedHistory.length;
+    }
+    
     // Step 2: Send User Audio to Chat Model to get Text Response
     const chatResponse = await chatSession.sendMessage({
       message: [
@@ -91,6 +123,12 @@ export const sendVoiceMessage = async (
     if (!modelText) {
       throw new Error("No text response received from chat model.");
     }
+
+    // Sync to shared conversation history
+    addToHistory("user", userText);
+    addToHistory("assistant", modelText);
+    // Update sync counter - we've now synced this new message pair
+    syncedMessageCount += 2;
 
     // Step 3: Send Text Response to TTS Model to get Audio
     const ttsResponse = await ai.models.generateContent({
