@@ -27,6 +27,22 @@ let chatSession: Chat | null = null;
 let syncedMessageCount = 0;
 
 /**
+ * Resets the Gemini session and sync counter.
+ * Should be called when clearing conversation history.
+ */
+export const resetSession = async () => {
+  syncedMessageCount = 0;
+  if (ai) {
+    chatSession = ai.chats.create({
+      model: 'gemini-2.0-flash-exp',
+      config: {
+        systemInstruction: SYSTEM_INSTRUCTION,
+      },
+    });
+  }
+};
+
+/**
  * Initializes the Gemini Chat session.
  * Must be called with a valid API Key.
  * Creates a fresh session without replaying history (history is synced lazily when needed).

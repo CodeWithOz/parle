@@ -3,9 +3,10 @@ import { Message } from '../types';
 
 interface ConversationHistoryProps {
   messages: Message[];
+  onClear: () => void;
 }
 
-export const ConversationHistory: React.FC<ConversationHistoryProps> = ({ messages }) => {
+export const ConversationHistory: React.FC<ConversationHistoryProps> = ({ messages, onClear }) => {
   if (messages.length === 0) {
     return null;
   }
@@ -17,6 +18,13 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({ messag
       <div className="flex items-center gap-4 mb-4">
         <div className="flex-1 h-px bg-slate-700"></div>
         <span className="text-slate-500 text-xs font-medium uppercase tracking-widest">History</span>
+        <button
+          onClick={onClear}
+          className="text-slate-500 hover:text-slate-300 text-xs font-medium transition-colors px-2 py-1 rounded hover:bg-slate-800/50"
+          title="Clear conversation history"
+        >
+          Clear
+        </button>
         <div className="flex-1 h-px bg-slate-700"></div>
       </div>
 

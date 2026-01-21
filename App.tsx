@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { AppState, Provider, Message } from './types';
 import { useAudio } from './hooks/useAudio';
-import { initializeSession, sendVoiceMessage } from './services/geminiService';
+import { initializeSession, sendVoiceMessage, resetSession } from './services/geminiService';
 import { sendVoiceMessageOpenAI } from './services/openaiService';
+import { clearHistory } from './services/conversationHistory';
 import { Orb } from './components/Orb';
 import { Controls } from './components/Controls';
 import { ConversationHistory } from './components/ConversationHistory';
@@ -47,6 +48,17 @@ const App: React.FC = () => {
 
     setAppState(AppState.RECORDING);
     await startRecording();
+  };
+
+  const handleClearHistory = async () => {
+    // Clear shared conversation history
+    clearHistory();
+    // Clear UI messages
+    setMessages([]);
+    // Reset Gemini session if using Gemini
+    if (provider === 'gemini') {
+      await resetSession();
+    }
   };
 
   const handleStopRecording = async () => {
@@ -155,7 +167,7 @@ const App: React.FC = () => {
         />
 
         {/* Conversation History */}
-        <ConversationHistory messages={messages} />
+        <ConversationHistory messages={messages} onClear={handleClearHistory} />
 
       </main>
 
