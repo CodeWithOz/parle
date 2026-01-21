@@ -21,6 +21,7 @@ const App: React.FC = () => {
     volume,
     startRecording,
     stopRecording,
+    cancelRecording,
     playAudio,
     updatePlaybackSpeed,
     getAudioContext
@@ -30,6 +31,27 @@ const App: React.FC = () => {
   useEffect(() => {
     initializeSession().catch(console.error);
   }, []);
+
+  const handleCancelRecording = () => {
+    if (appState === AppState.RECORDING) {
+      cancelRecording();
+      setAppState(AppState.IDLE);
+    }
+  };
+
+  // Handle Escape key to cancel recording
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && appState === AppState.RECORDING) {
+        handleCancelRecording();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [appState]);
 
   // Handle Playback Speed updates
   const handleSpeedChange = (speed: number) => {
@@ -164,6 +186,7 @@ const App: React.FC = () => {
           onSpeedChange={handleSpeedChange}
           onStartRecording={handleStartRecording}
           onStopRecording={handleStopRecording}
+          onCancelRecording={handleCancelRecording}
         />
 
         {/* Conversation History */}

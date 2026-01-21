@@ -8,7 +8,7 @@ export const useAudio = () => {
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  
+
   // Playback refs
   const audioContextRef = useRef<AudioContext | null>(null);
   const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
@@ -30,7 +30,7 @@ export const useAudio = () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream);
-      
+
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
@@ -60,7 +60,7 @@ export const useAudio = () => {
 
       mediaRecorder.start();
       setIsRecording(true);
-      
+
       // Stop current playback if any
       if (currentSourceRef.current) {
         currentSourceRef.current.stop();
@@ -73,7 +73,7 @@ export const useAudio = () => {
     }
   }, [getAudioContext]);
 
-  const stopRecording = useCallback((): Promise<{base64: string, mimeType: string}> => {
+  const stopRecording = useCallback((): Promise<{ base64: string, mimeType: string }> => {
     return new Promise((resolve, reject) => {
       const mediaRecorder = mediaRecorderRef.current;
       if (!mediaRecorder) {
@@ -85,17 +85,17 @@ export const useAudio = () => {
         // Use the actual mime type from the recorder or fallback
         const mimeType = mediaRecorder.mimeType || 'audio/webm';
         const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
-        
+
         // Cleanup visualizer
         if (animationFrameRef.current) {
           cancelAnimationFrame(animationFrameRef.current);
           animationFrameRef.current = null;
         }
         setVolume(0);
-        
+
         // Stop all tracks
         mediaRecorder.stream.getTracks().forEach(track => track.stop());
-        
+
         try {
           const base64 = await blobToBase64(audioBlob);
           resolve({ base64, mimeType });
@@ -109,18 +109,43 @@ export const useAudio = () => {
     });
   }, []);
 
+  const cancelRecording = useCallback(() => {
+    const mediaRecorder = mediaRecorderRef.current;
+    if (!mediaRecorder || !isRecording) {
+      return;
+    }
+
+    // Stop the recorder without processing
+    mediaRecorder.stop();
+
+    // Cleanup visualizer
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+    setVolume(0);
+
+    // Stop all tracks
+    mediaRecorder.stream.getTracks().forEach(track => track.stop());
+
+    // Clear audio chunks
+    audioChunksRef.current = [];
+
+    setIsRecording(false);
+  }, [isRecording]);
+
   const playAudio = useCallback(async (audioBuffer: AudioBuffer, speed: number, onEnded: () => void) => {
     const ctx = getAudioContext();
-    
+
     // Stop previous if exists
     if (currentSourceRef.current) {
-        try { currentSourceRef.current.stop(); } catch(e) {}
+      try { currentSourceRef.current.stop(); } catch (e) { }
     }
 
     const source = ctx.createBufferSource();
     source.buffer = audioBuffer;
     source.playbackRate.value = speed;
-    
+
     // Simple visualizer for playback
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 256;
@@ -130,15 +155,15 @@ export const useAudio = () => {
 
     // Only start visualization loop if not already running
     if (!animationFrameRef.current) {
-        const updateVolume = () => {
-            if (!analyserRef.current) return;
-            const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-            analyserRef.current.getByteFrequencyData(dataArray);
-            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-            setVolume(average / 128); 
-            animationFrameRef.current = requestAnimationFrame(updateVolume);
-        };
-        updateVolume();
+      const updateVolume = () => {
+        if (!analyserRef.current) return;
+        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+        analyserRef.current.getByteFrequencyData(dataArray);
+        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+        setVolume(average / 128);
+        animationFrameRef.current = requestAnimationFrame(updateVolume);
+      };
+      updateVolume();
     }
 
     source.onended = () => {
@@ -169,6 +194,7 @@ export const useAudio = () => {
     volume,
     startRecording,
     stopRecording,
+    cancelRecording,
     playAudio,
     updatePlaybackSpeed,
     getAudioContext // Exposed to initialize context on user interaction

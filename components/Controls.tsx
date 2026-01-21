@@ -7,6 +7,7 @@ interface ControlsProps {
   onSpeedChange: (speed: number) => void;
   onStartRecording: () => void;
   onStopRecording: () => void;
+  onCancelRecording: () => void;
 }
 
 export const Controls: React.FC<ControlsProps> = ({
@@ -15,6 +16,7 @@ export const Controls: React.FC<ControlsProps> = ({
   onSpeedChange,
   onStartRecording,
   onStopRecording,
+  onCancelRecording,
 }) => {
   const isRecording = appState === AppState.RECORDING;
   const isProcessing = appState === AppState.PROCESSING;
@@ -76,26 +78,38 @@ export const Controls: React.FC<ControlsProps> = ({
       </div>
 
       {/* Main Action Button */}
-      <button
-        onClick={handleMainButtonClick}
-        disabled={isProcessing}
-        className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 transform active:scale-95 ${buttonColor()}`}
-      >
-        {isRecording ? (
-           // Stop Icon
-           <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-white" viewBox="0 0 20 20" fill="currentColor">
-             <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
-           </svg>
-        ) : (
-           // Mic Icon
-           <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-white" viewBox="0 0 20 20" fill="currentColor">
-             <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-           </svg>
-        )}
-      </button>
+      <div className="flex flex-col items-center gap-4">
+        <button
+          onClick={handleMainButtonClick}
+          disabled={isProcessing}
+          className={`w-24 h-24 rounded-full flex items-center justify-center transition-all duration-300 transform active:scale-95 ${buttonColor()}`}
+        >
+          {isRecording ? (
+             // Stop Icon
+             <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-white" viewBox="0 0 20 20" fill="currentColor">
+               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
+             </svg>
+          ) : (
+             // Mic Icon
+             <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 text-white" viewBox="0 0 20 20" fill="currentColor">
+               <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+             </svg>
+          )}
+        </button>
 
-      <div className="text-slate-400 text-sm font-medium">
-        {buttonLabel()}
+        <div className="text-slate-400 text-sm font-medium">
+          {buttonLabel()}
+        </div>
+
+        {/* Cancel Button - Only show when recording */}
+        {isRecording && (
+          <button
+            onClick={onCancelRecording}
+            className="px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors rounded-lg hover:bg-slate-800/50 border border-slate-700/50"
+          >
+            Cancel (Esc)
+          </button>
+        )}
       </div>
     </div>
   );
