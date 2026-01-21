@@ -1,0 +1,102 @@
+import { Scenario } from '../types';
+
+const STORAGE_KEY = 'parle-scenarios';
+
+/**
+ * Generate a unique ID for a scenario
+ */
+export const generateId = (): string => {
+  return `scenario_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+};
+
+/**
+ * Load all saved scenarios from localStorage
+ */
+export const loadScenarios = (): Scenario[] => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch (error) {
+    console.error('Error loading scenarios from localStorage:', error);
+  }
+  return [];
+};
+
+/**
+ * Save a scenario to localStorage
+ */
+export const saveScenario = (scenario: Scenario): Scenario[] => {
+  const scenarios = loadScenarios();
+  const existingIndex = scenarios.findIndex(s => s.id === scenario.id);
+
+  if (existingIndex >= 0) {
+    scenarios[existingIndex] = scenario;
+  } else {
+    scenarios.unshift(scenario);
+  }
+
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
+  return scenarios;
+};
+
+/**
+ * Delete a scenario from localStorage
+ */
+export const deleteScenario = (scenarioId: string): Scenario[] => {
+  const scenarios = loadScenarios().filter(s => s.id !== scenarioId);
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
+  return scenarios;
+};
+
+/**
+ * Generate the system instruction for scenario practice mode
+ */
+export const generateScenarioSystemInstruction = (scenario: Scenario): string => {
+  return `You are participating in a role-play scenario to help the user practice French.
+
+SCENARIO CONTEXT:
+${scenario.description}
+
+YOUR ROLE:
+You are playing the role of the other party in the scenario (e.g., shopkeeper, baker, waiter, receptionist, etc.). Follow the general flow of events as described, but respond naturally to what the user says.
+
+GUIDELINES:
+1. Stay in character as the other party in the scenario
+2. Speak in French primarily
+3. If the user makes French mistakes, gently model the correct form in your response while staying in character
+4. Follow the scenario progression, but adapt naturally to what the user actually says
+5. For EVERY response, you MUST follow this structure:
+   - First, your French response (in character)
+   - Then, immediately provide the ENGLISH translation of what you just said
+   - Do not say "Here is the translation" or explain the format
+6. When the scenario reaches its natural end, congratulate the user and offer to practice again or try a variation
+
+HINTS:
+If the user says "hint", "help", "aide", "je ne sais pas", or seems stuck (very short response, hesitation words like "um", "euh", "uh"), provide a helpful suggestion in this format:
+- First say (in character): "Peut-être vous voulez dire..." (Perhaps you want to say...)
+- Then give a hint in French (what they might say next)
+- Then the English translation of the hint
+- Then wait for them to try again
+
+START THE SCENARIO:
+Begin by greeting the user in character and initiating the scenario. For example, if it's a bakery scenario, greet them as the baker would.`;
+};
+
+/**
+ * Generate a prompt to have the AI summarize and confirm understanding of a scenario
+ */
+export const generateScenarioSummaryPrompt = (description: string): string => {
+  return `The user wants to practice a French conversation based on this real experience:
+
+"${description}"
+
+Please:
+1. Briefly summarize what you understand about the scenario (2-3 sentences)
+2. Identify your role (who you will play)
+3. Mention the key interactions that will happen
+4. Confirm you're ready to begin when they are
+
+Respond in English since we're still in the setup phase.`;
+};

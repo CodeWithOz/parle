@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppState } from '../types';
+import { AppState, ScenarioMode, Scenario } from '../types';
 
 interface ControlsProps {
   appState: AppState;
@@ -8,6 +8,10 @@ interface ControlsProps {
   onStartRecording: () => void;
   onStopRecording: () => void;
   onCancelRecording: () => void;
+  scenarioMode: ScenarioMode;
+  activeScenario: Scenario | null;
+  onOpenScenarioSetup: () => void;
+  onExitScenario: () => void;
 }
 
 export const Controls: React.FC<ControlsProps> = ({
@@ -17,10 +21,15 @@ export const Controls: React.FC<ControlsProps> = ({
   onStartRecording,
   onStopRecording,
   onCancelRecording,
+  scenarioMode,
+  activeScenario,
+  onOpenScenarioSetup,
+  onExitScenario,
 }) => {
   const isRecording = appState === AppState.RECORDING;
   const isProcessing = appState === AppState.PROCESSING;
   const isPlaying = appState === AppState.PLAYING;
+  const isInPracticeMode = scenarioMode === 'practice' && activeScenario;
 
   // Interaction Handler
   const handleMainButtonClick = () => {
@@ -50,7 +59,41 @@ export const Controls: React.FC<ControlsProps> = ({
 
   return (
     <div className="flex flex-col items-center gap-8 w-full max-w-md mx-auto px-6">
-      
+
+      {/* Scenario Mode Indicator / Toggle */}
+      {isInPracticeMode ? (
+        <div className="w-full bg-green-900/30 p-4 rounded-2xl border border-green-700/50 backdrop-blur-sm">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <span className="text-green-300 text-sm font-medium">Scenario Practice</span>
+            </div>
+            <button
+              onClick={onExitScenario}
+              className="text-xs text-slate-400 hover:text-slate-200 px-3 py-1 rounded border border-slate-600 hover:border-slate-500 transition-colors"
+            >
+              Exit Scenario
+            </button>
+          </div>
+          <p className="text-slate-400 text-sm mt-2 truncate">
+            {activeScenario.name}
+          </p>
+          <p className="text-slate-500 text-xs mt-1">
+            Say "hint" or "help" if you get stuck!
+          </p>
+        </div>
+      ) : (
+        <button
+          onClick={onOpenScenarioSetup}
+          className="w-full py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 hover:border-slate-600 rounded-2xl transition-colors flex items-center justify-center gap-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2H4a1 1 0 110-2V4zm3 1h6v4H7V5zm6 6H7v2h6v-2z" clipRule="evenodd" />
+          </svg>
+          <span className="text-slate-300 text-sm font-medium">Create Practice Scenario</span>
+        </button>
+      )}
+
       {/* Speed Control */}
       <div className="w-full bg-slate-800/50 p-4 rounded-2xl border border-slate-700/50 backdrop-blur-sm">
         <div className="flex justify-between items-center mb-3">

@@ -1,12 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { AppState, Provider, Message } from './types';
+import React, { useState, useEffect, useRef } from 'react';
+import { AppState, Provider, Message, ScenarioMode, Scenario } from './types';
 import { useAudio } from './hooks/useAudio';
-import { initializeSession, sendVoiceMessage, resetSession } from './services/geminiService';
-import { sendVoiceMessageOpenAI } from './services/openaiService';
+import { initializeSession, sendVoiceMessage, resetSession, setScenario, processScenarioDescription, transcribeAudio } from './services/geminiService';
+import { sendVoiceMessageOpenAI, setScenarioOpenAI, processScenarioDescriptionOpenAI, transcribeAudioOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
 import { Orb } from './components/Orb';
 import { Controls } from './components/Controls';
 import { ConversationHistory } from './components/ConversationHistory';
+import { ScenarioSetup } from './components/ScenarioSetup';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
@@ -14,6 +15,18 @@ const App: React.FC = () => {
   const [provider, setProvider] = useState<Provider>('gemini');
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+
+  // Scenario mode state
+  const [scenarioMode, setScenarioMode] = useState<ScenarioMode>('none');
+  const [activeScenario, setActiveScenario] = useState<Scenario | null>(null);
+  const [scenarioDescription, setScenarioDescription] = useState('');
+  const [scenarioName, setScenarioName] = useState('');
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+  const [isProcessingScenario, setIsProcessingScenario] = useState(false);
+  const [isRecordingDescription, setIsRecordingDescription] = useState(false);
+
+  // Ref to track if we're recording for scenario description
+  const scenarioRecordingRef = useRef(false);
 
   const {
     isRecording,
@@ -77,10 +90,117 @@ const App: React.FC = () => {
     clearHistory();
     // Clear UI messages
     setMessages([]);
-    // Reset Gemini session if using Gemini
+    // Reset Gemini session if using Gemini (preserve scenario if active)
     if (provider === 'gemini') {
-      await resetSession();
+      await resetSession(activeScenario);
     }
+  };
+
+  // Scenario mode handlers
+  const handleOpenScenarioSetup = () => {
+    setScenarioMode('setup');
+    setScenarioDescription('');
+    setScenarioName('');
+    setAiSummary(null);
+  };
+
+  const handleCloseScenarioSetup = () => {
+    setScenarioMode('none');
+    setScenarioDescription('');
+    setScenarioName('');
+    setAiSummary(null);
+    setIsRecordingDescription(false);
+    if (scenarioRecordingRef.current) {
+      cancelRecording();
+      scenarioRecordingRef.current = false;
+    }
+  };
+
+  const handleStartRecordingDescription = async () => {
+    getAudioContext();
+    scenarioRecordingRef.current = true;
+    setIsRecordingDescription(true);
+    await startRecording();
+  };
+
+  const handleStopRecordingDescription = async (): Promise<string> => {
+    scenarioRecordingRef.current = false;
+    setIsRecordingDescription(false);
+
+    try {
+      const { base64, mimeType } = await stopRecording();
+
+      // Transcribe the audio using the current provider
+      const transcription = provider === 'gemini'
+        ? await transcribeAudio(base64, mimeType)
+        : await transcribeAudioOpenAI(base64, mimeType);
+
+      return transcription;
+    } catch (error) {
+      console.error('Error transcribing description:', error);
+      return scenarioDescription;
+    }
+  };
+
+  const handleCancelRecordingDescription = () => {
+    scenarioRecordingRef.current = false;
+    setIsRecordingDescription(false);
+    cancelRecording();
+  };
+
+  const handleSubmitScenarioDescription = async (description: string, name: string) => {
+    setIsProcessingScenario(true);
+
+    try {
+      const summary = provider === 'gemini'
+        ? await processScenarioDescription(description)
+        : await processScenarioDescriptionOpenAI(description);
+
+      setAiSummary(summary);
+    } catch (error) {
+      console.error('Error processing scenario:', error);
+      setAiSummary('I understand your scenario. Ready to begin when you are!');
+    } finally {
+      setIsProcessingScenario(false);
+    }
+  };
+
+  const handleConfirmScenario = () => {
+    // User wants to edit, clear summary to show form again
+    setAiSummary(null);
+  };
+
+  const handleStartPractice = async (scenario: Scenario) => {
+    // Clear existing conversation
+    clearHistory();
+    setMessages([]);
+
+    // Set the scenario for both providers
+    setActiveScenario(scenario);
+    setScenarioMode('practice');
+
+    // Configure the AI services with the scenario
+    await setScenario(scenario);
+    setScenarioOpenAI(scenario);
+
+    // Close the setup modal
+    setScenarioDescription('');
+    setScenarioName('');
+    setAiSummary(null);
+  };
+
+  const handleExitScenario = async () => {
+    // Clear the scenario
+    setActiveScenario(null);
+    setScenarioMode('none');
+
+    // Reset AI services to normal mode
+    await setScenario(null);
+    setScenarioOpenAI(null);
+
+    // Clear conversation
+    clearHistory();
+    setMessages([]);
   };
 
   const handleStopRecording = async () => {
@@ -187,6 +307,10 @@ const App: React.FC = () => {
           onStartRecording={handleStartRecording}
           onStopRecording={handleStopRecording}
           onCancelRecording={handleCancelRecording}
+          scenarioMode={scenarioMode}
+          activeScenario={activeScenario}
+          onOpenScenarioSetup={handleOpenScenarioSetup}
+          onExitScenario={handleExitScenario}
         />
 
         {/* Conversation History */}
@@ -198,6 +322,26 @@ const App: React.FC = () => {
       <footer className="p-4 text-center text-slate-600 text-xs z-10">
         <p>Bilingual Mode: French → English Translation</p>
       </footer>
+
+      {/* Scenario Setup Modal */}
+      {scenarioMode === 'setup' && (
+        <ScenarioSetup
+          onStartPractice={handleStartPractice}
+          onClose={handleCloseScenarioSetup}
+          isRecordingDescription={isRecordingDescription}
+          onStartRecordingDescription={handleStartRecordingDescription}
+          onStopRecordingDescription={handleStopRecordingDescription}
+          onCancelRecordingDescription={handleCancelRecordingDescription}
+          isProcessingScenario={isProcessingScenario}
+          aiSummary={aiSummary}
+          onSubmitDescription={handleSubmitScenarioDescription}
+          onConfirmScenario={handleConfirmScenario}
+          currentDescription={scenarioDescription}
+          currentName={scenarioName}
+          onDescriptionChange={setScenarioDescription}
+          onNameChange={setScenarioName}
+        />
+      )}
     </div>
   );
 };

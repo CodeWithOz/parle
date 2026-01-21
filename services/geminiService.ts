@@ -1,7 +1,8 @@
 import { GoogleGenAI, Chat, Modality } from "@google/genai";
 import { base64ToBytes, decodeAudioData } from "./audioUtils";
-import { VoiceResponse } from "../types";
+import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
+import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt } from "./scenarioService";
 
 // Define the system instruction to enforce the language constraint
 const SYSTEM_INSTRUCTION = `
@@ -25,21 +26,81 @@ let ai: GoogleGenAI | null = null;
 let chatSession: Chat | null = null;
 // Track how many messages from shared history have been synced to the session
 let syncedMessageCount = 0;
+// Track the active scenario for scenario-aware prompting
+let activeScenario: Scenario | null = null;
 
 /**
  * Resets the Gemini session and sync counter.
  * Should be called when clearing conversation history.
+ * Optionally can set a new scenario for scenario-aware prompting.
  */
-export const resetSession = async () => {
+export const resetSession = async (scenario?: Scenario | null) => {
   syncedMessageCount = 0;
+  activeScenario = scenario || null;
+
+  const systemInstruction = activeScenario
+    ? generateScenarioSystemInstruction(activeScenario)
+    : SYSTEM_INSTRUCTION;
+
   if (ai) {
     chatSession = ai.chats.create({
       model: 'gemini-2.0-flash-exp',
       config: {
-        systemInstruction: SYSTEM_INSTRUCTION,
+        systemInstruction: systemInstruction,
       },
     });
   }
+};
+
+/**
+ * Sets the active scenario and resets the session with new instructions.
+ */
+export const setScenario = async (scenario: Scenario | null) => {
+  await resetSession(scenario);
+};
+
+/**
+ * Gets AI's understanding/summary of a scenario description.
+ */
+export const processScenarioDescription = async (description: string): Promise<string> => {
+  if (!ai) {
+    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash-exp',
+    contents: [{
+      parts: [{ text: generateScenarioSummaryPrompt(description) }],
+    }],
+  });
+
+  return response.text || "I understand the scenario. Ready to begin when you are!";
+};
+
+/**
+ * Transcribes audio to text using Gemini.
+ */
+export const transcribeAudio = async (audioBase64: string, mimeType: string): Promise<string> => {
+  if (!ai) {
+    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash-exp',
+    contents: [{
+      parts: [
+        { text: "Transcribe this audio exactly as spoken. Only output the transcription, nothing else." },
+        {
+          inlineData: {
+            data: audioBase64,
+            mimeType: mimeType,
+          },
+        },
+      ],
+    }],
+  });
+
+  return response.text || "";
 };
 
 /**
