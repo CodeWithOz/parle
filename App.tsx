@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AppState, Provider, Message } from './types';
 import { useAudio } from './hooks/useAudio';
 import { initializeSession, sendVoiceMessage, resetSession } from './services/geminiService';
@@ -32,12 +32,12 @@ const App: React.FC = () => {
     initializeSession().catch(console.error);
   }, []);
 
-  const handleCancelRecording = () => {
+  const handleCancelRecording = useCallback(() => {
     if (appState === AppState.RECORDING) {
       cancelRecording();
       setAppState(AppState.IDLE);
     }
-  };
+  }, [appState, cancelRecording]);
 
   // Handle Escape key to cancel recording
   useEffect(() => {
@@ -51,7 +51,7 @@ const App: React.FC = () => {
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [appState]);
+  }, [appState, handleCancelRecording]);
 
   // Handle Playback Speed updates
   const handleSpeedChange = (speed: number) => {
@@ -73,13 +73,18 @@ const App: React.FC = () => {
   };
 
   const handleClearHistory = async () => {
-    // Clear shared conversation history
-    clearHistory();
-    // Clear UI messages
-    setMessages([]);
-    // Reset Gemini session if using Gemini
-    if (provider === 'gemini') {
+    try {
+      // Clear shared conversation history
+      clearHistory();
+      // Clear UI messages
+      setMessages([]);
+      // Always reset Gemini session when clearing history, regardless of current provider
+      // This ensures consistent state if user switches back to Gemini later
       await resetSession();
+    } catch (error) {
+      console.error("Error clearing history:", error);
+      // Still clear UI messages even if resetSession fails
+      setMessages([]);
     }
   };
 

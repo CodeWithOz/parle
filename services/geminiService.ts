@@ -99,6 +99,11 @@ export const sendVoiceMessage = async (
 
     const userText = transcribeResponse.text || "";
 
+    // Validate transcription - don't proceed with empty text
+    if (!userText || userText.trim().length === 0) {
+      throw new Error("Transcription failed or returned empty text. Please try speaking again.");
+    }
+
     // Sync session with shared history if needed (lazy sync when actually sending a message)
     // This happens when switching back to Gemini from another provider
     const sharedHistory = getConversationHistory();
@@ -108,13 +113,14 @@ export const sendVoiceMessage = async (
     if (sharedHistory.length > syncedMessageCount) {
       // Replay user messages that haven't been synced to rebuild context
       // Note: This will generate API responses, but we ignore them - we just need the context
-      for (let i = syncedMessageCount; i < sharedHistory.length; i += 2) {
-        const userMsg = sharedHistory[i];
-        // Only replay user messages (they're at even indices)
-        if (userMsg && userMsg.role === "user") {
+      // Iterate sequentially and check each message's role
+      for (let i = syncedMessageCount; i < sharedHistory.length; i++) {
+        const msg = sharedHistory[i];
+        // Only replay user messages to rebuild context
+        if (msg && msg.role === "user") {
           // Send user message to rebuild context
           await chatSession.sendMessage({
-            message: [{ text: userMsg.content }],
+            message: [{ text: msg.content }],
           });
         }
       }

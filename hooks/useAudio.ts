@@ -81,6 +81,12 @@ export const useAudio = () => {
         return;
       }
 
+      // Guard against stopping an already-stopped recorder (e.g., if cancelRecording was called)
+      if (mediaRecorder.state === 'inactive') {
+        reject("MediaRecorder is already stopped");
+        return;
+      }
+
       mediaRecorder.onstop = async () => {
         // Use the actual mime type from the recorder or fallback
         const mimeType = mediaRecorder.mimeType || 'audio/webm';
@@ -104,8 +110,20 @@ export const useAudio = () => {
         }
       };
 
-      mediaRecorder.stop();
-      setIsRecording(false);
+      try {
+        // Only call stop() if recorder is in recording state
+        if (mediaRecorder.state === 'recording') {
+          mediaRecorder.stop();
+        }
+        setIsRecording(false);
+      } catch (error) {
+        // Ignore InvalidStateError if recorder was already stopped
+        if (error instanceof DOMException && error.name === 'InvalidStateError') {
+          reject("MediaRecorder is already stopped");
+        } else {
+          reject(error);
+        }
+      }
     });
   }, []);
 
