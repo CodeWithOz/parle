@@ -3,6 +3,7 @@ import { base64ToBytes, decodeAudioData } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
 import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt } from "./scenarioService";
+import { getApiKeyOrEnv } from "./apiKeyService";
 
 // Define the system instruction to enforce the language constraint
 const SYSTEM_INSTRUCTION = `
@@ -64,7 +65,11 @@ export const setScenario = async (scenario: Scenario | null) => {
  */
 export const processScenarioDescription = async (description: string): Promise<string> => {
   if (!ai) {
-    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const apiKey = getApiKeyOrEnv('gemini');
+    if (!apiKey) {
+      throw new Error("Missing Gemini API Key");
+    }
+    ai = new GoogleGenAI({ apiKey });
   }
 
   const response = await ai.models.generateContent({
@@ -82,7 +87,11 @@ export const processScenarioDescription = async (description: string): Promise<s
  */
 export const transcribeAudio = async (audioBase64: string, mimeType: string): Promise<string> => {
   if (!ai) {
-    ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const apiKey = getApiKeyOrEnv('gemini');
+    if (!apiKey) {
+      throw new Error("Missing Gemini API Key");
+    }
+    ai = new GoogleGenAI({ apiKey });
   }
 
   const response = await ai.models.generateContent({
@@ -109,7 +118,11 @@ export const transcribeAudio = async (audioBase64: string, mimeType: string): Pr
  * Creates a fresh session without replaying history (history is synced lazily when needed).
  */
 export const initializeSession = async () => {
-  ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  const apiKey = getApiKeyOrEnv('gemini');
+  if (!apiKey) {
+    throw new Error("Missing Gemini API Key");
+  }
+  ai = new GoogleGenAI({ apiKey });
   // We use gemini-2.0-flash-exp for the logic/conversation as it handles audio input well, 
   // but we will ask for TEXT output to maintain REST compatibility, then TTS it.
   

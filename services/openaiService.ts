@@ -2,6 +2,7 @@ import { base64ToBlob, decodeAudioData } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
 import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt } from "./scenarioService";
+import { getApiKeyOrEnv } from "./apiKeyService";
 
 const SYSTEM_INSTRUCTION = `
 You are a friendly and patient French language tutor. 
@@ -34,7 +35,7 @@ export const setScenarioOpenAI = (scenario: Scenario | null) => {
  * Gets AI's understanding/summary of a scenario description using OpenAI.
  */
 export const processScenarioDescriptionOpenAI = async (description: string): Promise<string> => {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = getApiKeyOrEnv('openai');
 
   if (!apiKey) {
     throw new Error("Missing OpenAI API Key");
@@ -67,7 +68,7 @@ export const processScenarioDescriptionOpenAI = async (description: string): Pro
  * Transcribes audio to text using OpenAI.
  */
 export const transcribeAudioOpenAI = async (audioBase64: string, mimeType: string): Promise<string> => {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = getApiKeyOrEnv('openai');
 
   if (!apiKey) {
     throw new Error("Missing OpenAI API Key");
@@ -111,7 +112,7 @@ export const sendVoiceMessageOpenAI = async (
   mimeType: string,
   audioContext: AudioContext
 ): Promise<VoiceResponse> => {
-  const apiKey = process.env.OPENAI_API_KEY;
+  const apiKey = getApiKeyOrEnv('openai');
 
   if (!apiKey) {
     throw new Error("Missing OpenAI API Key");

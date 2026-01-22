@@ -4,10 +4,13 @@ import { useAudio } from './hooks/useAudio';
 import { initializeSession, sendVoiceMessage, resetSession, setScenario, processScenarioDescription, transcribeAudio } from './services/geminiService';
 import { sendVoiceMessageOpenAI, setScenarioOpenAI, processScenarioDescriptionOpenAI, transcribeAudioOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
+import { hasAnyApiKey, hasApiKeyOrEnv } from './services/apiKeyService';
 import { Orb } from './components/Orb';
 import { Controls } from './components/Controls';
 import { ConversationHistory } from './components/ConversationHistory';
 import { ScenarioSetup } from './components/ScenarioSetup';
+import { ApiKeySetup } from './components/ApiKeySetup';
+import { GearIcon } from './components/icons/GearIcon';
 
 const App: React.FC = () => {
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
@@ -25,6 +28,10 @@ const App: React.FC = () => {
   const [isProcessingScenario, setIsProcessingScenario] = useState(false);
   const [isRecordingDescription, setIsRecordingDescription] = useState(false);
 
+  // API Key management state
+  const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [hasSkippedApiKeys, setHasSkippedApiKeys] = useState(false);
+
   // Ref to track if we're recording for scenario description
   const scenarioRecordingRef = useRef(false);
 
@@ -40,10 +47,45 @@ const App: React.FC = () => {
     getAudioContext
   } = useAudio();
 
-  // Initialize session on mount (Gemini)
+  // Check for API keys on mount and show modal if missing
   useEffect(() => {
-    initializeSession().catch(console.error);
+    const checkApiKeys = async () => {
+      if (!hasAnyApiKey()) {
+        // No API keys found, show modal
+        setShowApiKeyModal(true);
+      } else {
+        // At least one key exists, try to initialize Gemini if key is available
+        if (hasApiKeyOrEnv('gemini')) {
+          try {
+            await initializeSession();
+          } catch (error) {
+            console.error('Failed to initialize Gemini session:', error);
+          }
+        }
+      }
+    };
+    checkApiKeys();
   }, []);
+
+  // Handle API key save - re-initialize services if needed
+  const handleApiKeySave = async () => {
+    // Re-initialize Gemini session if Gemini key is now available
+    if (hasApiKeyOrEnv('gemini')) {
+      try {
+        await initializeSession();
+      } catch (error) {
+        console.error('Failed to re-initialize Gemini session:', error);
+      }
+    }
+    setHasSkippedApiKeys(false);
+  };
+
+  // Handle API key modal close
+  const handleApiKeyModalClose = () => {
+    setShowApiKeyModal(false);
+    // Update warning state based on current API key availability
+    setHasSkippedApiKeys(!hasAnyApiKey());
+  };
 
   const handleCancelRecording = useCallback(() => {
     if (appState === AppState.RECORDING) {
@@ -261,24 +303,34 @@ const App: React.FC = () => {
           <h1 className="text-xl font-bold tracking-tight text-slate-100">Parle</h1>
         </div>
 
-        <div className="flex items-center gap-2 bg-slate-800/50 p-1 rounded-full border border-slate-700/50 backdrop-blur-sm">
-          <button
-            onClick={() => setProvider('gemini')}
-            className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${provider === 'gemini'
-              ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-              : 'text-slate-400 hover:text-slate-200'
-              }`}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 bg-slate-800/50 p-1 rounded-full border border-slate-700/50 backdrop-blur-sm">
+            <button
+              onClick={() => setProvider('gemini')}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${provider === 'gemini'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                : 'text-slate-400 hover:text-slate-200'
+                }`}
+            >
+              Gemini
+            </button>
+            <button
+              onClick={() => setProvider('openai')}
+              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${provider === 'openai'
+                ? 'bg-green-600 text-white shadow-lg shadow-green-500/20'
+                : 'text-slate-400 hover:text-slate-200'
+                }`}
+            >
+              OpenAI
+            </button>
+          </div>
+          <button 
+            onClick={() => setShowApiKeyModal(true)}
+            className="p-2 text-slate-400 hover:text-white transition-colors bg-slate-800/50 rounded-full border border-slate-700/50"
+            title="Settings"
+            aria-label="Open API settings"
           >
-            Gemini
-          </button>
-          <button
-            onClick={() => setProvider('openai')}
-            className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${provider === 'openai'
-              ? 'bg-green-600 text-white shadow-lg shadow-green-500/20'
-              : 'text-slate-400 hover:text-slate-200'
-              }`}
-          >
-            OpenAI
+            <GearIcon className="h-5 w-5" />
           </button>
         </div>
       </header>
@@ -295,10 +347,13 @@ const App: React.FC = () => {
           {appState === AppState.ERROR && (
             <p className="text-red-400 font-medium animate-pulse">Connection Error. Please try again.</p>
           )}
-          {appState === AppState.IDLE && hasStarted && (
+          {hasSkippedApiKeys && (
+            <p className="text-yellow-400 font-medium">Warning: No API keys configured. Core functionality will not work.</p>
+          )}
+          {appState === AppState.IDLE && hasStarted && !hasSkippedApiKeys && (
             <p className="text-slate-500">Ready. Press the microphone to speak.</p>
           )}
-          {!hasStarted && (
+          {!hasStarted && !hasSkippedApiKeys && (
             <p className="text-slate-500">Tap the mic to start your session.</p>
           )}
         </div>
@@ -344,6 +399,14 @@ const App: React.FC = () => {
           currentName={scenarioName}
           onDescriptionChange={setScenarioDescription}
           onNameChange={setScenarioName}
+        />
+      )}
+
+      {/* API Key Setup Modal */}
+      {showApiKeyModal && (
+        <ApiKeySetup
+          onClose={handleApiKeyModalClose}
+          onSave={handleApiKeySave}
         />
       )}
     </div>
