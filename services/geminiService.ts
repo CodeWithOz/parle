@@ -1,5 +1,5 @@
 import { GoogleGenAI, Chat, Modality } from "@google/genai";
-import { base64ToBytes, decodeAudioData } from "./audioUtils";
+import { base64ToBytes, pcmToWav } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
 import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt } from "./scenarioService";
@@ -144,8 +144,7 @@ export const initializeSession = async () => {
  */
 export const sendVoiceMessage = async (
   audioBase64: string,
-  mimeType: string,
-  audioContext: AudioContext
+  mimeType: string
 ): Promise<VoiceResponse> => {
   if (!chatSession || !ai) {
     initializeSession();
@@ -257,11 +256,14 @@ export const sendVoiceMessage = async (
       throw new Error("No audio data received from TTS model.");
     }
 
+    // Convert base64 to blob and create URL
     const audioBytes = base64ToBytes(audioPart.inlineData.data);
-    const audioBuffer = await decodeAudioData(audioBytes, audioContext);
+    // Gemini TTS returns raw PCM, convert it to WAV format
+    const audioBlob = pcmToWav(audioBytes, 24000, 1); // 24kHz, mono
+    const audioUrl = URL.createObjectURL(audioBlob);
 
     return {
-      audioBuffer,
+      audioUrl,
       userText,
       modelText
     };

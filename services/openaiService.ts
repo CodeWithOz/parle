@@ -109,8 +109,7 @@ export const transcribeAudioOpenAI = async (audioBase64: string, mimeType: strin
  */
 export const sendVoiceMessageOpenAI = async (
   audioBase64: string,
-  mimeType: string,
-  audioContext: AudioContext
+  mimeType: string
 ): Promise<VoiceResponse> => {
   const apiKey = getApiKeyOrEnv('openai');
 
@@ -204,12 +203,11 @@ export const sendVoiceMessageOpenAI = async (
       throw new Error(`OpenAI TTS Error: ${ttsRes.status} ${errorText}`);
     }
     const audioArrayBuffer = await ttsRes.arrayBuffer();
-
-    // Decode the standard MP3/WAV returned by OpenAI
-    const audioBuffer = await decodeAudioData(new Uint8Array(audioArrayBuffer), audioContext);
+    const ttsAudioBlob = new Blob([audioArrayBuffer], { type: 'audio/mpeg' });
+    const audioUrl = URL.createObjectURL(ttsAudioBlob);
 
     return {
-      audioBuffer,
+      audioUrl,
       userText,
       modelText
     };

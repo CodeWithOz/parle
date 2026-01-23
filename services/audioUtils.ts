@@ -41,6 +41,42 @@ export function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
+ * Converts raw PCM data to WAV format
+ */
+export function pcmToWav(pcmData: Uint8Array, sampleRate: number = 24000, numChannels: number = 1): Blob {
+  const length = pcmData.length;
+  const buffer = new ArrayBuffer(44 + length);
+  const view = new DataView(buffer);
+  
+  // WAV header
+  const writeString = (offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+  
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + length, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true); // fmt chunk size
+  view.setUint16(20, 1, true); // audio format (1 = PCM)
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numChannels * 2, true); // byte rate
+  view.setUint16(32, numChannels * 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  writeString(36, 'data');
+  view.setUint32(40, length, true);
+  
+  // Copy PCM data
+  const wavData = new Uint8Array(buffer);
+  wavData.set(pcmData, 44);
+  
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+/**
  * Decodes raw PCM data or Wav data from Gemini/OpenAI into an AudioBuffer
  */
 export async function decodeAudioData(

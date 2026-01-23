@@ -4,16 +4,19 @@ import { blobToBase64 } from '../services/audioUtils';
 export const useAudio = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-
-  // Playback refs
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const currentAudioUrlRef = useRef<string | null>(null);
+  const timeUpdateIntervalRef = useRef<number | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   // Initialize AudioContext lazily (must be after user interaction)
   const getAudioContext = useCallback(() => {
@@ -62,9 +65,10 @@ export const useAudio = () => {
       setIsRecording(true);
 
       // Stop current playback if any
-      if (currentSourceRef.current) {
-        currentSourceRef.current.stop();
+      if (audioElementRef.current) {
+        audioElementRef.current.pause();
         setIsPlaying(false);
+        setIsPaused(false);
       }
 
     } catch (err) {
@@ -152,68 +156,127 @@ export const useAudio = () => {
     setIsRecording(false);
   }, [isRecording]);
 
-  const playAudio = useCallback(async (audioBuffer: AudioBuffer, speed: number, onEnded: () => void) => {
-    const ctx = getAudioContext();
-
-    // Stop previous if exists
-    if (currentSourceRef.current) {
-      try { currentSourceRef.current.stop(); } catch (e) { }
+  const playAudio = useCallback((audioUrl: string, speed: number, onEnded: () => void) => {
+    // Clean up previous audio if exists
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+      audioElementRef.current = null;
+    }
+    if (currentAudioUrlRef.current) {
+      URL.revokeObjectURL(currentAudioUrlRef.current);
     }
 
-    const source = ctx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.playbackRate.value = speed;
+    // Create new audio element
+    const audio = new Audio(audioUrl);
+    audio.playbackRate = speed;
+    currentAudioUrlRef.current = audioUrl;
+    audioElementRef.current = audio;
 
-    // Simple visualizer for playback
-    const analyser = ctx.createAnalyser();
-    analyser.fftSize = 256;
-    source.connect(analyser);
-    analyser.connect(ctx.destination);
-    analyserRef.current = analyser;
+    // Set up event listeners
+    audio.onloadedmetadata = () => {
+      setDuration(audio.duration);
+    };
 
-    // Only start visualization loop if not already running
-    if (!animationFrameRef.current) {
-      const updateVolume = () => {
-        if (!analyserRef.current) return;
-        const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
-        analyserRef.current.getByteFrequencyData(dataArray);
-        const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-        setVolume(average / 128);
-        animationFrameRef.current = requestAnimationFrame(updateVolume);
-      };
-      updateVolume();
-    }
+    audio.ontimeupdate = () => {
+      setCurrentTime(audio.currentTime);
+    };
 
-    source.onended = () => {
+    audio.onplay = () => {
+      setIsPlaying(true);
+      setIsPaused(false);
+    };
+
+    audio.onpause = () => {
       setIsPlaying(false);
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-        animationFrameRef.current = null;
-      }
-      setVolume(0);
+      setIsPaused(true);
+    };
+
+    audio.onended = () => {
+      setIsPlaying(false);
+      setIsPaused(false);
+      setCurrentTime(0);
       onEnded();
     };
 
-    currentSourceRef.current = source;
-    source.start();
-    setIsPlaying(true);
-  }, [getAudioContext]);
+    // Start playing
+    audio.play().catch(err => {
+      console.error("Error playing audio:", err);
+    });
+  }, []);
+
+  const pauseAudio = useCallback(() => {
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+    }
+  }, []);
+
+  const resumeAudio = useCallback(() => {
+    if (audioElementRef.current) {
+      audioElementRef.current.play().catch(err => {
+        console.error("Error resuming audio:", err);
+      });
+    }
+  }, []);
+
+  const replayAudio = useCallback((audioUrl: string, speed: number, onEnded: () => void) => {
+    playAudio(audioUrl, speed, onEnded);
+  }, [playAudio]);
+
+  const seekTo = useCallback((timeInSeconds: number) => {
+    if (audioElementRef.current) {
+      audioElementRef.current.currentTime = timeInSeconds;
+      setCurrentTime(timeInSeconds);
+    }
+  }, []);
+
+  const stopAudio = useCallback(() => {
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+      audioElementRef.current.currentTime = 0;
+      audioElementRef.current = null;
+    }
+    if (currentAudioUrlRef.current) {
+      URL.revokeObjectURL(currentAudioUrlRef.current);
+      currentAudioUrlRef.current = null;
+    }
+    setCurrentTime(0);
+    setDuration(0);
+    setIsPlaying(false);
+    setIsPaused(false);
+  }, []);
 
   const updatePlaybackSpeed = useCallback((speed: number) => {
-    if (currentSourceRef.current && isPlaying) {
-      // AudioParam.value change is immediate
-      currentSourceRef.current.playbackRate.value = speed;
+    if (audioElementRef.current) {
+      audioElementRef.current.playbackRate = speed;
     }
-  }, [isPlaying]);
+  }, []);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (timeUpdateIntervalRef.current) {
+        clearInterval(timeUpdateIntervalRef.current);
+      }
+      stopAudio();
+    };
+  }, [stopAudio]);
 
   return {
     isRecording,
     isPlaying,
+    isPaused,
+    currentTime,
+    duration,
     volume,
     startRecording,
     stopRecording,
     cancelRecording,
     playAudio,
+    pauseAudio,
+    resumeAudio,
+    replayAudio,
+    seekTo,
+    stopAudio,
     updatePlaybackSpeed,
     getAudioContext // Exposed to initialize context on user interaction
   };

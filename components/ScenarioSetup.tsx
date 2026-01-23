@@ -50,8 +50,13 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 
   const handleVoiceInput = async () => {
     if (isRecordingDescription) {
-      const transcription = await onStopRecordingDescription();
-      onDescriptionChange(transcription);
+      try {
+        const transcription = await onStopRecordingDescription();
+        onDescriptionChange(transcription);
+      } catch (error) {
+        console.error('Voice transcription failed:', error);
+        // Optionally notify user via toast/alert or parent callback
+      }
     } else {
       onStartRecordingDescription();
     }
@@ -127,7 +132,9 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                       <div>
                         <p className="text-slate-200 font-medium">{scenario.name}</p>
                         <p className="text-slate-400 text-sm truncate max-w-md">
-                          {scenario.description.substring(0, 80)}...
+                          {scenario.description.length > 80
+                            ? `${scenario.description.substring(0, 80)}...`
+                            : scenario.description}
                         </p>
                       </div>
                       <button

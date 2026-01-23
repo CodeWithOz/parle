@@ -18,6 +18,7 @@ const App: React.FC = () => {
   const [provider, setProvider] = useState<Provider>('gemini');
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [autoPlayMessageId, setAutoPlayMessageId] = useState<number | null>(null);
 
   // Scenario mode state
   const [scenarioMode, setScenarioMode] = useState<ScenarioMode>('none');
@@ -42,8 +43,6 @@ const App: React.FC = () => {
     startRecording,
     stopRecording,
     cancelRecording,
-    playAudio,
-    updatePlaybackSpeed,
     getAudioContext
   } = useAudio();
 
@@ -111,7 +110,6 @@ const App: React.FC = () => {
   // Handle Playback Speed updates
   const handleSpeedChange = (speed: number) => {
     setPlaybackSpeed(speed);
-    updatePlaybackSpeed(speed);
   };
 
   const handleStartInteraction = async () => {
@@ -133,12 +131,14 @@ const App: React.FC = () => {
       clearHistory();
       // Clear UI messages
       setMessages([]);
+      setAutoPlayMessageId(null);
       // Always reset Gemini session when clearing history, preserving scenario if active
       await resetSession(activeScenario);
     } catch (error) {
       console.error("Error clearing history:", error);
       // Still clear UI messages even if resetSession fails
       setMessages([]);
+      setAutoPlayMessageId(null);
     }
   };
 
@@ -256,28 +256,26 @@ const App: React.FC = () => {
       // Destructure base64 and mimeType from the hook
       const { base64, mimeType } = await stopRecording();
 
-      // Get AudioContext for decoding
-      const ctx = getAudioContext();
-
       const response = provider === 'gemini'
-        ? await sendVoiceMessage(base64, mimeType, ctx)
-        : await sendVoiceMessageOpenAI(base64, mimeType, ctx);
+        ? await sendVoiceMessage(base64, mimeType)
+        : await sendVoiceMessageOpenAI(base64, mimeType);
 
-      const { audioBuffer, userText, modelText } = response;
+      const { audioUrl, userText, modelText } = response;
 
       // Add messages to history (prepend for reverse chronological order)
       const timestamp = Date.now();
+      const modelTimestamp = timestamp + 1;
       const newMessages: Message[] = [
-        { role: 'model', text: modelText, timestamp: timestamp + 1 },
+        { role: 'model', text: modelText, timestamp: modelTimestamp, audioUrl },
         { role: 'user', text: userText, timestamp },
         ...messages
       ];
       setMessages(newMessages);
+      
+      // Set the new model message to auto-play
+      setAutoPlayMessageId(modelTimestamp);
 
-      setAppState(AppState.PLAYING);
-      playAudio(audioBuffer, playbackSpeed, () => {
-        setAppState(AppState.IDLE);
-      });
+      setAppState(AppState.IDLE);
 
     } catch (error) {
       console.error("Interaction failed", error);
@@ -373,7 +371,12 @@ const App: React.FC = () => {
         />
 
         {/* Conversation History */}
-        <ConversationHistory messages={messages} onClear={handleClearHistory} />
+        <ConversationHistory 
+          messages={messages} 
+          onClear={handleClearHistory}
+          playbackSpeed={playbackSpeed}
+          autoPlayMessageId={autoPlayMessageId}
+        />
 
       </main>
 

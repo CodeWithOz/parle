@@ -13,10 +13,11 @@ export interface Message {
   role: 'user' | 'model';
   text: string;
   timestamp: number;
+  audioUrl?: string; // Blob URL for the audio
 }
 
 export interface VoiceResponse {
-  audioBuffer: AudioBuffer;
+  audioUrl: string; // Blob URL for the audio
   userText: string;
   modelText: string;
 }
