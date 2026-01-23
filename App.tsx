@@ -36,6 +36,13 @@ const App: React.FC = () => {
   // Ref to track if we're recording for scenario description
   const scenarioRecordingRef = useRef(false);
 
+  /**
+   * Shows an error flash message that auto-dismisses after 3 seconds
+   */
+  const showErrorFlash = useCallback(() => {
+    showErrorFlash();
+  }, []);
+
   const {
     isRecording,
     isPlaying,
@@ -127,15 +134,24 @@ const App: React.FC = () => {
 
   const handleClearHistory = async () => {
     try {
+      // Revoke all audio URLs before clearing messages
+      messages.forEach(msg => {
+        if (msg.audioUrl) {
+          URL.revokeObjectURL(msg.audioUrl);
+        }
+      });
+
       // Clear shared conversation history
       clearHistory();
       // Clear UI messages
       setMessages([]);
       setAutoPlayMessageId(null);
       // Always reset Gemini session when clearing history, preserving scenario if active
-      await resetSession(activeScenario);
+      resetSession(activeScenario);
     } catch (error) {
       console.error("Error clearing history:", error);
+      // Show error to user
+      showErrorFlash();
       // Still clear UI messages even if resetSession fails
       setMessages([]);
       setAutoPlayMessageId(null);
@@ -211,7 +227,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleConfirmScenario = () => {
+  const handleEditScenario = () => {
     // User wants to edit, clear summary to show form again
     setAiSummary(null);
   };
@@ -226,7 +242,7 @@ const App: React.FC = () => {
     setScenarioMode('practice');
 
     // Configure the AI services with the scenario
-    await setScenario(scenario);
+    setScenario(scenario);
     setScenarioOpenAI(scenario);
 
     // Close the setup modal
@@ -236,17 +252,25 @@ const App: React.FC = () => {
   };
 
   const handleExitScenario = async () => {
+    // Revoke all audio URLs before clearing messages
+    messages.forEach(msg => {
+      if (msg.audioUrl) {
+        URL.revokeObjectURL(msg.audioUrl);
+      }
+    });
+
     // Clear the scenario
     setActiveScenario(null);
     setScenarioMode('none');
 
     // Reset AI services to normal mode
-    await setScenario(null);
+    setScenario(null);
     setScenarioOpenAI(null);
 
     // Clear conversation
     clearHistory();
     setMessages([]);
+    setAutoPlayMessageId(null);
   };
 
   const handleStopRecording = async () => {
@@ -279,9 +303,7 @@ const App: React.FC = () => {
 
     } catch (error) {
       console.error("Interaction failed", error);
-      setAppState(AppState.ERROR);
-      // Reset after a delay
-      setTimeout(() => setAppState(AppState.IDLE), 3000);
+      showErrorFlash();
     }
   };
 
@@ -397,7 +419,7 @@ const App: React.FC = () => {
           isProcessingScenario={isProcessingScenario}
           aiSummary={aiSummary}
           onSubmitDescription={handleSubmitScenarioDescription}
-          onConfirmScenario={handleConfirmScenario}
+          onEditScenario={handleEditScenario}
           currentDescription={scenarioDescription}
           currentName={scenarioName}
           onDescriptionChange={setScenarioDescription}

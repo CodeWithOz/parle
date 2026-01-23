@@ -1,4 +1,4 @@
-import { base64ToBlob, decodeAudioData } from "./audioUtils";
+import { base64ToBlob } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
 import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt } from "./scenarioService";
@@ -23,6 +23,18 @@ You: "Bonjour! Oh, tu es fatigué ? Pourquoi es-tu fatigué aujourd'hui ? ... He
 
 // Track the active scenario for scenario-aware prompting
 let activeScenario: Scenario | null = null;
+
+/**
+ * Determines the appropriate file extension based on mimeType
+ */
+const getAudioExtension = (mimeType: string): string => {
+  const lowerMime = mimeType.toLowerCase();
+  if (lowerMime.includes('webm')) return 'webm';
+  if (lowerMime.includes('mp4') || lowerMime.includes('m4a') || lowerMime.includes('aac')) return 'm4a';
+  if (lowerMime.includes('ogg')) return 'ogg';
+  if (lowerMime.includes('mp3')) return 'mp3';
+  return 'wav'; // Default
+};
 
 /**
  * Sets the active scenario for OpenAI service.
@@ -61,7 +73,25 @@ export const processScenarioDescriptionOpenAI = async (description: string): Pro
   }
 
   const json = await response.json();
-  return json.choices[0].message.content || "I understand the scenario. Ready to begin when you are!";
+
+  // Defensive validation
+  if (!json || typeof json !== 'object') {
+    console.warn('OpenAI response validation failed: invalid response format');
+    return "I understand the scenario. Ready to begin when you are!";
+  }
+
+  if (!Array.isArray(json.choices) || json.choices.length === 0) {
+    console.warn('OpenAI response validation failed: missing or empty choices array');
+    return "I understand the scenario. Ready to begin when you are!";
+  }
+
+  const firstChoice = json.choices[0];
+  if (!firstChoice || !firstChoice.message || typeof firstChoice.message.content !== 'string') {
+    console.warn('OpenAI response validation failed: missing or invalid message content');
+    return "I understand the scenario. Ready to begin when you are!";
+  }
+
+  return firstChoice.message.content;
 };
 
 /**
@@ -77,14 +107,7 @@ export const transcribeAudioOpenAI = async (audioBase64: string, mimeType: strin
   const audioBlob = base64ToBlob(audioBase64, mimeType);
   const formData = new FormData();
 
-  // Determine appropriate extension based on mimeType
-  let extension = 'wav';
-  const lowerMime = mimeType.toLowerCase();
-  if (lowerMime.includes('webm')) extension = 'webm';
-  else if (lowerMime.includes('mp4') || lowerMime.includes('m4a') || lowerMime.includes('aac')) extension = 'm4a';
-  else if (lowerMime.includes('ogg')) extension = 'ogg';
-  else if (lowerMime.includes('mp3')) extension = 'mp3';
-
+  const extension = getAudioExtension(mimeType);
   formData.append("file", audioBlob, `input.${extension}`);
   formData.append("model", "gpt-4o-mini-transcribe");
 
@@ -100,7 +123,22 @@ export const transcribeAudioOpenAI = async (audioBase64: string, mimeType: strin
   }
 
   const json = await response.json();
-  return json.text || "";
+
+  // Validate response structure
+  if (!json || typeof json !== 'object') {
+    throw new Error(`OpenAI STT Error: Invalid response format. Status: ${response.status}`);
+  }
+
+  if (!json.text || typeof json.text !== 'string') {
+    const errorDetails = json.error ? JSON.stringify(json.error) : JSON.stringify(json);
+    throw new Error(`OpenAI STT Error: Missing or invalid transcription text. Status: ${response.status}, Response: ${errorDetails}`);
+  }
+
+  if (json.text.trim().length === 0) {
+    throw new Error(`OpenAI STT Error: Transcription returned empty text. Status: ${response.status}`);
+  }
+
+  return json.text;
 };
 
 /**
@@ -122,14 +160,7 @@ export const sendVoiceMessageOpenAI = async (
     const audioBlob = base64ToBlob(audioBase64, mimeType);
     const formData = new FormData();
     
-    // Determine appropriate extension based on mimeType
-    let extension = 'wav'; // Default
-    const lowerMime = mimeType.toLowerCase();
-    if (lowerMime.includes('webm')) extension = 'webm';
-    else if (lowerMime.includes('mp4') || lowerMime.includes('m4a') || lowerMime.includes('aac')) extension = 'm4a';
-    else if (lowerMime.includes('ogg')) extension = 'ogg';
-    else if (lowerMime.includes('mp3')) extension = 'mp3';
-
+    const extension = getAudioExtension(mimeType);
     formData.append("file", audioBlob, `input.${extension}`);
     formData.append("model", "gpt-4o-mini-transcribe");
 
@@ -177,7 +208,18 @@ export const sendVoiceMessageOpenAI = async (
       throw new Error(`OpenAI Chat Error: ${chatRes.status} ${errorText}`);
     }
     const chatJson = await chatRes.json();
-    const modelText = chatJson.choices[0].message.content;
+
+    // Defensive validation
+    if (!chatJson || typeof chatJson !== 'object' || !Array.isArray(chatJson.choices) || chatJson.choices.length === 0) {
+      throw new Error(`OpenAI Chat Error: Invalid response format. Status: ${chatRes.status}`);
+    }
+
+    const firstChoice = chatJson.choices[0];
+    if (!firstChoice?.message?.content || typeof firstChoice.message.content !== 'string') {
+      throw new Error(`OpenAI Chat Error: Missing or invalid message content. Status: ${chatRes.status}`);
+    }
+
+    const modelText = firstChoice.message.content;
 
     // Add user and assistant messages to shared conversation history
     addToHistory("user", userText);
@@ -204,6 +246,7 @@ export const sendVoiceMessageOpenAI = async (
     }
     const audioArrayBuffer = await ttsRes.arrayBuffer();
     const ttsAudioBlob = new Blob([audioArrayBuffer], { type: 'audio/mpeg' });
+    // Note: Callers must call URL.revokeObjectURL(audioUrl) when finished to avoid memory leaks
     const audioUrl = URL.createObjectURL(ttsAudioBlob);
 
     return {

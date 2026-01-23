@@ -12,7 +12,7 @@ interface ScenarioSetupProps {
   isProcessingScenario: boolean;
   aiSummary: string | null;
   onSubmitDescription: (description: string, name: string) => void;
-  onConfirmScenario: () => void;
+  onEditScenario: () => void;
   currentDescription: string;
   currentName: string;
   onDescriptionChange: (description: string) => void;
@@ -29,7 +29,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   isProcessingScenario,
   aiSummary,
   onSubmitDescription,
-  onConfirmScenario,
+  onEditScenario,
   currentDescription,
   currentName,
   onDescriptionChange,
@@ -99,6 +99,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
           <h2 className="text-xl font-bold text-slate-100">Create Practice Scenario</h2>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
@@ -126,8 +127,16 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                   {savedScenarios.map((scenario) => (
                     <div
                       key={scenario.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => handleSelectSaved(scenario)}
-                      className="flex justify-between items-center p-3 bg-slate-700/50 rounded-lg cursor-pointer hover:bg-slate-700 transition-colors"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          handleSelectSaved(scenario);
+                        }
+                      }}
+                      className="flex justify-between items-center p-3 bg-slate-700/50 rounded-lg cursor-pointer hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <div>
                         <p className="text-slate-200 font-medium">{scenario.name}</p>
@@ -138,7 +147,15 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                         </p>
                       </div>
                       <button
-                        onClick={(e) => handleDeleteSaved(scenario.id, e)}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSaved(scenario.id, e);
+                        }}
+                        onKeyDown={(e) => {
+                          e.stopPropagation();
+                        }}
+                        aria-label={`Delete scenario ${scenario.name}`}
                         className="p-1.5 hover:bg-slate-600 rounded transition-colors"
                       >
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400 hover:text-red-400" viewBox="0 0 20 20" fill="currentColor">
@@ -238,7 +255,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
               <div className="flex gap-4">
                 <button
                   onClick={() => {
-                    onConfirmScenario();
+                    onEditScenario();
                   }}
                   className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-medium transition-colors"
                 >

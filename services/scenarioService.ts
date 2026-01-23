@@ -6,7 +6,7 @@ const STORAGE_KEY = 'parle-scenarios';
  * Generate a unique ID for a scenario
  */
 export const generateId = (): string => {
-  return `scenario_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return `scenario_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
 };
 
 /**
@@ -37,7 +37,28 @@ export const saveScenario = (scenario: Scenario): Scenario[] => {
     scenarios.unshift(scenario);
   }
 
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
+  } catch (error) {
+    // If quota exceeded, try removing oldest scenario and retry once
+    if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+      if (scenarios.length > 0) {
+        scenarios.shift(); // Remove oldest scenario (first in array)
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
+        } catch (retryError) {
+          console.error('Error saving scenario after retry:', retryError);
+          throw new Error('Failed to save scenario: storage quota exceeded');
+        }
+      } else {
+        throw new Error('Failed to save scenario: storage quota exceeded');
+      }
+    } else {
+      console.error('Error saving scenario:', error);
+      throw error;
+    }
+  }
+  
   return scenarios;
 };
 
@@ -46,7 +67,14 @@ export const saveScenario = (scenario: Scenario): Scenario[] => {
  */
 export const deleteScenario = (scenarioId: string): Scenario[] => {
   const scenarios = loadScenarios().filter(s => s.id !== scenarioId);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
+  
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
+  } catch (error) {
+    console.error('Error deleting scenario:', error);
+    throw new Error('Failed to delete scenario from storage');
+  }
+  
   return scenarios;
 };
 

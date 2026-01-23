@@ -28,35 +28,53 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
   // Register audio element ref
   useEffect(() => {
     onAudioRef(audioRef.current, message.timestamp);
+    // Cleanup: remove ref when component unmounts
+    return () => {
+      onAudioRef(null, message.timestamp);
+    };
   }, [onAudioRef, message.timestamp]);
   
   // Auto-play when this message should auto-play
   useEffect(() => {
-    if (autoPlay && audioRef.current && message.role === 'model' && message.audioUrl) {
-      // Wait for audio to be ready, then play
-      const playAudio = () => {
-        if (audioRef.current && audioRef.current.readyState >= 2) {
-          audioRef.current.play().catch(err => {
-            console.error("Error auto-playing audio:", err);
-          });
-        } else if (audioRef.current) {
-          // Wait for canplay event
-          audioRef.current.addEventListener('canplay', () => {
-            if (audioRef.current && autoPlay) {
-              audioRef.current.play().catch(err => {
-                console.error("Error auto-playing audio:", err);
-              });
-            }
-          }, { once: true });
+    if (!autoPlay || !audioRef.current || message.role !== 'model' || !message.audioUrl) {
+      return;
+    }
+    
+    const audio = audioRef.current;
+    let canplayHandler: (() => void) | null = null;
+    let loadeddataHandler: (() => void) | null = null;
+    
+    const playAudio = () => {
+      if (audio && audio.readyState >= 2) {
+        audio.play().catch(err => {
+          console.error("Error auto-playing audio:", err);
+        });
+      }
+    };
+    
+    if (audio.readyState >= 2) {
+      playAudio();
+    } else {
+      canplayHandler = () => {
+        if (audio && autoPlay) {
+          playAudio();
         }
       };
+      loadeddataHandler = playAudio;
       
-      if (audioRef.current.readyState >= 2) {
-        playAudio();
-      } else {
-        audioRef.current.addEventListener('loadeddata', playAudio, { once: true });
-      }
+      audio.addEventListener('canplay', canplayHandler, { once: true });
+      audio.addEventListener('loadeddata', loadeddataHandler, { once: true });
     }
+    
+    // Cleanup: remove event listeners
+    return () => {
+      if (audio && canplayHandler) {
+        audio.removeEventListener('canplay', canplayHandler);
+      }
+      if (audio && loadeddataHandler) {
+        audio.removeEventListener('loadeddata', loadeddataHandler);
+      }
+    };
   }, [autoPlay, message.role, message.audioUrl]);
   
   return (

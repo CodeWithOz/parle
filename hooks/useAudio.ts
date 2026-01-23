@@ -13,7 +13,6 @@ export const useAudio = () => {
   const audioChunksRef = useRef<Blob[]>([]);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const currentAudioUrlRef = useRef<string | null>(null);
-  const timeUpdateIntervalRef = useRef<number | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -66,10 +65,19 @@ export const useAudio = () => {
 
       // Stop current playback if any
       if (audioElementRef.current) {
-        audioElementRef.current.pause();
-        setIsPlaying(false);
-        setIsPaused(false);
+        const audio = audioElementRef.current;
+        audio.onpause = null;
+        audio.pause();
+        audioElementRef.current = null;
       }
+      if (currentAudioUrlRef.current) {
+        URL.revokeObjectURL(currentAudioUrlRef.current);
+        currentAudioUrlRef.current = null;
+      }
+      setCurrentTime(0);
+      setDuration(0);
+      setIsPlaying(false);
+      setIsPaused(false);
 
     } catch (err) {
       console.error("Error accessing microphone:", err);
@@ -159,7 +167,10 @@ export const useAudio = () => {
   const playAudio = useCallback((audioUrl: string, speed: number, onEnded: () => void) => {
     // Clean up previous audio if exists
     if (audioElementRef.current) {
-      audioElementRef.current.pause();
+      // Remove event listeners before pausing to avoid triggering onpause
+      const prevAudio = audioElementRef.current;
+      prevAudio.onpause = null;
+      prevAudio.pause();
       audioElementRef.current = null;
     }
     if (currentAudioUrlRef.current) {
@@ -231,8 +242,11 @@ export const useAudio = () => {
 
   const stopAudio = useCallback(() => {
     if (audioElementRef.current) {
-      audioElementRef.current.pause();
-      audioElementRef.current.currentTime = 0;
+      // Set flag to prevent onpause handler from firing
+      const audio = audioElementRef.current;
+      audio.onpause = null;
+      audio.pause();
+      audio.currentTime = 0;
       audioElementRef.current = null;
     }
     if (currentAudioUrlRef.current) {
@@ -254,9 +268,6 @@ export const useAudio = () => {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (timeUpdateIntervalRef.current) {
-        clearInterval(timeUpdateIntervalRef.current);
-      }
       stopAudio();
     };
   }, [stopAudio]);

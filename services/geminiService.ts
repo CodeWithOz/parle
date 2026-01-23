@@ -5,6 +5,10 @@ import { getConversationHistory, addToHistory } from "./conversationHistory";
 import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
 
+// Gemini TTS output format constants
+const DEFAULT_PCM_SAMPLE_RATE = 24000; // 24kHz sample rate
+const DEFAULT_PCM_CHANNELS = 1; // Mono audio
+
 // Define the system instruction to enforce the language constraint
 const SYSTEM_INSTRUCTION = `
 You are a friendly and patient French language tutor. 
@@ -35,7 +39,12 @@ let activeScenario: Scenario | null = null;
  * Should be called when clearing conversation history.
  * Optionally can set a new scenario for scenario-aware prompting.
  */
-export const resetSession = async (scenario?: Scenario | null) => {
+export const resetSession = (scenario?: Scenario | null) => {
+  // Early guard: don't update state if ai is not initialized
+  if (!ai) {
+    return;
+  }
+  
   syncedMessageCount = 0;
   activeScenario = scenario || null;
 
@@ -43,27 +52,25 @@ export const resetSession = async (scenario?: Scenario | null) => {
     ? generateScenarioSystemInstruction(activeScenario)
     : SYSTEM_INSTRUCTION;
 
-  if (ai) {
-    chatSession = ai.chats.create({
-      model: 'gemini-2.0-flash-exp',
-      config: {
-        systemInstruction: systemInstruction,
-      },
-    });
-  }
+  chatSession = ai.chats.create({
+    model: 'gemini-2.0-flash-exp',
+    config: {
+      systemInstruction: systemInstruction,
+    },
+  });
 };
 
 /**
  * Sets the active scenario and resets the session with new instructions.
  */
-export const setScenario = async (scenario: Scenario | null) => {
-  await resetSession(scenario);
+export const setScenario = (scenario: Scenario | null) => {
+  resetSession(scenario);
 };
 
 /**
- * Gets AI's understanding/summary of a scenario description.
+ * Ensures the Gemini AI instance is initialized
  */
-export const processScenarioDescription = async (description: string): Promise<string> => {
+function ensureAiInitialized(): void {
   if (!ai) {
     const apiKey = getApiKeyOrEnv('gemini');
     if (!apiKey) {
@@ -71,6 +78,13 @@ export const processScenarioDescription = async (description: string): Promise<s
     }
     ai = new GoogleGenAI({ apiKey });
   }
+}
+
+/**
+ * Gets AI's understanding/summary of a scenario description.
+ */
+export const processScenarioDescription = async (description: string): Promise<string> => {
+  ensureAiInitialized();
 
   const response = await ai.models.generateContent({
     model: 'gemini-2.0-flash-exp',
@@ -86,13 +100,7 @@ export const processScenarioDescription = async (description: string): Promise<s
  * Transcribes audio to text using Gemini.
  */
 export const transcribeAudio = async (audioBase64: string, mimeType: string): Promise<string> => {
-  if (!ai) {
-    const apiKey = getApiKeyOrEnv('gemini');
-    if (!apiKey) {
-      throw new Error("Missing Gemini API Key");
-    }
-    ai = new GoogleGenAI({ apiKey });
-  }
+  ensureAiInitialized();
 
   const response = await ai.models.generateContent({
     model: 'gemini-2.0-flash-exp',
@@ -109,7 +117,11 @@ export const transcribeAudio = async (audioBase64: string, mimeType: string): Pr
     }],
   });
 
-  return response.text || "";
+  const text = response.text || "";
+  if (!text.trim()) {
+    throw new Error("Transcription returned empty text");
+  }
+  return text;
 };
 
 /**
@@ -118,11 +130,7 @@ export const transcribeAudio = async (audioBase64: string, mimeType: string): Pr
  * Creates a fresh session without replaying history (history is synced lazily when needed).
  */
 export const initializeSession = async () => {
-  const apiKey = getApiKeyOrEnv('gemini');
-  if (!apiKey) {
-    throw new Error("Missing Gemini API Key");
-  }
-  ai = new GoogleGenAI({ apiKey });
+  ensureAiInitialized();
   // We use gemini-2.0-flash-exp for the logic/conversation as it handles audio input well, 
   // but we will ask for TEXT output to maintain REST compatibility, then TTS it.
   
@@ -259,7 +267,8 @@ export const sendVoiceMessage = async (
     // Convert base64 to blob and create URL
     const audioBytes = base64ToBytes(audioPart.inlineData.data);
     // Gemini TTS returns raw PCM, convert it to WAV format
-    const audioBlob = pcmToWav(audioBytes, 24000, 1); // 24kHz, mono
+    // Note: Callers must call URL.revokeObjectURL(audioUrl) when finished to avoid memory leaks
+    const audioBlob = pcmToWav(audioBytes, DEFAULT_PCM_SAMPLE_RATE, DEFAULT_PCM_CHANNELS);
     const audioUrl = URL.createObjectURL(audioBlob);
 
     return {

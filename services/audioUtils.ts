@@ -17,7 +17,11 @@ export function base64ToBytes(base64: string): Uint8Array {
  */
 export function base64ToBlob(base64: string, mimeType: string): Blob {
   const bytes = base64ToBytes(base64);
-  return new Blob([bytes], { type: mimeType });
+  // Ensure we use ArrayBuffer (not SharedArrayBuffer) for Blob compatibility
+  const buffer = bytes.buffer instanceof ArrayBuffer
+    ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+    : new Uint8Array(bytes).buffer;
+  return new Blob([buffer], { type: mimeType });
 }
 
 /**
@@ -77,6 +81,21 @@ export function pcmToWav(pcmData: Uint8Array, sampleRate: number = 24000, numCha
 }
 
 /**
+ * Converts ArrayBufferLike (ArrayBuffer | SharedArrayBuffer) to ArrayBuffer
+ * This is needed because Web Audio API's decodeAudioData requires ArrayBuffer specifically
+ */
+function convertToArrayBuffer(buffer: ArrayBuffer | SharedArrayBuffer): ArrayBuffer {
+  if (buffer instanceof ArrayBuffer) {
+    return buffer;
+  }
+  // Convert SharedArrayBuffer to ArrayBuffer by copying
+  const arr = new Uint8Array(buffer);
+  const newBuffer = new ArrayBuffer(arr.length);
+  new Uint8Array(newBuffer).set(arr);
+  return newBuffer;
+}
+
+/**
  * Decodes raw PCM data or Wav data from Gemini/OpenAI into an AudioBuffer
  */
 export async function decodeAudioData(
@@ -87,10 +106,15 @@ export async function decodeAudioData(
   // 1. Try standard browser decoding (handles WAV, MP3, etc. from OpenAI)
   try {
     // decodeAudioData detaches the buffer, so we copy it to keep the original safe if needed
-    const bufferForDecoding = audioData.buffer.slice(
+    // Ensure we have an ArrayBuffer (not SharedArrayBuffer) for decodeAudioData
+    // This is needed because some environments return SharedArrayBuffer which
+    // is incompatible with Web Audio API's decodeAudioData
+    const sourceBuffer = audioData.buffer.slice(
       audioData.byteOffset, 
       audioData.byteOffset + audioData.byteLength
     );
+    // Create a new ArrayBuffer to ensure type safety (copy from sourceBuffer)
+    const bufferForDecoding = convertToArrayBuffer(sourceBuffer);
     return await audioContext.decodeAudioData(bufferForDecoding);
   } catch (error) {
     // 2. If native decoding fails, assume it is raw PCM (Int16, Little Endian)
