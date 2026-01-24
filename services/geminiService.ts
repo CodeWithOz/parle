@@ -33,28 +33,25 @@ let chatSession: Chat | null = null;
 let syncedMessageCount = 0;
 // Track the active scenario for scenario-aware prompting
 let activeScenario: Scenario | null = null;
+// Store pending scenario and history when ai is not yet initialized
+let pendingScenario: Scenario | null = null;
+let pendingHistory: Array<{ role: string; content: string }> | null = null;
 
 /**
- * Resets the Gemini session and sync counter.
- * Should be called when clearing conversation history.
- * Optionally can set a new scenario for scenario-aware prompting.
- * Can optionally pass history to initialize the session with existing messages.
+ * Helper function to create the chat session with current state.
+ * Only call when ai is initialized.
  */
-export const resetSession = (scenario?: Scenario | null, history?: Array<{ role: string; content: string }>) => {
-  // Early guard: don't update state if ai is not initialized
+function createChatSession(): void {
   if (!ai) {
     return;
   }
-  
-  syncedMessageCount = 0;
-  activeScenario = scenario || null;
 
   const systemInstruction = activeScenario
     ? generateScenarioSystemInstruction(activeScenario)
     : SYSTEM_INSTRUCTION;
 
   // Convert history to SDK format if provided
-  const historyMessages = history ? history.map(msg => ({
+  const historyMessages = pendingHistory ? pendingHistory.map(msg => ({
     role: msg.role === 'user' ? 'user' : 'model',
     parts: [{ text: msg.content }]
   })) : undefined;
@@ -68,8 +65,41 @@ export const resetSession = (scenario?: Scenario | null, history?: Array<{ role:
   });
 
   // Update sync counter if history was provided
+  if (pendingHistory) {
+    syncedMessageCount = pendingHistory.length;
+  } else {
+    syncedMessageCount = 0;
+  }
+
+  // Clear pending history after successful session creation
+  pendingHistory = null;
+}
+
+/**
+ * Resets the Gemini session and sync counter.
+ * Should be called when clearing conversation history.
+ * Optionally can set a new scenario for scenario-aware prompting.
+ * Can optionally pass history to initialize the session with existing messages.
+ * 
+ * Always persists the scenario and history in state, even if ai is not yet initialized.
+ * When ai is initialized later, call this again or initializeSession to create the actual session.
+ */
+export const resetSession = (scenario?: Scenario | null, history?: Array<{ role: string; content: string }>) => {
+  // Always update the module-level state, regardless of ai initialization
+  activeScenario = scenario || null;
+  pendingScenario = scenario || null;
+  
   if (history) {
-    syncedMessageCount = history.length;
+    pendingHistory = history;
+  } else {
+    // Only reset sync counter if no history is provided (clearing state)
+    syncedMessageCount = 0;
+    pendingHistory = null;
+  }
+
+  // Only create the actual chat session if ai is initialized
+  if (ai) {
+    createChatSession();
   }
 };
 
@@ -140,24 +170,20 @@ export const transcribeAudio = async (audioBase64: string, mimeType: string): Pr
 /**
  * Initializes the Gemini Chat session.
  * Must be called with a valid API Key.
- * Creates a fresh session without replaying history (history is synced lazily when needed).
+ * Creates a fresh session and uses any pending scenario/history that was set before ai was initialized.
  */
 export const initializeSession = async () => {
   ensureAiInitialized();
   // We use gemini-2.0-flash-exp for the logic/conversation as it handles audio input well, 
   // but we will ask for TEXT output to maintain REST compatibility, then TTS it.
   
-  // Create a fresh session - history will be synced lazily when sending a message
-  chatSession = ai.chats.create({
-    model: 'gemini-2.0-flash-exp', 
-    config: {
-      systemInstruction: SYSTEM_INSTRUCTION,
-      // No responseModalities needed, defaults to text
-    },
-  });
+  // If there was a pending scenario set before ai was initialized, use it
+  if (pendingScenario) {
+    activeScenario = pendingScenario;
+  }
   
-  // Reset sync counter - we'll sync lazily when actually sending a message
-  syncedMessageCount = 0;
+  // Create session with any pending state (scenario, history)
+  createChatSession();
 };
 
 /**

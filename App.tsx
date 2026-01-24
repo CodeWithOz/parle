@@ -189,10 +189,17 @@ const App: React.FC = () => {
   };
 
   const handleStartRecordingDescription = async () => {
-    getAudioContext();
-    scenarioRecordingRef.current = true;
-    setIsRecordingDescription(true);
-    await startRecording();
+    try {
+      getAudioContext();
+      scenarioRecordingRef.current = true;
+      setIsRecordingDescription(true);
+      await startRecording();
+    } catch (error) {
+      console.error('Error starting recording description:', error);
+      scenarioRecordingRef.current = false;
+      setIsRecordingDescription(false);
+      throw error;
+    }
   };
 
   const handleStopRecordingDescription = async (): Promise<string> => {
@@ -243,6 +250,16 @@ const App: React.FC = () => {
   };
 
   const handleStartPractice = async (scenario: Scenario) => {
+    // Revoke all audio URLs before clearing messages to prevent memory leaks
+    messages.forEach(msg => {
+      if (msg.audioUrl) {
+        URL.revokeObjectURL(msg.audioUrl);
+      }
+    });
+
+    // Reset autoplay state
+    setAutoPlayMessageId(null);
+
     // Clear existing conversation
     clearHistory();
     setMessages([]);
