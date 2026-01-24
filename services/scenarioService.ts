@@ -43,7 +43,7 @@ export const saveScenario = (scenario: Scenario): Scenario[] => {
     // If quota exceeded, try removing oldest scenario and retry once
     if (error instanceof DOMException && error.name === 'QuotaExceededError') {
       if (scenarios.length > 0) {
-        scenarios.shift(); // Remove oldest scenario (first in array)
+        scenarios.pop(); // Remove oldest scenario (last in array)
         try {
           localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
         } catch (retryError) {

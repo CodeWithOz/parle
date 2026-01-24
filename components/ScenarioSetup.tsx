@@ -77,8 +77,13 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   const handleDeleteSaved = (scenario: Scenario, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm(`Delete "${scenario.name}"? This cannot be undone.`)) {
-      const updated = deleteScenario(scenario.id);
-      setSavedScenarios(updated);
+      try {
+        const updated = deleteScenario(scenario.id);
+        setSavedScenarios(updated);
+      } catch (error) {
+        console.error('Error deleting scenario:', error);
+        alert(`Failed to delete scenario: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      }
     }
   };
 
@@ -92,11 +97,16 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
       isActive: true,
     };
 
-    // Save to localStorage
-    const updated = saveScenario(scenario);
-    setSavedScenarios(updated);
-
-    onStartPractice(scenario);
+    try {
+      // Save to localStorage
+      const updated = saveScenario(scenario);
+      setSavedScenarios(updated);
+      // Only start practice if save succeeded
+      onStartPractice(scenario);
+    } catch (error) {
+      console.error('Error saving scenario:', error);
+      alert(`Failed to save scenario: ${error instanceof Error ? error.message : 'Unknown error'}. Practice will not start.`);
+    }
   };
 
   return (

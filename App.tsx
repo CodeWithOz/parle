@@ -36,11 +36,21 @@ const App: React.FC = () => {
   // Ref to track if we're recording for scenario description
   const scenarioRecordingRef = useRef(false);
 
+  // Error flash state
+  const [errorFlashVisible, setErrorFlashVisible] = useState(false);
+  const [errorFlashMessage, setErrorFlashMessage] = useState<string>('');
+
   /**
    * Shows an error flash message that auto-dismisses after 3 seconds
    */
-  const showErrorFlash = useCallback(() => {
-    showErrorFlash();
+  const showErrorFlash = useCallback((message?: string) => {
+    const errorMsg = message || 'An error occurred. Please try again.';
+    setErrorFlashMessage(errorMsg);
+    setErrorFlashVisible(true);
+    setTimeout(() => {
+      setErrorFlashVisible(false);
+      setErrorFlashMessage('');
+    }, 3000);
   }, []);
 
   const {
@@ -303,6 +313,7 @@ const App: React.FC = () => {
 
     } catch (error) {
       console.error("Interaction failed", error);
+      setAppState(AppState.ERROR);
       showErrorFlash();
     }
   };
@@ -364,16 +375,19 @@ const App: React.FC = () => {
 
         {/* Status Text */}
         <div className="h-8 mb-8 text-center">
-          {appState === AppState.ERROR && (
+          {errorFlashVisible && (
+            <p className="text-red-400 font-medium animate-pulse">{errorFlashMessage}</p>
+          )}
+          {!errorFlashVisible && appState === AppState.ERROR && (
             <p className="text-red-400 font-medium animate-pulse">Connection Error. Please try again.</p>
           )}
-          {hasSkippedApiKeys && (
+          {!errorFlashVisible && hasSkippedApiKeys && (
             <p className="text-yellow-400 font-medium">Warning: No API keys configured. Core functionality will not work.</p>
           )}
-          {appState === AppState.IDLE && hasStarted && !hasSkippedApiKeys && (
+          {!errorFlashVisible && appState === AppState.IDLE && hasStarted && !hasSkippedApiKeys && (
             <p className="text-slate-500">Ready. Press the microphone to speak.</p>
           )}
-          {!hasStarted && !hasSkippedApiKeys && (
+          {!errorFlashVisible && !hasStarted && !hasSkippedApiKeys && (
             <p className="text-slate-500">Tap the mic to start your session.</p>
           )}
         </div>

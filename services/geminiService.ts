@@ -38,8 +38,9 @@ let activeScenario: Scenario | null = null;
  * Resets the Gemini session and sync counter.
  * Should be called when clearing conversation history.
  * Optionally can set a new scenario for scenario-aware prompting.
+ * Can optionally pass history to initialize the session with existing messages.
  */
-export const resetSession = (scenario?: Scenario | null) => {
+export const resetSession = (scenario?: Scenario | null, history?: Array<{ role: string; content: string }>) => {
   // Early guard: don't update state if ai is not initialized
   if (!ai) {
     return;
@@ -52,12 +53,24 @@ export const resetSession = (scenario?: Scenario | null) => {
     ? generateScenarioSystemInstruction(activeScenario)
     : SYSTEM_INSTRUCTION;
 
+  // Convert history to SDK format if provided
+  const historyMessages = history ? history.map(msg => ({
+    role: msg.role === 'user' ? 'user' : 'model',
+    parts: [{ text: msg.content }]
+  })) : undefined;
+
   chatSession = ai.chats.create({
     model: 'gemini-2.0-flash-exp',
     config: {
       systemInstruction: systemInstruction,
     },
+    ...(historyMessages && { history: historyMessages }),
   });
+
+  // Update sync counter if history was provided
+  if (history) {
+    syncedMessageCount = history.length;
+  }
 };
 
 /**
@@ -155,7 +168,11 @@ export const sendVoiceMessage = async (
   mimeType: string
 ): Promise<VoiceResponse> => {
   if (!chatSession || !ai) {
-    initializeSession();
+    if (activeScenario) {
+      await resetSession(activeScenario);
+    } else {
+      await initializeSession();
+    }
     if (!chatSession || !ai) {
       throw new Error("Chat session not initialized.");
     }
@@ -189,24 +206,15 @@ export const sendVoiceMessage = async (
     // This happens when switching back to Gemini from another provider
     const sharedHistory = getConversationHistory();
     
-    // Only replay messages that haven't been synced yet
-    // We replay user messages to rebuild context (assistant responses are tracked by the session)
+    // If there are unsynced messages, recreate the session with full history
+    // This avoids redundant API calls from replaying messages one by one
     if (sharedHistory.length > syncedMessageCount) {
-      // Replay user messages that haven't been synced to rebuild context
-      // Note: This will generate API responses, but we ignore them - we just need the context
-      // Iterate sequentially and check each message's role
-      for (let i = syncedMessageCount; i < sharedHistory.length; i++) {
-        const msg = sharedHistory[i];
-        // Only replay user messages to rebuild context
-        if (msg && msg.role === "user") {
-          // Send user message to rebuild context
-          await chatSession.sendMessage({
-            message: [{ text: msg.content }],
-          });
-        }
+      // Recreate session with all history passed directly to the SDK
+      resetSession(activeScenario, sharedHistory);
+      // Ensure session was created successfully
+      if (!chatSession) {
+        throw new Error("Failed to sync session with history");
       }
-      // Mark all messages as synced
-      syncedMessageCount = sharedHistory.length;
     }
     
     // Step 2: Send User Audio to Chat Model to get Text Response
