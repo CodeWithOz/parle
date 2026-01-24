@@ -17,7 +17,11 @@ export function base64ToBytes(base64: string): Uint8Array {
  */
 export function base64ToBlob(base64: string, mimeType: string): Blob {
   const bytes = base64ToBytes(base64);
-  return new Blob([bytes], { type: mimeType });
+  // Ensure we use ArrayBuffer (not SharedArrayBuffer) for Blob compatibility
+  const buffer = bytes.buffer instanceof ArrayBuffer
+    ? bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
+    : new Uint8Array(bytes).buffer;
+  return new Blob([buffer], { type: mimeType });
 }
 
 /**
@@ -41,6 +45,57 @@ export function blobToBase64(blob: Blob): Promise<string> {
 }
 
 /**
+ * Converts raw PCM data to WAV format
+ */
+export function pcmToWav(pcmData: Uint8Array, sampleRate: number = 24000, numChannels: number = 1): Blob {
+  const length = pcmData.length;
+  const buffer = new ArrayBuffer(44 + length);
+  const view = new DataView(buffer);
+  
+  // WAV header
+  const writeString = (offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+  
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + length, true);
+  writeString(8, 'WAVE');
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true); // fmt chunk size
+  view.setUint16(20, 1, true); // audio format (1 = PCM)
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * numChannels * 2, true); // byte rate
+  view.setUint16(32, numChannels * 2, true); // block align
+  view.setUint16(34, 16, true); // bits per sample
+  writeString(36, 'data');
+  view.setUint32(40, length, true);
+  
+  // Copy PCM data
+  const wavData = new Uint8Array(buffer);
+  wavData.set(pcmData, 44);
+  
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
+/**
+ * Converts ArrayBufferLike (ArrayBuffer | SharedArrayBuffer) to ArrayBuffer
+ * This is needed because Web Audio API's decodeAudioData requires ArrayBuffer specifically
+ */
+function convertToArrayBuffer(buffer: ArrayBuffer | SharedArrayBuffer): ArrayBuffer {
+  if (buffer instanceof ArrayBuffer) {
+    return buffer;
+  }
+  // Convert SharedArrayBuffer to ArrayBuffer by copying
+  const arr = new Uint8Array(buffer);
+  const newBuffer = new ArrayBuffer(arr.length);
+  new Uint8Array(newBuffer).set(arr);
+  return newBuffer;
+}
+
+/**
  * Decodes raw PCM data or Wav data from Gemini/OpenAI into an AudioBuffer
  */
 export async function decodeAudioData(
@@ -51,10 +106,15 @@ export async function decodeAudioData(
   // 1. Try standard browser decoding (handles WAV, MP3, etc. from OpenAI)
   try {
     // decodeAudioData detaches the buffer, so we copy it to keep the original safe if needed
-    const bufferForDecoding = audioData.buffer.slice(
+    // Ensure we have an ArrayBuffer (not SharedArrayBuffer) for decodeAudioData
+    // This is needed because some environments return SharedArrayBuffer which
+    // is incompatible with Web Audio API's decodeAudioData
+    const sourceBuffer = audioData.buffer.slice(
       audioData.byteOffset, 
       audioData.byteOffset + audioData.byteLength
     );
+    // Create a new ArrayBuffer to ensure type safety (copy from sourceBuffer)
+    const bufferForDecoding = convertToArrayBuffer(sourceBuffer);
     return await audioContext.decodeAudioData(bufferForDecoding);
   } catch (error) {
     // 2. If native decoding fails, assume it is raw PCM (Int16, Little Endian)
