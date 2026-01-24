@@ -68,10 +68,18 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     setShowSaved(false);
   };
 
-  const handleDeleteSaved = (scenarioId: string, e: React.MouseEvent) => {
+  const handleQuickStart = (scenario: Scenario, e: React.MouseEvent) => {
     e.stopPropagation();
-    const updated = deleteScenario(scenarioId);
-    setSavedScenarios(updated);
+    // Start practice directly with the existing saved scenario
+    onStartPractice(scenario);
+  };
+
+  const handleDeleteSaved = (scenario: Scenario, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm(`Delete "${scenario.name}"? This cannot be undone.`)) {
+      const updated = deleteScenario(scenario.id);
+      setSavedScenarios(updated);
+    }
   };
 
   const handleStartPractice = () => {
@@ -119,11 +127,12 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                 <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform ${showSaved ? 'rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
                 </svg>
-                {showSaved ? 'Hide' : 'Load'} Saved Scenarios ({savedScenarios.length})
+                {showSaved ? 'Hide' : 'Show'} Saved Scenarios ({savedScenarios.length})
               </button>
 
               {showSaved && (
                 <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
+                  <p className="text-slate-500 text-xs mb-2">Click "Start" to practice immediately, or click the row to edit first.</p>
                   {savedScenarios.map((scenario) => (
                     <div
                       key={scenario.id}
@@ -138,30 +147,36 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                       }}
                       className="flex justify-between items-center p-3 bg-slate-700/50 rounded-lg cursor-pointer hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
-                      <div>
+                      <div className="flex-1 min-w-0 mr-3">
                         <p className="text-slate-200 font-medium">{scenario.name}</p>
-                        <p className="text-slate-400 text-sm truncate max-w-md">
+                        <p className="text-slate-400 text-sm truncate">
                           {scenario.description.length > 80
                             ? `${scenario.description.substring(0, 80)}...`
                             : scenario.description}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteSaved(scenario.id, e);
-                        }}
-                        onKeyDown={(e) => {
-                          e.stopPropagation();
-                        }}
-                        aria-label={`Delete scenario ${scenario.name}`}
-                        className="p-1.5 hover:bg-slate-600 rounded transition-colors"
-                      >
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400 hover:text-red-400" viewBox="0 0 20 20" fill="currentColor">
-                          <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                        </svg>
-                      </button>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={(e) => handleQuickStart(scenario, e)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          aria-label={`Start practicing ${scenario.name}`}
+                          className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs font-medium rounded transition-colors"
+                        >
+                          Start
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteSaved(scenario, e)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                          aria-label={`Delete scenario ${scenario.name}`}
+                          className="p-1.5 hover:bg-slate-600 rounded transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400 hover:text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
