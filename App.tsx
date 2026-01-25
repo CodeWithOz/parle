@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState, Provider, Message, ScenarioMode, Scenario } from './types';
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
-import { initializeSession, sendVoiceMessage, resetSession, setScenario, processScenarioDescription, transcribeAudio } from './services/geminiService';
-import { sendVoiceMessageOpenAI, setScenarioOpenAI, processScenarioDescriptionOpenAI, transcribeAudioOpenAI } from './services/openaiService';
+import { initializeSession, sendVoiceMessage, resetSession, setScenario, processScenarioDescription, transcribeAudio, cleanupTranscript } from './services/geminiService';
+import { sendVoiceMessageOpenAI, setScenarioOpenAI, processScenarioDescriptionOpenAI, transcribeAudioOpenAI, cleanupTranscriptOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
 import { hasAnyApiKey, hasApiKeyOrEnv } from './services/apiKeyService';
 import { Orb } from './components/Orb';
@@ -38,6 +38,10 @@ const App: React.FC = () => {
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [isProcessingScenario, setIsProcessingScenario] = useState(false);
   const [isRecordingDescription, setIsRecordingDescription] = useState(false);
+  const [isTranscribingDescription, setIsTranscribingDescription] = useState(false);
+  const [showTranscriptOptions, setShowTranscriptOptions] = useState(false);
+  const [rawTranscript, setRawTranscript] = useState<string | null>(null);
+  const [cleanedTranscript, setCleanedTranscript] = useState<string | null>(null);
 
   // API Key management state
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -184,6 +188,9 @@ const App: React.FC = () => {
     setScenarioDescription('');
     setScenarioName('');
     setAiSummary(null);
+    setShowTranscriptOptions(false);
+    setRawTranscript(null);
+    setCleanedTranscript(null);
   };
 
   const handleCloseScenarioSetup = () => {
@@ -192,6 +199,10 @@ const App: React.FC = () => {
     setScenarioName('');
     setAiSummary(null);
     setIsRecordingDescription(false);
+    setIsTranscribingDescription(false);
+    setShowTranscriptOptions(false);
+    setRawTranscript(null);
+    setCleanedTranscript(null);
     if (scenarioRecordingRef.current) {
       cancelRecording();
       scenarioRecordingRef.current = false;
@@ -212,23 +223,44 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStopRecordingDescription = async (): Promise<string> => {
+  const handleStopRecordingDescription = async (): Promise<void> => {
     scenarioRecordingRef.current = false;
     setIsRecordingDescription(false);
+    setIsTranscribingDescription(true);
 
     try {
       const { base64, mimeType } = await stopRecording();
 
       // Transcribe the audio using the current provider
-      const transcription = provider === 'gemini'
+      const rawText = provider === 'gemini'
         ? await transcribeAudio(base64, mimeType)
         : await transcribeAudioOpenAI(base64, mimeType);
 
-      return transcription;
+      setRawTranscript(rawText);
+
+      // Clean up the transcript using AI
+      const cleanedText = provider === 'gemini'
+        ? await cleanupTranscript(rawText)
+        : await cleanupTranscriptOpenAI(rawText);
+
+      setCleanedTranscript(cleanedText);
+      setShowTranscriptOptions(true);
     } catch (error) {
       console.error('Error transcribing description:', error);
-      return scenarioDescription;
+      showErrorFlash('Failed to transcribe audio. Please try again.');
+    } finally {
+      setIsTranscribingDescription(false);
     }
+  };
+
+  const handleSelectTranscript = (useCleaned: boolean) => {
+    const selectedText = useCleaned ? cleanedTranscript : rawTranscript;
+    if (selectedText) {
+      setScenarioDescription(selectedText);
+    }
+    setShowTranscriptOptions(false);
+    setRawTranscript(null);
+    setCleanedTranscript(null);
   };
 
   const handleCancelRecordingDescription = () => {
@@ -454,6 +486,7 @@ const App: React.FC = () => {
           onStartPractice={handleStartPractice}
           onClose={handleCloseScenarioSetup}
           isRecordingDescription={isRecordingDescription}
+          isTranscribingDescription={isTranscribingDescription}
           onStartRecordingDescription={handleStartRecordingDescription}
           onStopRecordingDescription={handleStopRecordingDescription}
           onCancelRecordingDescription={handleCancelRecordingDescription}
@@ -465,6 +498,10 @@ const App: React.FC = () => {
           currentName={scenarioName}
           onDescriptionChange={setScenarioDescription}
           onNameChange={setScenarioName}
+          showTranscriptOptions={showTranscriptOptions}
+          rawTranscript={rawTranscript}
+          cleanedTranscript={cleanedTranscript}
+          onSelectTranscript={handleSelectTranscript}
         />
       )}
 

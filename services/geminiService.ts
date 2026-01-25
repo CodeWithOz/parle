@@ -168,6 +168,40 @@ export const transcribeAudio = async (audioBase64: string, mimeType: string): Pr
 };
 
 /**
+ * Cleans up a transcript by removing filler words, false starts, repetitions,
+ * and self-corrections while preserving the core meaning.
+ */
+export const cleanupTranscript = async (transcript: string): Promise<string> => {
+  ensureAiInitialized();
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-2.0-flash-exp',
+    contents: [{
+      parts: [{
+        text: `Clean up the following transcript by removing:
+- Filler words (um, uh, like, you know, etc.)
+- False starts and repetitions
+- Self-corrections and clarifications (e.g., "I mean", "actually", "wait no")
+- Verbal pauses and hesitations
+
+Preserve the core meaning and intent. Make it read smoothly while keeping it natural.
+Only output the cleaned transcript, nothing else.
+
+Transcript:
+"${transcript}"`
+      }],
+    }],
+  });
+
+  const cleanedText = response.text || "";
+  if (!cleanedText.trim()) {
+    // Fall back to original if cleanup fails
+    return transcript;
+  }
+  return cleanedText;
+};
+
+/**
  * Initializes the Gemini Chat session.
  * Must be called with a valid API Key.
  * Creates a fresh session and uses any pending scenario/history that was set before ai was initialized.

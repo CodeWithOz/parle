@@ -6,8 +6,9 @@ interface ScenarioSetupProps {
   onStartPractice: (scenario: Scenario) => void;
   onClose: () => void;
   isRecordingDescription: boolean;
+  isTranscribingDescription: boolean;
   onStartRecordingDescription: () => void;
-  onStopRecordingDescription: () => Promise<string>;
+  onStopRecordingDescription: () => Promise<void>;
   onCancelRecordingDescription: () => void;
   isProcessingScenario: boolean;
   aiSummary: string | null;
@@ -17,12 +18,17 @@ interface ScenarioSetupProps {
   currentName: string;
   onDescriptionChange: (description: string) => void;
   onNameChange: (name: string) => void;
+  showTranscriptOptions: boolean;
+  rawTranscript: string | null;
+  cleanedTranscript: string | null;
+  onSelectTranscript: (useCleaned: boolean) => void;
 }
 
 export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   onStartPractice,
   onClose,
   isRecordingDescription,
+  isTranscribingDescription,
   onStartRecordingDescription,
   onStopRecordingDescription,
   onCancelRecordingDescription,
@@ -34,6 +40,10 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   currentName,
   onDescriptionChange,
   onNameChange,
+  showTranscriptOptions,
+  rawTranscript,
+  cleanedTranscript,
+  onSelectTranscript,
 }) => {
   const [savedScenarios, setSavedScenarios] = useState<Scenario[]>([]);
   const [showSaved, setShowSaved] = useState(false);
@@ -51,11 +61,10 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   const handleVoiceInput = async () => {
     if (isRecordingDescription) {
       try {
-        const transcription = await onStopRecordingDescription();
-        onDescriptionChange(transcription);
+        // This now triggers the transcript options flow
+        await onStopRecordingDescription();
       } catch (error) {
         console.error('Voice transcription failed:', error);
-        // Optionally notify user via toast/alert or parent callback
       }
     } else {
       onStartRecordingDescription();
@@ -229,19 +238,32 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 
               {/* Voice Input Button */}
               <div className="flex items-center gap-4">
-                <button
-                  onClick={handleVoiceInput}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
-                    isRecordingDescription
-                      ? 'bg-red-500 hover:bg-red-600 text-white'
-                      : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
-                  }`}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                  </svg>
-                  {isRecordingDescription ? 'Stop Recording' : 'Or describe by voice'}
-                </button>
+                {isTranscribingDescription ? (
+                  <div className="flex items-center gap-2 px-4 py-2 bg-slate-700 rounded-lg text-slate-300">
+                    <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span>Transcribing...</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleVoiceInput}
+                    disabled={showTranscriptOptions}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                      isRecordingDescription
+                        ? 'bg-red-500 hover:bg-red-600 text-white'
+                        : showTranscriptOptions
+                        ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                        : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                    }`}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                    </svg>
+                    {isRecordingDescription ? 'Stop Recording' : 'Or describe by voice'}
+                  </button>
+                )}
 
                 {isRecordingDescription && (
                   <button
@@ -252,6 +274,56 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                   </button>
                 )}
               </div>
+
+              {/* Transcript Selection UI */}
+              {showTranscriptOptions && rawTranscript && cleanedTranscript && (
+                <div className="space-y-4 p-4 bg-slate-700/30 rounded-lg border border-slate-600">
+                  <div className="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                    <p className="text-sm font-medium text-slate-200">Choose your transcript version</p>
+                  </div>
+
+                  <p className="text-xs text-slate-400">
+                    We've created a cleaned-up version of your transcript. Choose which one you'd like to use.
+                  </p>
+
+                  {/* Raw Transcript Option */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-slate-300">Original Transcript</span>
+                      <span className="text-xs text-slate-500">As spoken</span>
+                    </div>
+                    <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-600 max-h-32 overflow-y-auto">
+                      <p className="text-sm text-slate-300 whitespace-pre-wrap">{rawTranscript}</p>
+                    </div>
+                    <button
+                      onClick={() => onSelectTranscript(false)}
+                      className="w-full py-2 bg-slate-600 hover:bg-slate-500 text-slate-200 rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Use Original
+                    </button>
+                  </div>
+
+                  {/* Cleaned Transcript Option */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-slate-300">Cleaned Transcript</span>
+                      <span className="text-xs text-green-400">Fillers removed</span>
+                    </div>
+                    <div className="p-3 bg-slate-800/50 rounded-lg border border-green-600/30 max-h-32 overflow-y-auto">
+                      <p className="text-sm text-slate-300 whitespace-pre-wrap">{cleanedTranscript}</p>
+                    </div>
+                    <button
+                      onClick={() => onSelectTranscript(true)}
+                      className="w-full py-2 bg-green-600 hover:bg-green-500 text-white rounded-lg text-sm font-medium transition-colors"
+                    >
+                      Use Cleaned Version
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Submit Button */}
               <button

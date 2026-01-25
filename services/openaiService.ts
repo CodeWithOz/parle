@@ -142,6 +142,59 @@ export const transcribeAudioOpenAI = async (audioBase64: string, mimeType: strin
 };
 
 /**
+ * Cleans up a transcript by removing filler words, false starts, repetitions,
+ * and self-corrections while preserving the core meaning.
+ */
+export const cleanupTranscriptOpenAI = async (transcript: string): Promise<string> => {
+  const apiKey = getApiKeyOrEnv('openai');
+
+  if (!apiKey) {
+    throw new Error("Missing OpenAI API Key");
+  }
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: "gpt-5-nano",
+      messages: [
+        {
+          role: "user",
+          content: `Clean up the following transcript by removing:
+- Filler words (um, uh, like, you know, etc.)
+- False starts and repetitions
+- Self-corrections and clarifications (e.g., "I mean", "actually", "wait no")
+- Verbal pauses and hesitations
+
+Preserve the core meaning and intent. Make it read smoothly while keeping it natural.
+Only output the cleaned transcript, nothing else.
+
+Transcript:
+"${transcript}"`
+        }
+      ]
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI Error: ${response.status} ${errorText}`);
+  }
+
+  const json = await response.json();
+
+  if (!json?.choices?.[0]?.message?.content) {
+    // Fall back to original if cleanup fails
+    return transcript;
+  }
+
+  return json.choices[0].message.content;
+};
+
+/**
  * Sends a user audio blob to OpenAI models and returns the response with audio and text.
  * Pipeline: gpt-4o-mini-transcribe (STT) -> gpt-5-nano (Chat) -> gpt-4o-mini-tts (Speech)
  */
