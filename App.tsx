@@ -67,10 +67,12 @@ const App: React.FC = () => {
     isRecording,
     isPlaying,
     volume,
+    isAudioUnlocked,
     startRecording,
     stopRecording,
     cancelRecording,
-    getAudioContext
+    getAudioContext,
+    unlockAudio
   } = useAudio();
 
   // Check for API keys on mount and show modal if missing
@@ -142,11 +144,18 @@ const App: React.FC = () => {
   const handleStartInteraction = async () => {
     // Boilerplate to ensure AudioContext is resumed on user gesture
     getAudioContext();
+    // Unlock audio playback for mobile (iOS Safari requires user gesture)
+    await unlockAudio();
     setHasStarted(true);
   };
 
   const handleStartRecording = async () => {
     if (!hasStarted) await handleStartInteraction();
+
+    // Ensure audio is unlocked for mobile autoplay (in case handleStartInteraction wasn't called)
+    if (!isAudioUnlocked) {
+      await unlockAudio();
+    }
 
     setAppState(AppState.RECORDING);
     await startRecording();
@@ -201,6 +210,10 @@ const App: React.FC = () => {
   const handleStartRecordingDescription = async () => {
     try {
       getAudioContext();
+      // Ensure audio is unlocked for mobile autoplay
+      if (!isAudioUnlocked) {
+        await unlockAudio();
+      }
       scenarioRecordingRef.current = true;
       setIsRecordingDescription(true);
       await startRecording();
@@ -434,11 +447,12 @@ const App: React.FC = () => {
         />
 
         {/* Conversation History */}
-        <ConversationHistory 
-          messages={messages} 
+        <ConversationHistory
+          messages={messages}
           onClear={handleClearHistory}
           playbackSpeed={playbackSpeed}
           autoPlayMessageId={autoPlayMessageId}
+          isAudioUnlocked={isAudioUnlocked}
         />
 
       </main>

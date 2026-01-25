@@ -6,25 +6,27 @@ interface ConversationHistoryProps {
   onClear: () => void;
   playbackSpeed: number;
   autoPlayMessageId?: number | null;
+  isAudioUnlocked?: boolean;
 }
 
 interface MessageItemProps {
   message: Message;
   playbackSpeed: number;
   autoPlay: boolean;
+  isAudioUnlocked: boolean;
   onAudioRef: (audio: HTMLAudioElement | null, messageId: number) => void;
 }
 
-const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef }) => {
+const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, isAudioUnlocked, onAudioRef }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
-  
+
   // Update playback rate when speed changes
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.playbackRate = playbackSpeed;
     }
   }, [playbackSpeed]);
-  
+
   // Register audio element ref
   useEffect(() => {
     onAudioRef(audioRef.current, message.timestamp);
@@ -33,39 +35,57 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
       onAudioRef(null, message.timestamp);
     };
   }, [onAudioRef, message.timestamp]);
-  
+
   // Auto-play when this message should auto-play
+  // Only attempt autoplay if audio has been unlocked (user has interacted with the page)
   useEffect(() => {
     if (!autoPlay || !audioRef.current || message.role !== 'model' || !message.audioUrl) {
       return;
     }
-    
+
+    // On mobile (especially iOS), audio can only autoplay after user interaction
+    // has "unlocked" audio playback. If not unlocked, skip autoplay attempt.
+    if (!isAudioUnlocked) {
+      console.log('Audio not yet unlocked for autoplay, skipping...');
+      return;
+    }
+
     const audio = audioRef.current;
     let canplayHandler: (() => void) | null = null;
     let loadeddataHandler: (() => void) | null = null;
-    
+
     const playAudio = () => {
       if (audio && audio.readyState >= 2) {
-        audio.play().catch(err => {
-          console.error("Error auto-playing audio:", err);
-        });
+        // Use a play promise with proper error handling for mobile
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise.catch(err => {
+            // NotAllowedError is expected on some mobile browsers even with unlock
+            // The user can still manually play using the audio controls
+            if (err.name === 'NotAllowedError') {
+              console.log('Autoplay blocked by browser policy, user can play manually');
+            } else {
+              console.error("Error auto-playing audio:", err);
+            }
+          });
+        }
       }
     };
-    
+
     if (audio.readyState >= 2) {
       playAudio();
     } else {
       canplayHandler = () => {
-        if (audio && autoPlay) {
+        if (audio && autoPlay && isAudioUnlocked) {
           playAudio();
         }
       };
       loadeddataHandler = playAudio;
-      
+
       audio.addEventListener('canplay', canplayHandler, { once: true });
       audio.addEventListener('loadeddata', loadeddataHandler, { once: true });
     }
-    
+
     // Cleanup: remove event listeners
     return () => {
       if (audio && canplayHandler) {
@@ -75,7 +95,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
         audio.removeEventListener('loadeddata', loadeddataHandler);
       }
     };
-  }, [autoPlay, message.role, message.audioUrl]);
+  }, [autoPlay, isAudioUnlocked, message.role, message.audioUrl]);
   
   return (
     <div
@@ -105,11 +125,12 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
   );
 };
 
-export const ConversationHistory: React.FC<ConversationHistoryProps> = ({ 
-  messages, 
+export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
+  messages,
   onClear,
   playbackSpeed,
-  autoPlayMessageId
+  autoPlayMessageId,
+  isAudioUnlocked = false
 }) => {
   const audioElementsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   
@@ -160,6 +181,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
             message={message}
             playbackSpeed={playbackSpeed}
             autoPlay={autoPlayMessageId === message.timestamp}
+            isAudioUnlocked={isAudioUnlocked}
             onAudioRef={handleAudioRef}
           />
         ))}
