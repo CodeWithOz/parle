@@ -105,13 +105,13 @@ export const Controls: React.FC<ControlsProps> = ({
             <input
             type="range"
             min="0.5"
-            max="1.25"
+            max="1"
             step="0.05"
             value={playbackSpeed}
             onChange={(e) => onSpeedChange(parseFloat(e.target.value))}
             className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-blue-500"
             />
-            <span className="text-xs text-slate-500">Fast</span>
+            <span className="text-xs text-slate-500">Normal</span>
         </div>
         <div className="flex justify-between mt-2 px-1">
             <button onClick={() => onSpeedChange(0.5)} className={`text-xs px-2 py-1 rounded ${playbackSpeed === 0.5 ? 'bg-blue-500/20 text-blue-300' : 'text-slate-600 hover:text-slate-400'}`}>0.5x</button>
