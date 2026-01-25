@@ -435,7 +435,7 @@ const App: React.FC = () => {
 
       {/* Footer Info */}
       <footer className="p-4 text-center text-slate-600 text-xs z-10">
-        <p>Bilingual Mode: French → English Translation</p>
+        <p>Built by <a href="https://www.linkedin.com/in/uchechukwu-ozoemena/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">CodeWithOz</a></p>
       </footer>
 
       {/* Scenario Setup Modal */}
