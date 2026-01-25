@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState, Provider, Message, ScenarioMode, Scenario } from './types';
 import { useAudio } from './hooks/useAudio';
+import { useDocumentHead } from './hooks/useDocumentHead';
 import { initializeSession, sendVoiceMessage, resetSession, setScenario, processScenarioDescription, transcribeAudio } from './services/geminiService';
 import { sendVoiceMessageOpenAI, setScenarioOpenAI, processScenarioDescriptionOpenAI, transcribeAudioOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
@@ -13,6 +14,15 @@ import { ApiKeySetup } from './components/ApiKeySetup';
 import { GearIcon } from './components/icons/GearIcon';
 
 const App: React.FC = () => {
+  // SEO metadata - similar to Next.js metadata export
+  useDocumentHead({
+    title: 'Parle - Practice Speaking French with AI',
+    description: 'Practice French conversation with AI using voice interaction. Learn real-world French with personalized scenarios and receive instant feedback.',
+    ogTitle: 'Parle - Practice Speaking French with AI',
+    ogDescription: 'Practice French conversation with AI using voice interaction. Learn real-world French with personalized scenarios and receive instant feedback.',
+    ogType: 'website',
+  });
+
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [provider, setProvider] = useState<Provider>('gemini');
