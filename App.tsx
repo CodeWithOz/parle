@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState, Provider, Message, ScenarioMode, Scenario } from './types';
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
-import { initializeSession, sendVoiceMessage, resetSession, setScenario, processScenarioDescription, transcribeAudio, cleanupTranscript } from './services/geminiService';
-import { sendVoiceMessageOpenAI, setScenarioOpenAI, processScenarioDescriptionOpenAI, transcribeAudioOpenAI, cleanupTranscriptOpenAI } from './services/openaiService';
+import { initializeSession, sendVoiceMessage, resetSession, setScenario, processScenarioDescription, transcribeAndCleanupAudio } from './services/geminiService';
+import { sendVoiceMessageOpenAI, setScenarioOpenAI, processScenarioDescriptionOpenAI, transcribeAndCleanupAudioOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
 import { hasAnyApiKey, hasApiKeyOrEnv } from './services/apiKeyService';
 import { Orb } from './components/Orb';
@@ -231,18 +231,12 @@ const App: React.FC = () => {
     try {
       const { base64, mimeType } = await stopRecording();
 
-      // Transcribe the audio using the current provider
-      const rawText = provider === 'gemini'
-        ? await transcribeAudio(base64, mimeType)
-        : await transcribeAudioOpenAI(base64, mimeType);
+      // Single LLM call to transcribe and clean up the audio
+      const { rawTranscript: rawText, cleanedTranscript: cleanedText } = provider === 'gemini'
+        ? await transcribeAndCleanupAudio(base64, mimeType)
+        : await transcribeAndCleanupAudioOpenAI(base64, mimeType);
 
       setRawTranscript(rawText);
-
-      // Clean up the transcript using AI
-      const cleanedText = provider === 'gemini'
-        ? await cleanupTranscript(rawText)
-        : await cleanupTranscriptOpenAI(rawText);
-
       setCleanedTranscript(cleanedText);
       setShowTranscriptOptions(true);
     } catch (error) {

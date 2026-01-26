@@ -142,15 +142,34 @@ export const transcribeAudioOpenAI = async (audioBase64: string, mimeType: strin
 };
 
 /**
- * Cleans up a transcript by removing filler words, false starts, repetitions,
- * and self-corrections while preserving the core meaning.
+ * Maps browser MIME types to OpenAI input_audio format strings.
  */
-export const cleanupTranscriptOpenAI = async (transcript: string): Promise<string> => {
+const getAudioInputFormat = (mimeType: string): string => {
+  const lowerMime = mimeType.toLowerCase();
+  if (lowerMime.includes('webm')) return 'webm';
+  if (lowerMime.includes('ogg')) return 'ogg';
+  if (lowerMime.includes('mp3') || lowerMime.includes('mpeg')) return 'mp3';
+  if (lowerMime.includes('mp4') || lowerMime.includes('m4a') || lowerMime.includes('aac')) return 'aac';
+  if (lowerMime.includes('flac')) return 'flac';
+  if (lowerMime.includes('opus')) return 'opus';
+  return 'wav';
+};
+
+/**
+ * Transcribes audio and produces both a raw transcript and a cleaned-up version
+ * in a single LLM call using structured output via chat completions with audio input.
+ */
+export const transcribeAndCleanupAudioOpenAI = async (
+  audioBase64: string,
+  mimeType: string
+): Promise<{ rawTranscript: string; cleanedTranscript: string }> => {
   const apiKey = getApiKeyOrEnv('openai');
 
   if (!apiKey) {
     throw new Error("Missing OpenAI API Key");
   }
+
+  const format = getAudioInputFormat(mimeType);
 
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -159,23 +178,56 @@ export const cleanupTranscriptOpenAI = async (transcript: string): Promise<strin
       Authorization: `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: "gpt-5-nano",
+      model: "gpt-4o-audio-preview",
       messages: [
         {
           role: "user",
-          content: `Clean up the following transcript by removing:
-- Filler words (um, uh, like, you know, etc.)
-- False starts and repetitions
-- Self-corrections and clarifications (e.g., "I mean", "actually", "wait no")
-- Verbal pauses and hesitations
+          content: [
+            {
+              type: "text",
+              text: `Listen to this audio and produce two versions of the transcript:
 
-Preserve the core meaning and intent. Make it read smoothly while keeping it natural.
-Only output the cleaned transcript, nothing else.
+1. "rawTranscript": Transcribe the audio exactly as spoken, including all filler words, false starts, repetitions, self-corrections, and hesitations.
 
-Transcript:
-"${transcript}"`
+2. "cleanedTranscript": A cleaned-up version of the same transcript with the following removed:
+   - Filler words (um, uh, like, you know, so, etc.)
+   - False starts and repetitions
+   - Self-corrections and clarifications (e.g., "I mean", "actually", "wait no")
+   - Verbal pauses and hesitations
+   The cleaned version should preserve the core meaning and intent, reading smoothly while staying natural.`
+            },
+            {
+              type: "input_audio",
+              input_audio: {
+                data: audioBase64,
+                format: format
+              }
+            }
+          ]
         }
-      ]
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "transcript_result",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              rawTranscript: {
+                type: "string",
+                description: "Exact transcription of the audio as spoken, including all filler words and hesitations"
+              },
+              cleanedTranscript: {
+                type: "string",
+                description: "Cleaned-up version with fillers, false starts, and self-corrections removed"
+              }
+            },
+            required: ["rawTranscript", "cleanedTranscript"],
+            additionalProperties: false
+          }
+        }
+      }
     })
   });
 
@@ -187,11 +239,14 @@ Transcript:
   const json = await response.json();
 
   if (!json?.choices?.[0]?.message?.content) {
-    // Fall back to original if cleanup fails
-    return transcript;
+    throw new Error("OpenAI returned empty response for transcription");
   }
 
-  return json.choices[0].message.content;
+  const parsed = JSON.parse(json.choices[0].message.content);
+  return {
+    rawTranscript: parsed.rawTranscript || "",
+    cleanedTranscript: parsed.cleanedTranscript || "",
+  };
 };
 
 /**
