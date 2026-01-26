@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { blobToBase64 } from '../services/audioUtils';
 
+export type MicrophonePermissionState = 'granted' | 'denied' | 'prompt' | 'unsupported';
+
 export const useAudio = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -26,6 +28,43 @@ export const useAudio = () => {
       audioContextRef.current.resume();
     }
     return audioContextRef.current;
+  }, []);
+
+  /**
+   * Check the current microphone permission state using the Permissions API.
+   * Returns 'granted', 'denied', 'prompt', or 'unsupported' if the API is not available.
+   */
+  const checkMicrophonePermission = useCallback(async (): Promise<MicrophonePermissionState> => {
+    // Check if Permissions API is supported
+    if (!navigator.permissions || !navigator.permissions.query) {
+      return 'unsupported';
+    }
+
+    try {
+      const result = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+      return result.state as MicrophonePermissionState;
+    } catch {
+      // Some browsers don't support querying microphone permission
+      return 'unsupported';
+    }
+  }, []);
+
+  /**
+   * Request microphone permission explicitly.
+   * Returns true if permission was granted, false otherwise.
+   * This will show the browser's permission prompt if permission hasn't been granted yet.
+   */
+  const requestMicrophonePermission = useCallback(async (): Promise<boolean> => {
+    try {
+      // Request permission by attempting to access the microphone
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Immediately stop all tracks - we just wanted to trigger the permission prompt
+      stream.getTracks().forEach(track => track.stop());
+      return true;
+    } catch (err) {
+      console.error("Microphone permission denied:", err);
+      return false;
+    }
   }, []);
 
   const startRecording = useCallback(async () => {
@@ -289,6 +328,8 @@ export const useAudio = () => {
     seekTo,
     stopAudio,
     updatePlaybackSpeed,
-    getAudioContext // Exposed to initialize context on user interaction
+    getAudioContext, // Exposed to initialize context on user interaction
+    checkMicrophonePermission,
+    requestMicrophonePermission
   };
 };

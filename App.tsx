@@ -70,7 +70,9 @@ const App: React.FC = () => {
     startRecording,
     stopRecording,
     cancelRecording,
-    getAudioContext
+    getAudioContext,
+    checkMicrophonePermission,
+    requestMicrophonePermission
   } = useAudio();
 
   // Check for API keys on mount and show modal if missing
@@ -145,8 +147,40 @@ const App: React.FC = () => {
     setHasStarted(true);
   };
 
+  /**
+   * Check microphone permission and request if necessary.
+   * Returns true if permission is granted, false otherwise.
+   */
+  const ensureMicrophonePermission = useCallback(async (): Promise<boolean> => {
+    const permissionState = await checkMicrophonePermission();
+
+    if (permissionState === 'granted') {
+      return true;
+    }
+
+    if (permissionState === 'denied') {
+      alert('Microphone access has been denied. Please enable microphone access in your browser settings to use voice recording.');
+      return false;
+    }
+
+    // For 'prompt' or 'unsupported' states, request permission
+    const granted = await requestMicrophonePermission();
+    if (!granted) {
+      alert('Microphone access is required for voice recording. Please allow microphone access and try again.');
+      return false;
+    }
+
+    return true;
+  }, [checkMicrophonePermission, requestMicrophonePermission]);
+
   const handleStartRecording = async () => {
     if (!hasStarted) await handleStartInteraction();
+
+    // Check and request microphone permission before starting
+    const hasPermission = await ensureMicrophonePermission();
+    if (!hasPermission) {
+      return;
+    }
 
     setAppState(AppState.RECORDING);
     await startRecording();
@@ -201,6 +235,13 @@ const App: React.FC = () => {
   const handleStartRecordingDescription = async () => {
     try {
       getAudioContext();
+
+      // Check and request microphone permission before starting
+      const hasPermission = await ensureMicrophonePermission();
+      if (!hasPermission) {
+        return;
+      }
+
       scenarioRecordingRef.current = true;
       setIsRecordingDescription(true);
       await startRecording();
