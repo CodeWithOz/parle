@@ -143,16 +143,16 @@ export const transcribeAudioOpenAI = async (audioBase64: string, mimeType: strin
 
 /**
  * Maps browser MIME types to OpenAI input_audio format strings.
+ * gpt-4o-audio-preview only supports 'wav' and 'mp3' for input_audio.format.
  */
 const getAudioInputFormat = (mimeType: string): string => {
   const lowerMime = mimeType.toLowerCase();
-  if (lowerMime.includes('webm')) return 'webm';
-  if (lowerMime.includes('ogg')) return 'ogg';
+  if (lowerMime.includes('wav')) return 'wav';
   if (lowerMime.includes('mp3') || lowerMime.includes('mpeg')) return 'mp3';
-  if (lowerMime.includes('mp4') || lowerMime.includes('m4a') || lowerMime.includes('aac')) return 'aac';
-  if (lowerMime.includes('flac')) return 'flac';
-  if (lowerMime.includes('opus')) return 'opus';
-  return 'wav';
+  throw new Error(
+    `Unsupported audio format for gpt-4o-audio-preview input_audio: "${mimeType}". ` +
+    `Only wav and mp3 are supported. The recorded audio must be transcoded before calling this API.`
+  );
 };
 
 /**

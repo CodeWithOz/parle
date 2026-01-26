@@ -238,6 +238,12 @@ const App: React.FC = () => {
 
       setRawTranscript(rawText);
       setCleanedTranscript(cleanedText);
+
+      if (!rawText.trim() && !cleanedText.trim()) {
+        showErrorFlash('Transcription was empty. Please try again.');
+        return;
+      }
+
       setShowTranscriptOptions(true);
     } catch (error) {
       console.error('Error transcribing description:', error);
