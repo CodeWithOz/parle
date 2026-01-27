@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState, Provider, Message, ScenarioMode, Scenario } from './types';
 import { useAudio } from './hooks/useAudio';
-import { initializeSession, sendVoiceMessage, resetSession, setScenario, processScenarioDescription, transcribeAudio } from './services/geminiService';
-import { sendVoiceMessageOpenAI, setScenarioOpenAI, processScenarioDescriptionOpenAI, transcribeAudioOpenAI } from './services/openaiService';
+import { useDocumentHead } from './hooks/useDocumentHead';
+import { initializeSession, sendVoiceMessage, resetSession, setScenario, processScenarioDescription, transcribeAndCleanupAudio } from './services/geminiService';
+import { sendVoiceMessageOpenAI, setScenarioOpenAI, processScenarioDescriptionOpenAI, transcribeAndCleanupAudioOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
 import { hasAnyApiKey, hasApiKeyOrEnv } from './services/apiKeyService';
 import { Orb } from './components/Orb';
@@ -13,6 +14,15 @@ import { ApiKeySetup } from './components/ApiKeySetup';
 import { GearIcon } from './components/icons/GearIcon';
 
 const App: React.FC = () => {
+  // SEO metadata - similar to Next.js metadata export
+  useDocumentHead({
+    title: 'Parle - Practice Speaking French with AI',
+    description: 'Practice French conversation with AI using voice interaction. Learn real-world French with personalized scenarios and receive instant feedback.',
+    ogTitle: 'Parle - Practice Speaking French with AI',
+    ogDescription: 'Practice French conversation with AI using voice interaction. Learn real-world French with personalized scenarios and receive instant feedback.',
+    ogType: 'website',
+  });
+
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [provider, setProvider] = useState<Provider>('gemini');
@@ -28,6 +38,10 @@ const App: React.FC = () => {
   const [aiSummary, setAiSummary] = useState<string | null>(null);
   const [isProcessingScenario, setIsProcessingScenario] = useState(false);
   const [isRecordingDescription, setIsRecordingDescription] = useState(false);
+  const [isTranscribingDescription, setIsTranscribingDescription] = useState(false);
+  const [showTranscriptOptions, setShowTranscriptOptions] = useState(false);
+  const [rawTranscript, setRawTranscript] = useState<string | null>(null);
+  const [cleanedTranscript, setCleanedTranscript] = useState<string | null>(null);
 
   // API Key management state
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -35,6 +49,7 @@ const App: React.FC = () => {
 
   // Ref to track if we're recording for scenario description
   const scenarioRecordingRef = useRef(false);
+  const scenarioSetupOpenRef = useRef(false);
 
   // Error flash state
   const [errorFlashVisible, setErrorFlashVisible] = useState(false);
@@ -60,7 +75,9 @@ const App: React.FC = () => {
     startRecording,
     stopRecording,
     cancelRecording,
-    getAudioContext
+    getAudioContext,
+    checkMicrophonePermission,
+    requestMicrophonePermission
   } = useAudio();
 
   // Check for API keys on mount and show modal if missing
@@ -135,8 +152,40 @@ const App: React.FC = () => {
     setHasStarted(true);
   };
 
+  /**
+   * Check microphone permission and request if necessary.
+   * Returns true if permission is granted, false otherwise.
+   */
+  const ensureMicrophonePermission = useCallback(async (): Promise<boolean> => {
+    const permissionState = await checkMicrophonePermission();
+
+    if (permissionState === 'granted') {
+      return true;
+    }
+
+    if (permissionState === 'denied') {
+      alert('Microphone access has been denied. Please enable microphone access in your browser settings to use voice recording.');
+      return false;
+    }
+
+    // For 'prompt' or 'unsupported' states, request permission
+    const granted = await requestMicrophonePermission();
+    if (!granted) {
+      alert('Microphone access is required for voice recording. Please allow microphone access and try again.');
+      return false;
+    }
+
+    return true;
+  }, [checkMicrophonePermission, requestMicrophonePermission]);
+
   const handleStartRecording = async () => {
     if (!hasStarted) await handleStartInteraction();
+
+    // Check and request microphone permission before starting
+    const hasPermission = await ensureMicrophonePermission();
+    if (!hasPermission) {
+      return;
+    }
 
     setAppState(AppState.RECORDING);
     await startRecording();
@@ -170,18 +219,27 @@ const App: React.FC = () => {
 
   // Scenario mode handlers
   const handleOpenScenarioSetup = () => {
+    scenarioSetupOpenRef.current = true;
     setScenarioMode('setup');
     setScenarioDescription('');
     setScenarioName('');
     setAiSummary(null);
+    setShowTranscriptOptions(false);
+    setRawTranscript(null);
+    setCleanedTranscript(null);
   };
 
   const handleCloseScenarioSetup = () => {
+    scenarioSetupOpenRef.current = false;
     setScenarioMode('none');
     setScenarioDescription('');
     setScenarioName('');
     setAiSummary(null);
     setIsRecordingDescription(false);
+    setIsTranscribingDescription(false);
+    setShowTranscriptOptions(false);
+    setRawTranscript(null);
+    setCleanedTranscript(null);
     if (scenarioRecordingRef.current) {
       cancelRecording();
       scenarioRecordingRef.current = false;
@@ -191,6 +249,13 @@ const App: React.FC = () => {
   const handleStartRecordingDescription = async () => {
     try {
       getAudioContext();
+
+      // Check and request microphone permission before starting
+      const hasPermission = await ensureMicrophonePermission();
+      if (!hasPermission) {
+        return;
+      }
+
       scenarioRecordingRef.current = true;
       setIsRecordingDescription(true);
       await startRecording();
@@ -202,23 +267,57 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStopRecordingDescription = async (): Promise<string> => {
+  const handleStopRecordingDescription = async (): Promise<void> => {
     scenarioRecordingRef.current = false;
     setIsRecordingDescription(false);
+    setIsTranscribingDescription(true);
 
     try {
       const { base64, mimeType } = await stopRecording();
 
-      // Transcribe the audio using the current provider
-      const transcription = provider === 'gemini'
-        ? await transcribeAudio(base64, mimeType)
-        : await transcribeAudioOpenAI(base64, mimeType);
+      // Single LLM call to transcribe and clean up the audio
+      const { rawTranscript: rawText, cleanedTranscript: cleanedText } = provider === 'gemini'
+        ? await transcribeAndCleanupAudio(base64, mimeType)
+        : await transcribeAndCleanupAudioOpenAI(base64, mimeType);
 
-      return transcription;
+      // Modal was closed while transcription was in-flight; discard results
+      if (!scenarioSetupOpenRef.current) {
+        return;
+      }
+
+      setRawTranscript(rawText);
+      setCleanedTranscript(cleanedText);
+
+      if (!rawText.trim() || !cleanedText.trim()) {
+        showErrorFlash('Transcription was empty. Please try again.');
+        return;
+      }
+
+      setShowTranscriptOptions(true);
     } catch (error) {
       console.error('Error transcribing description:', error);
-      return scenarioDescription;
+      if (scenarioSetupOpenRef.current) {
+        showErrorFlash('Failed to transcribe audio. Please try again.');
+      }
+    } finally {
+      setIsTranscribingDescription(false);
     }
+  };
+
+  const handleSelectTranscript = (useCleaned: boolean) => {
+    const selectedText = useCleaned ? cleanedTranscript : rawTranscript;
+    if (selectedText) {
+      setScenarioDescription(selectedText);
+    }
+    setShowTranscriptOptions(false);
+    setRawTranscript(null);
+    setCleanedTranscript(null);
+  };
+
+  const handleDismissTranscriptOptions = () => {
+    setShowTranscriptOptions(false);
+    setRawTranscript(null);
+    setCleanedTranscript(null);
   };
 
   const handleCancelRecordingDescription = () => {
@@ -435,7 +534,7 @@ const App: React.FC = () => {
 
       {/* Footer Info */}
       <footer className="p-4 text-center text-slate-600 text-xs z-10">
-        <p>Bilingual Mode: French → English Translation</p>
+        <p>Built by <a href="https://www.linkedin.com/in/uchechukwu-ozoemena/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">CodeWithOz</a></p>
       </footer>
 
       {/* Scenario Setup Modal */}
@@ -444,6 +543,7 @@ const App: React.FC = () => {
           onStartPractice={handleStartPractice}
           onClose={handleCloseScenarioSetup}
           isRecordingDescription={isRecordingDescription}
+          isTranscribingDescription={isTranscribingDescription}
           onStartRecordingDescription={handleStartRecordingDescription}
           onStopRecordingDescription={handleStopRecordingDescription}
           onCancelRecordingDescription={handleCancelRecordingDescription}
@@ -455,6 +555,11 @@ const App: React.FC = () => {
           currentName={scenarioName}
           onDescriptionChange={setScenarioDescription}
           onNameChange={setScenarioName}
+          showTranscriptOptions={showTranscriptOptions}
+          rawTranscript={rawTranscript}
+          cleanedTranscript={cleanedTranscript}
+          onSelectTranscript={handleSelectTranscript}
+          onDismissTranscriptOptions={handleDismissTranscriptOptions}
         />
       )}
 

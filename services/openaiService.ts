@@ -142,6 +142,122 @@ export const transcribeAudioOpenAI = async (audioBase64: string, mimeType: strin
 };
 
 /**
+ * Maps browser MIME types to OpenAI input_audio format strings.
+ * gpt-4o-audio-preview only supports 'wav' and 'mp3' for input_audio.format.
+ */
+const getAudioInputFormat = (mimeType: string): string => {
+  const lowerMime = mimeType.toLowerCase();
+  if (lowerMime.includes('wav')) return 'wav';
+  if (lowerMime.includes('mp3') || lowerMime.includes('mpeg')) return 'mp3';
+  throw new Error(
+    `Unsupported audio format for gpt-4o-audio-preview input_audio: "${mimeType}". ` +
+    `Only wav and mp3 are supported. The recorded audio must be transcoded before calling this API.`
+  );
+};
+
+/**
+ * Transcribes audio and produces both a raw transcript and a cleaned-up version
+ * in a single LLM call using structured output via chat completions with audio input.
+ */
+export const transcribeAndCleanupAudioOpenAI = async (
+  audioBase64: string,
+  mimeType: string
+): Promise<{ rawTranscript: string; cleanedTranscript: string }> => {
+  const apiKey = getApiKeyOrEnv('openai');
+
+  if (!apiKey) {
+    throw new Error("Missing OpenAI API Key");
+  }
+
+  const format = getAudioInputFormat(mimeType);
+
+  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-audio-preview",
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Listen to this audio and produce two versions of the transcript:
+
+1. "rawTranscript": Transcribe the audio exactly as spoken, including all filler words, false starts, repetitions, self-corrections, and hesitations.
+
+2. "cleanedTranscript": A cleaned-up version of the same transcript with the following removed:
+   - Filler words (um, uh, like, you know, so, etc.)
+   - False starts and repetitions
+   - Self-corrections and clarifications (e.g., "I mean", "actually", "wait no")
+   - Verbal pauses and hesitations
+   The cleaned version should preserve the core meaning and intent, reading smoothly while staying natural.`
+            },
+            {
+              type: "input_audio",
+              input_audio: {
+                data: audioBase64,
+                format: format
+              }
+            }
+          ]
+        }
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "transcript_result",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: {
+              rawTranscript: {
+                type: "string",
+                description: "Exact transcription of the audio as spoken, including all filler words and hesitations"
+              },
+              cleanedTranscript: {
+                type: "string",
+                description: "Cleaned-up version with fillers, false starts, and self-corrections removed"
+              }
+            },
+            required: ["rawTranscript", "cleanedTranscript"],
+            additionalProperties: false
+          }
+        }
+      }
+    })
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`OpenAI Error: ${response.status} ${errorText}`);
+  }
+
+  const json = await response.json();
+
+  if (!json?.choices?.[0]?.message?.content) {
+    throw new Error("OpenAI returned empty response for transcription");
+  }
+
+  const content = json.choices[0].message.content;
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse OpenAI transcription response: ${errorMessage}. Raw content: ${content}`);
+  }
+
+  return {
+    rawTranscript: parsed.rawTranscript || "",
+    cleanedTranscript: parsed.cleanedTranscript || "",
+  };
+};
+
+/**
  * Sends a user audio blob to OpenAI models and returns the response with audio and text.
  * Pipeline: gpt-4o-mini-transcribe (STT) -> gpt-5-nano (Chat) -> gpt-4o-mini-tts (Speech)
  */
