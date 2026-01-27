@@ -22,6 +22,7 @@ interface ScenarioSetupProps {
   rawTranscript: string | null;
   cleanedTranscript: string | null;
   onSelectTranscript: (useCleaned: boolean) => void;
+  onDismissTranscriptOptions: () => void;
 }
 
 export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
@@ -44,6 +45,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   rawTranscript,
   cleanedTranscript,
   onSelectTranscript,
+  onDismissTranscriptOptions,
 }) => {
   const [savedScenarios, setSavedScenarios] = useState<Scenario[]>([]);
   const [showSaved, setShowSaved] = useState(false);
@@ -248,20 +250,28 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                   </div>
                 ) : (
                   <button
-                    onClick={handleVoiceInput}
-                    disabled={showTranscriptOptions}
+                    onClick={showTranscriptOptions ? onDismissTranscriptOptions : handleVoiceInput}
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                       isRecordingDescription
                         ? 'bg-red-500 hover:bg-red-600 text-white'
-                        : showTranscriptOptions
-                        ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
                         : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
                     }`}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                      <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
-                    </svg>
-                    {isRecordingDescription ? 'Stop Recording' : 'Or describe by voice'}
+                    {showTranscriptOptions ? (
+                      <>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                        </svg>
+                        Discard Transcript
+                      </>
+                    ) : (
+                      <>
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+                        </svg>
+                        {isRecordingDescription ? 'Stop Recording' : 'Or describe by voice'}
+                      </>
+                    )}
                   </button>
                 )}
 

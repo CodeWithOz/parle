@@ -263,6 +263,12 @@ const App: React.FC = () => {
     setCleanedTranscript(null);
   };
 
+  const handleDismissTranscriptOptions = () => {
+    setShowTranscriptOptions(false);
+    setRawTranscript(null);
+    setCleanedTranscript(null);
+  };
+
   const handleCancelRecordingDescription = () => {
     scenarioRecordingRef.current = false;
     setIsRecordingDescription(false);
@@ -502,6 +508,7 @@ const App: React.FC = () => {
           rawTranscript={rawTranscript}
           cleanedTranscript={cleanedTranscript}
           onSelectTranscript={handleSelectTranscript}
+          onDismissTranscriptOptions={handleDismissTranscriptOptions}
         />
       )}
 
