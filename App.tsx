@@ -49,6 +49,7 @@ const App: React.FC = () => {
 
   // Ref to track if we're recording for scenario description
   const scenarioRecordingRef = useRef(false);
+  const scenarioSetupOpenRef = useRef(false);
 
   // Error flash state
   const [errorFlashVisible, setErrorFlashVisible] = useState(false);
@@ -184,6 +185,7 @@ const App: React.FC = () => {
 
   // Scenario mode handlers
   const handleOpenScenarioSetup = () => {
+    scenarioSetupOpenRef.current = true;
     setScenarioMode('setup');
     setScenarioDescription('');
     setScenarioName('');
@@ -194,6 +196,7 @@ const App: React.FC = () => {
   };
 
   const handleCloseScenarioSetup = () => {
+    scenarioSetupOpenRef.current = false;
     setScenarioMode('none');
     setScenarioDescription('');
     setScenarioName('');
@@ -236,10 +239,15 @@ const App: React.FC = () => {
         ? await transcribeAndCleanupAudio(base64, mimeType)
         : await transcribeAndCleanupAudioOpenAI(base64, mimeType);
 
+      // Modal was closed while transcription was in-flight; discard results
+      if (!scenarioSetupOpenRef.current) {
+        return;
+      }
+
       setRawTranscript(rawText);
       setCleanedTranscript(cleanedText);
 
-      if (!rawText.trim() && !cleanedText.trim()) {
+      if (!rawText.trim() || !cleanedText.trim()) {
         showErrorFlash('Transcription was empty. Please try again.');
         return;
       }
@@ -247,7 +255,9 @@ const App: React.FC = () => {
       setShowTranscriptOptions(true);
     } catch (error) {
       console.error('Error transcribing description:', error);
-      showErrorFlash('Failed to transcribe audio. Please try again.');
+      if (scenarioSetupOpenRef.current) {
+        showErrorFlash('Failed to transcribe audio. Please try again.');
+      }
     } finally {
       setIsTranscribingDescription(false);
     }
