@@ -17,14 +17,14 @@ interface MessageItemProps {
 
 const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
-  
+
   // Update playback rate when speed changes
   useEffect(() => {
     if (audioRef.current) {
       audioRef.current.playbackRate = playbackSpeed;
     }
   }, [playbackSpeed]);
-  
+
   // Register audio element ref
   useEffect(() => {
     onAudioRef(audioRef.current, message.timestamp);
@@ -33,17 +33,17 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
       onAudioRef(null, message.timestamp);
     };
   }, [onAudioRef, message.timestamp]);
-  
+
   // Auto-play when this message should auto-play
   useEffect(() => {
     if (!autoPlay || !audioRef.current || message.role !== 'model' || !message.audioUrl) {
       return;
     }
-    
+
     const audio = audioRef.current;
     let canplayHandler: (() => void) | null = null;
     let loadeddataHandler: (() => void) | null = null;
-    
+
     const playAudio = () => {
       if (audio && audio.readyState >= 2) {
         audio.play().catch(err => {
@@ -51,7 +51,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
         });
       }
     };
-    
+
     if (audio.readyState >= 2) {
       playAudio();
     } else {
@@ -61,11 +61,11 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
         }
       };
       loadeddataHandler = playAudio;
-      
+
       audio.addEventListener('canplay', canplayHandler, { once: true });
       audio.addEventListener('loadeddata', loadeddataHandler, { once: true });
     }
-    
+
     // Cleanup: remove event listeners
     return () => {
       if (audio && canplayHandler) {
@@ -76,10 +76,10 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
       }
     };
   }, [autoPlay, message.role, message.audioUrl]);
-  
+
   return (
     <div
-      className={`flex flex-col ${message.role === 'user' ? 'items-end' : 'items-start'}`}
+      className={`flex flex-col animate-slide-up ${message.role === 'user' ? 'items-end' : 'items-start'}`}
     >
       <div
         className={`max-w-[85%] px-4 py-3 rounded-2xl ${
@@ -105,14 +105,15 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
   );
 };
 
-export const ConversationHistory: React.FC<ConversationHistoryProps> = ({ 
-  messages, 
+export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
+  messages,
   onClear,
   playbackSpeed,
   autoPlayMessageId
 }) => {
   const audioElementsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
-  
+  const bottomRef = useRef<HTMLDivElement>(null);
+
   const handleAudioRef = useCallback((audio: HTMLAudioElement | null, messageId: number) => {
     if (audio) {
       audioElementsRef.current.set(messageId, audio);
@@ -120,7 +121,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
       audioElementsRef.current.delete(messageId);
     }
   }, []);
-  
+
   // Pause all audio except the one that should auto-play
   useEffect(() => {
     audioElementsRef.current.forEach((audio, messageId) => {
@@ -129,18 +130,27 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
       }
     });
   }, [autoPlayMessageId]);
-  
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    if (bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages.length]);
+
   if (messages.length === 0) {
     return null;
   }
 
-  // Messages are already in reverse chronological order (newest first)
+  // Messages are now in chronological order (oldest first, newest last)
   return (
-    <div className="w-full max-w-2xl mx-auto px-4 mt-8">
-      {/* History Divider */}
-      <div className="flex items-center gap-4 mb-4">
-        <div className="flex-1 h-px bg-slate-700"></div>
-        <span className="text-slate-500 text-xs font-medium uppercase tracking-widest">History</span>
+    <div className="flex flex-col w-full h-full">
+      {/* Clear button header */}
+      <div className="flex items-center justify-between px-4 py-2 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+          <span className="text-slate-500 text-xs font-medium uppercase tracking-widest">Conversation</span>
+        </div>
         <button
           onClick={onClear}
           className="text-slate-500 hover:text-slate-300 text-xs font-medium transition-colors px-2 py-1 rounded hover:bg-slate-800/50"
@@ -148,21 +158,21 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
         >
           Clear
         </button>
-        <div className="flex-1 h-px bg-slate-700"></div>
       </div>
 
-      {/* Scrollable Messages Container */}
-      <div className="max-h-64 overflow-y-auto pr-2 scrollbar-thin">
+      {/* Messages - scrollable area */}
+      <div className="flex-grow overflow-y-auto px-4 pb-4 chat-scrollbar">
         <div className="flex flex-col gap-4">
-        {messages.map((message, index) => (
-          <MessageItem
-            key={message.timestamp + '-' + index}
-            message={message}
-            playbackSpeed={playbackSpeed}
-            autoPlay={autoPlayMessageId === message.timestamp}
-            onAudioRef={handleAudioRef}
-          />
-        ))}
+          {messages.map((message, index) => (
+            <MessageItem
+              key={message.timestamp + '-' + index}
+              message={message}
+              playbackSpeed={playbackSpeed}
+              autoPlay={autoPlayMessageId === message.timestamp}
+              onAudioRef={handleAudioRef}
+            />
+          ))}
+          <div ref={bottomRef} />
         </div>
       </div>
     </div>

@@ -45,15 +45,21 @@ const App: React.FC = () => {
 
   // API Key management state
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
-  const [hasSkippedApiKeys, setHasSkippedApiKeys] = useState(false);
+  const [apiKeyCheckDone, setApiKeyCheckDone] = useState(false);
 
   // Ref to track if we're recording for scenario description
   const scenarioRecordingRef = useRef(false);
   const scenarioSetupOpenRef = useRef(false);
 
+  // Ref to track if processing was aborted by the user
+  const processingAbortedRef = useRef(false);
+
   // Error flash state
   const [errorFlashVisible, setErrorFlashVisible] = useState(false);
   const [errorFlashMessage, setErrorFlashMessage] = useState<string>('');
+
+  const hasMessages = messages.length > 0;
+  const selectedProviderMissingKey = apiKeyCheckDone && !hasApiKeyOrEnv(provider);
 
   /**
    * Shows an error flash message that auto-dismisses after 3 seconds
@@ -87,7 +93,9 @@ const App: React.FC = () => {
         // No API keys found, show modal
         setShowApiKeyModal(true);
       } else {
-        // At least one key exists, try to initialize Gemini if key is available
+        // At least one key exists, mark check as done
+        setApiKeyCheckDone(true);
+        // Try to initialize Gemini if key is available
         if (hasApiKeyOrEnv('gemini')) {
           try {
             await initializeSession();
@@ -110,14 +118,14 @@ const App: React.FC = () => {
         console.error('Failed to re-initialize Gemini session:', error);
       }
     }
-    setHasSkippedApiKeys(false);
+    setApiKeyCheckDone(true);
   };
 
   // Handle API key modal close
   const handleApiKeyModalClose = () => {
     setShowApiKeyModal(false);
-    // Update warning state based on current API key availability
-    setHasSkippedApiKeys(!hasAnyApiKey());
+    // Mark that user has been offered the chance to enter keys
+    setApiKeyCheckDone(true);
   };
 
   const handleCancelRecording = useCallback(() => {
@@ -189,6 +197,76 @@ const App: React.FC = () => {
 
     setAppState(AppState.RECORDING);
     await startRecording();
+  };
+
+  const handleStopRecording = async () => {
+    processingAbortedRef.current = false;
+    setAppState(AppState.PROCESSING);
+
+    try {
+      // Destructure base64 and mimeType from the hook
+      const { base64, mimeType } = await stopRecording();
+
+      // Check if user aborted while recording was stopping
+      if (processingAbortedRef.current) {
+        return;
+      }
+
+      const response = provider === 'gemini'
+        ? await sendVoiceMessage(base64, mimeType)
+        : await sendVoiceMessageOpenAI(base64, mimeType);
+
+      // Check if user aborted while waiting for API response
+      if (processingAbortedRef.current) {
+        if (response.audioUrl) {
+          URL.revokeObjectURL(response.audioUrl);
+        }
+        return;
+      }
+
+      const { audioUrl, userText, modelText } = response;
+
+      // Add messages to history (append for chronological order - newest last)
+      const timestamp = Date.now();
+      const modelTimestamp = timestamp + 1;
+      const newMessages: Message[] = [
+        ...messages,
+        { role: 'user', text: userText, timestamp },
+        { role: 'model', text: modelText, timestamp: modelTimestamp, audioUrl },
+      ];
+      setMessages(newMessages);
+
+      // Set the new model message to auto-play
+      setAutoPlayMessageId(modelTimestamp);
+
+      setAppState(AppState.IDLE);
+
+    } catch (error) {
+      // If aborted, don't show error
+      if (processingAbortedRef.current) {
+        return;
+      }
+      console.error("Interaction failed", error);
+      setAppState(AppState.ERROR);
+      showErrorFlash();
+    }
+  };
+
+  // Abort handler - cancels in-flight processing
+  const handleAbortProcessing = useCallback(() => {
+    processingAbortedRef.current = true;
+    setAppState(AppState.IDLE);
+  }, []);
+
+  // Orb click handler - toggle recording or abort processing
+  const handleOrbClick = () => {
+    if (appState === AppState.RECORDING) {
+      handleStopRecording();
+    } else if (appState === AppState.PROCESSING) {
+      handleAbortProcessing();
+    } else {
+      handleStartRecording();
+    }
   };
 
   const handleClearHistory = async () => {
@@ -399,43 +477,34 @@ const App: React.FC = () => {
     setAutoPlayMessageId(null);
   };
 
-  const handleStopRecording = async () => {
-    setAppState(AppState.PROCESSING);
-
-    try {
-      // Destructure base64 and mimeType from the hook
-      const { base64, mimeType } = await stopRecording();
-
-      const response = provider === 'gemini'
-        ? await sendVoiceMessage(base64, mimeType)
-        : await sendVoiceMessageOpenAI(base64, mimeType);
-
-      const { audioUrl, userText, modelText } = response;
-
-      // Add messages to history (prepend for reverse chronological order)
-      const timestamp = Date.now();
-      const modelTimestamp = timestamp + 1;
-      const newMessages: Message[] = [
-        { role: 'model', text: modelText, timestamp: modelTimestamp, audioUrl },
-        { role: 'user', text: userText, timestamp },
-        ...messages
-      ];
-      setMessages(newMessages);
-      
-      // Set the new model message to auto-play
-      setAutoPlayMessageId(modelTimestamp);
-
-      setAppState(AppState.IDLE);
-
-    } catch (error) {
-      console.error("Interaction failed", error);
-      setAppState(AppState.ERROR);
-      showErrorFlash();
+  // Status text for the landing view
+  const getStatusText = () => {
+    if (errorFlashVisible) {
+      return <p className="text-red-400 font-medium animate-pulse">{errorFlashMessage}</p>;
     }
+    if (appState === AppState.ERROR) {
+      return <p className="text-red-400 font-medium animate-pulse">Connection Error. Please try again.</p>;
+    }
+    if (selectedProviderMissingKey) {
+      return <p className="text-yellow-400 font-medium text-sm">Warning: No {provider === 'gemini' ? 'Gemini' : 'OpenAI'} API key configured.</p>;
+    }
+    if (appState === AppState.PROCESSING) {
+      return <p className="text-slate-400 font-medium">Thinking...</p>;
+    }
+    if (appState === AppState.RECORDING) {
+      return <p className="text-red-400 font-medium">Listening... Tap to stop</p>;
+    }
+    if (appState === AppState.PLAYING) {
+      return <p className="text-sky-400 font-medium">Speaking...</p>;
+    }
+    if (appState === AppState.IDLE && hasStarted) {
+      return <p className="text-slate-500">Ready. Tap the mic to speak.</p>;
+    }
+    return <p className="text-slate-500">Tap the mic to start your session.</p>;
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center relative overflow-hidden">
+    <div className="h-screen bg-slate-900 flex flex-col relative overflow-hidden">
 
       {/* Background Ambience */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
@@ -444,17 +513,17 @@ const App: React.FC = () => {
       </div>
 
       {/* Header */}
-      <header className="w-full p-6 flex flex-col sm:flex-row justify-between items-center z-10 gap-4">
+      <header className="w-full p-4 sm:p-6 flex flex-row justify-between items-center z-10 flex-shrink-0">
         <div className="flex items-center gap-2">
           <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
           <h1 className="text-xl font-bold tracking-tight text-slate-100">Parle</h1>
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 bg-slate-800/50 p-1 rounded-full border border-slate-700/50 backdrop-blur-sm">
+          <div className="flex items-center gap-1 sm:gap-2 bg-slate-800/50 p-1 rounded-full border border-slate-700/50 backdrop-blur-sm">
             <button
               onClick={() => setProvider('gemini')}
-              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${provider === 'gemini'
+              className={`px-3 sm:px-4 py-1.5 rounded-full text-xs font-medium transition-all ${provider === 'gemini'
                 ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
                 : 'text-slate-400 hover:text-slate-200'
                 }`}
@@ -463,7 +532,7 @@ const App: React.FC = () => {
             </button>
             <button
               onClick={() => setProvider('openai')}
-              className={`px-4 py-1.5 rounded-full text-xs font-medium transition-all ${provider === 'openai'
+              className={`px-3 sm:px-4 py-1.5 rounded-full text-xs font-medium transition-all ${provider === 'openai'
                 ? 'bg-green-600 text-white shadow-lg shadow-green-500/20'
                 : 'text-slate-400 hover:text-slate-200'
                 }`}
@@ -471,7 +540,7 @@ const App: React.FC = () => {
               OpenAI
             </button>
           </div>
-          <button 
+          <button
             onClick={() => setShowApiKeyModal(true)}
             className="p-2 text-slate-400 hover:text-white transition-colors bg-slate-800/50 rounded-full border border-slate-700/50"
             title="Settings"
@@ -482,60 +551,106 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Main Visualizer Area */}
-      <main className="flex-grow flex flex-col items-center w-full max-w-2xl px-4 z-10 pb-12 pt-8 overflow-y-auto">
+      {/* Main Content Area - switches between landing and chat layouts */}
+      {!hasMessages ? (
+        /* ============ LANDING VIEW ============ */
+        <main className="flex-grow min-h-0 overflow-y-auto flex flex-col items-center w-full max-w-2xl mx-auto px-4 z-10 pb-8">
 
-        <div className="mb-12 relative">
-          <Orb state={appState} volume={volume} />
-        </div>
+          {/* Spacer pushes content to bottom; collapses when viewport is short to allow scrolling */}
+          <div className="flex-grow"></div>
 
-        {/* Status Text */}
-        <div className="h-8 mb-8 text-center">
-          {errorFlashVisible && (
-            <p className="text-red-400 font-medium animate-pulse">{errorFlashMessage}</p>
-          )}
-          {!errorFlashVisible && appState === AppState.ERROR && (
-            <p className="text-red-400 font-medium animate-pulse">Connection Error. Please try again.</p>
-          )}
-          {!errorFlashVisible && hasSkippedApiKeys && (
-            <p className="text-yellow-400 font-medium">Warning: No API keys configured. Core functionality will not work.</p>
-          )}
-          {!errorFlashVisible && appState === AppState.IDLE && hasStarted && !hasSkippedApiKeys && (
-            <p className="text-slate-500">Ready. Press the microphone to speak.</p>
-          )}
-          {!errorFlashVisible && !hasStarted && !hasSkippedApiKeys && (
-            <p className="text-slate-500">Tap the mic to start your session.</p>
-          )}
-        </div>
+          {/* Controls (speed + scenario) — above the orb */}
+          <Controls
+            appState={appState}
+            playbackSpeed={playbackSpeed}
+            onSpeedChange={handleSpeedChange}
+            onCancelRecording={handleCancelRecording}
+            scenarioMode={scenarioMode}
+            activeScenario={activeScenario}
+            onOpenScenarioSetup={handleOpenScenarioSetup}
+            onExitScenario={handleExitScenario}
+          />
 
-        {/* Controls */}
-        <Controls
-          appState={appState}
-          playbackSpeed={playbackSpeed}
-          onSpeedChange={handleSpeedChange}
-          onStartRecording={handleStartRecording}
-          onStopRecording={handleStopRecording}
-          onCancelRecording={handleCancelRecording}
-          scenarioMode={scenarioMode}
-          activeScenario={activeScenario}
-          onOpenScenarioSetup={handleOpenScenarioSetup}
-          onExitScenario={handleExitScenario}
-        />
+          {/* Orb-Mic — at the bottom, closest to thumb */}
+          <div className="mt-8">
+            <Orb
+              state={appState}
+              volume={volume}
+              size="large"
+              onClick={handleOrbClick}
+            />
+          </div>
 
-        {/* Conversation History */}
-        <ConversationHistory 
-          messages={messages} 
-          onClear={handleClearHistory}
-          playbackSpeed={playbackSpeed}
-          autoPlayMessageId={autoPlayMessageId}
-        />
+          {/* Status Text — below the orb */}
+          <div className="h-8 my-2 text-center">
+            {getStatusText()}
+          </div>
 
-      </main>
+          {/* Cancel Button — between status text and footer, always reserves space */}
+          <button
+            onClick={handleCancelRecording}
+            className={`mt-2 px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors rounded-lg hover:bg-slate-800/50 border border-slate-700/50 ${appState === AppState.RECORDING ? '' : 'invisible'}`}
+            tabIndex={appState === AppState.RECORDING ? 0 : -1}
+          >
+            Cancel (Esc)
+          </button>
 
-      {/* Footer Info */}
-      <footer className="p-4 text-center text-slate-600 text-xs z-10">
-        <p>Built by <a href="https://www.linkedin.com/in/uchechukwu-ozoemena/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">CodeWithOz</a></p>
-      </footer>
+          {/* Footer Info */}
+          <div className="pt-1 text-center text-slate-600 text-xs">
+            <p>Built by <a href="https://www.linkedin.com/in/uchechukwu-ozoemena/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">CodeWithOz</a></p>
+          </div>
+        </main>
+      ) : (
+        /* ============ CHAT VIEW ============ */
+        <>
+          {/* Chat area - fills available space */}
+          <main className="flex-grow flex flex-col w-full max-w-2xl mx-auto z-10 min-h-0">
+            <ConversationHistory
+              messages={messages}
+              onClear={handleClearHistory}
+              playbackSpeed={playbackSpeed}
+              autoPlayMessageId={autoPlayMessageId}
+            />
+          </main>
+
+          {/* Sticky Footer - orb-mic + controls */}
+          <div className="w-full z-20 flex-shrink-0 border-t border-slate-800 bg-slate-900/95 backdrop-blur-xl">
+            {/* Error flash in footer */}
+            {errorFlashVisible && (
+              <div className="px-4 py-2 text-center">
+                <p className="text-red-400 text-xs font-medium animate-pulse">{errorFlashMessage}</p>
+              </div>
+            )}
+
+            <div className="max-w-2xl mx-auto px-4 py-3 pb-6 flex items-center gap-3">
+              {/* Controls on the left */}
+              <div className="flex-grow min-w-0">
+                <Controls
+                  appState={appState}
+                  playbackSpeed={playbackSpeed}
+                  onSpeedChange={handleSpeedChange}
+                  onCancelRecording={handleCancelRecording}
+                  scenarioMode={scenarioMode}
+                  activeScenario={activeScenario}
+                  onOpenScenarioSetup={handleOpenScenarioSetup}
+                  onExitScenario={handleExitScenario}
+                  compact
+                />
+              </div>
+
+              {/* Orb-Mic on the right */}
+              <div className="flex-shrink-0">
+                <Orb
+                  state={appState}
+                  volume={volume}
+                  size="small"
+                  onClick={handleOrbClick}
+                />
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Scenario Setup Modal */}
       {scenarioMode === 'setup' && (
