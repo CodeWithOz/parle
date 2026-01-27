@@ -66,9 +66,9 @@ export const Orb: React.FC<OrbProps> = ({ state, volume = 0, size = 'large', onC
   return (
     <button
       onClick={onClick}
-      disabled={disabled || isProcessing}
+      disabled={disabled}
       className={`relative flex items-center justify-center ${containerClass} cursor-pointer transition-transform duration-150 active:scale-95 disabled:cursor-not-allowed focus:outline-none`}
-      aria-label={isRecording ? 'Stop recording' : 'Start recording'}
+      aria-label={isRecording ? 'Stop recording' : isProcessing ? 'Stop processing' : 'Start recording'}
     >
       {/* Orb glow ring */}
       <div
@@ -87,10 +87,8 @@ export const Orb: React.FC<OrbProps> = ({ state, volume = 0, size = 'large', onC
           // Stop icon (square)
           <div className={`${isLarge ? 'w-7 h-7' : 'w-4 h-4'} bg-white rounded-sm`}></div>
         ) : isProcessing ? (
-          // Processing spinner dots
-          <div className={`${iconClass} flex items-center justify-center`}>
-            <div className="w-2 h-2 bg-slate-600 rounded-full animate-pulse"></div>
-          </div>
+          // Stop icon during processing (allows abort)
+          <div className={`${isLarge ? 'w-7 h-7' : 'w-4 h-4'} bg-slate-600 rounded-sm`}></div>
         ) : (
           // Mic icon
           <svg xmlns="http://www.w3.org/2000/svg" className={`${iconClass} text-white`} viewBox="0 0 20 20" fill="currentColor">

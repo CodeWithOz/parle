@@ -125,7 +125,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
       <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-slate-700">
-          <h2 className="text-xl font-bold text-slate-100">Create Practice Scenario</h2>
+          <h2 className="text-xl font-bold text-slate-100">Practice Role Play</h2>
           <button
             onClick={onClose}
             aria-label="Close"
