@@ -225,7 +225,14 @@ export const transcribeAndCleanupAudio = async (
     throw new Error("Transcription returned empty response");
   }
 
-  const parsed = JSON.parse(text);
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse Gemini transcription response: ${errorMessage}. Raw response: ${text}`);
+  }
+
   return {
     rawTranscript: parsed.rawTranscript || "",
     cleanedTranscript: parsed.cleanedTranscript || "",
