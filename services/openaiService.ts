@@ -242,7 +242,15 @@ export const transcribeAndCleanupAudioOpenAI = async (
     throw new Error("OpenAI returned empty response for transcription");
   }
 
-  const parsed = JSON.parse(json.choices[0].message.content);
+  const content = json.choices[0].message.content;
+  let parsed;
+  try {
+    parsed = JSON.parse(content);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse OpenAI transcription response: ${errorMessage}. Raw content: ${content}`);
+  }
+
   return {
     rawTranscript: parsed.rawTranscript || "",
     cleanedTranscript: parsed.cleanedTranscript || "",
