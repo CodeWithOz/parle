@@ -1,4 +1,4 @@
-import { GoogleGenAI, Chat, Modality } from "@google/genai";
+import { GoogleGenAI, Chat, Modality, Type } from "@google/genai";
 import { base64ToBytes, pcmToWav } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
@@ -165,6 +165,71 @@ export const transcribeAudio = async (audioBase64: string, mimeType: string): Pr
     throw new Error("Transcription returned empty text");
   }
   return text;
+};
+
+/**
+ * Transcribes audio and produces both a raw transcript and a cleaned-up version
+ * in a single LLM call using structured output.
+ */
+export const transcribeAndCleanupAudio = async (
+  audioBase64: string,
+  mimeType: string
+): Promise<{ rawTranscript: string; cleanedTranscript: string }> => {
+  ensureAiInitialized();
+
+  const response = await ai!.models.generateContent({
+    model: 'gemini-2.0-flash-exp',
+    contents: [{
+      parts: [
+        {
+          text: `Listen to this audio and produce two versions of the transcript:
+
+1. "rawTranscript": Transcribe the audio exactly as spoken, including all filler words, false starts, repetitions, self-corrections, and hesitations.
+
+2. "cleanedTranscript": A cleaned-up version of the same transcript with the following removed:
+   - Filler words (um, uh, like, you know, so, etc.)
+   - False starts and repetitions
+   - Self-corrections and clarifications (e.g., "I mean", "actually", "wait no")
+   - Verbal pauses and hesitations
+   The cleaned version should preserve the core meaning and intent, reading smoothly while staying natural.`
+        },
+        {
+          inlineData: {
+            data: audioBase64,
+            mimeType: mimeType,
+          },
+        },
+      ],
+    }],
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          rawTranscript: {
+            type: Type.STRING,
+            description: 'Exact transcription of the audio as spoken, including all filler words and hesitations',
+          },
+          cleanedTranscript: {
+            type: Type.STRING,
+            description: 'Cleaned-up version with fillers, false starts, and self-corrections removed',
+          },
+        },
+        required: ['rawTranscript', 'cleanedTranscript'],
+      },
+    },
+  });
+
+  const text = response.text || "";
+  if (!text.trim()) {
+    throw new Error("Transcription returned empty response");
+  }
+
+  const parsed = JSON.parse(text);
+  return {
+    rawTranscript: parsed.rawTranscript || "",
+    cleanedTranscript: parsed.cleanedTranscript || "",
+  };
 };
 
 /**
