@@ -340,9 +340,10 @@ export const sendVoiceMessage = async (
     syncedMessageCount += 2;
 
     // Step 3: Send Text Response to TTS Model to get Audio
+    const systemPrompt = `You are to read out the following text in a friendly, encouraging tone. When speaking French, use a natural French accent. You MUST output ONLY AUDIO, not TEXT. Again, ONLY AUDIO, not TEXT. Here's the text enclosed in <text> tags: <text>${modelText}</text>`;
     const ttsResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash-preview-tts',
-        contents: [{ parts: [{ text: modelText }] }],
+      contents: [{ parts: [{ text: systemPrompt }] }],
         config: {
             responseModalities: [Modality.AUDIO],
             speechConfig: {
