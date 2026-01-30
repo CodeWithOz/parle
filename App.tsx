@@ -5,7 +5,7 @@ import { useDocumentHead } from './hooks/useDocumentHead';
 import { initializeSession, sendVoiceMessage, resetSession, setScenario, processScenarioDescription, transcribeAndCleanupAudio } from './services/geminiService';
 import { sendVoiceMessageOpenAI, setScenarioOpenAI, processScenarioDescriptionOpenAI, transcribeAndCleanupAudioOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
-import { hasAnyApiKey, hasApiKeyOrEnv } from './services/apiKeyService';
+import { hasApiKeyOrEnv } from './services/apiKeyService';
 import { Orb } from './components/Orb';
 import { Controls } from './components/Controls';
 import { ConversationHistory } from './components/ConversationHistory';
@@ -86,22 +86,15 @@ const App: React.FC = () => {
     requestMicrophonePermission
   } = useAudio();
 
-  // Check for API keys on mount and show modal if missing
+  // Check for API keys on mount; never show modal on load so user can see the app first
   useEffect(() => {
     const checkApiKeys = async () => {
-      if (!hasAnyApiKey()) {
-        // No API keys found, show modal
-        setShowApiKeyModal(true);
-      } else {
-        // At least one key exists, mark check as done
-        setApiKeyCheckDone(true);
-        // Try to initialize Gemini if key is available
-        if (hasApiKeyOrEnv('gemini')) {
-          try {
-            await initializeSession();
-          } catch (error) {
-            console.error('Failed to initialize Gemini session:', error);
-          }
+      setApiKeyCheckDone(true);
+      if (hasApiKeyOrEnv('gemini')) {
+        try {
+          await initializeSession();
+        } catch (error) {
+          console.error('Failed to initialize Gemini session:', error);
         }
       }
     };
@@ -187,6 +180,10 @@ const App: React.FC = () => {
   }, [checkMicrophonePermission, requestMicrophonePermission]);
 
   const handleStartRecording = async () => {
+    if (!hasApiKeyOrEnv(provider)) {
+      setShowApiKeyModal(true);
+      return;
+    }
     if (!hasStarted) await handleStartInteraction();
 
     // Check and request microphone permission before starting
@@ -325,6 +322,10 @@ const App: React.FC = () => {
   };
 
   const handleStartRecordingDescription = async () => {
+    if (!hasApiKeyOrEnv(provider)) {
+      setShowApiKeyModal(true);
+      return;
+    }
     try {
       getAudioContext();
 
@@ -405,6 +406,10 @@ const App: React.FC = () => {
   };
 
   const handleSubmitScenarioDescription = async (description: string, name: string) => {
+    if (!hasApiKeyOrEnv(provider)) {
+      setShowApiKeyModal(true);
+      return;
+    }
     setIsProcessingScenario(true);
 
     try {
