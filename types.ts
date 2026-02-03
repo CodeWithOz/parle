@@ -14,12 +14,14 @@ export interface Message {
   text: string;
   timestamp: number;
   audioUrl?: string; // Blob URL for the audio
+  hint?: string; // Optional hint for what the user could say next (in roleplay mode)
 }
 
 export interface VoiceResponse {
   audioUrl: string; // Blob URL for the audio
   userText: string;
   modelText: string;
+  hint?: string; // Optional hint for what the user could say next (in roleplay mode)
 }
 
 export type ScenarioMode = 'none' | 'setup' | 'practice';
