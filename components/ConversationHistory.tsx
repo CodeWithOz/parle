@@ -82,7 +82,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
       className={`flex flex-col animate-slide-up ${message.role === 'user' ? 'items-end' : 'items-start'}`}
     >
       <div
-        className={`max-w-[85%] px-4 py-3 rounded-2xl ${
+        className={`max-w-[85%] min-w-[60%] px-4 py-3 rounded-2xl ${
           message.role === 'user'
             ? 'bg-blue-600/80 text-white rounded-br-md'
             : 'bg-slate-800/80 text-slate-200 border border-slate-700/50 rounded-bl-md'
