@@ -21,11 +21,6 @@ export const ConversationHint: React.FC<ConversationHintProps> = ({ hint, isVisi
     return null;
   }
 
-  // Parse the hint to separate French and English parts
-  const lines = hint.split('\n').filter(line => line.trim());
-  const frenchHint = lines[0] || hint;
-  const englishHint = lines[1] || '';
-
   return (
     <div className="animate-hint-fade-in px-4 py-2">
       <div className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/50 rounded-xl overflow-hidden">
@@ -69,13 +64,8 @@ export const ConversationHint: React.FC<ConversationHintProps> = ({ hint, isVisi
           <div className="px-3 pb-3 animate-hint-expand">
             <div className="pt-1 border-t border-slate-700/50">
               <p className="text-slate-200 text-sm mt-2 leading-relaxed">
-                {frenchHint}
+                {hint}
               </p>
-              {englishHint && (
-                <p className="text-slate-500 text-xs mt-1.5 italic">
-                  {englishHint}
-                </p>
-              )}
             </div>
           </div>
         )}

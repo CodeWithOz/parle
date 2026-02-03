@@ -112,15 +112,14 @@ PROACTIVE HINTS (REQUIRED):
 At the END of EVERY response, you MUST include a hint section in EXACTLY this format:
 
 ---HINT---
-[A short French phrase the user could say next to continue the conversation naturally, based on the scenario context]
-[English translation of the hint]
+[Brief description of what the user should say or ask next, in English - focus on the TOPIC or ACTION, not the exact French words]
 ---END_HINT---
 
 The hint should:
-- Be a natural next response the user might give in this scenario
-- Be appropriate for beginner to intermediate French learners
-- Progress the scenario forward logically
-- Be 1-2 sentences maximum
+- Describe WHAT to say, not HOW to say it (e.g., "Ask about opening hours" NOT "Je voudrais savoir...")
+- Be action-oriented (e.g., "Thank them and say goodbye", "Ask for the price", "Confirm your order")
+- Guide the conversation direction without giving away the French words
+- Be brief - just a few words describing the next logical step
 
 START THE SCENARIO:
 Begin by greeting the user in character and initiating the scenario. For example, if it's a bakery scenario, greet them as the baker would.`;

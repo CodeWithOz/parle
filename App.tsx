@@ -194,9 +194,6 @@ const App: React.FC = () => {
       return;
     }
 
-    // Clear the hint when user starts recording
-    setCurrentHint(null);
-
     setAppState(AppState.RECORDING);
     await startRecording();
   };
