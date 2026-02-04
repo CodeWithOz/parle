@@ -12,6 +12,7 @@ import { ConversationHistory } from './components/ConversationHistory';
 import { ScenarioSetup } from './components/ScenarioSetup';
 import { ApiKeySetup } from './components/ApiKeySetup';
 import { GearIcon } from './components/icons/GearIcon';
+import { ConversationHint } from './components/ConversationHint';
 
 const App: React.FC = () => {
   // SEO metadata - similar to Next.js metadata export
@@ -29,6 +30,7 @@ const App: React.FC = () => {
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [autoPlayMessageId, setAutoPlayMessageId] = useState<number | null>(null);
+  const [currentHint, setCurrentHint] = useState<string | null>(null);
 
   // Scenario mode state
   const [scenarioMode, setScenarioMode] = useState<ScenarioMode>('none');
@@ -228,7 +230,7 @@ const App: React.FC = () => {
         return;
       }
 
-      const { audioUrl, userText, modelText } = response;
+      const { audioUrl, userText, modelText, hint } = response;
 
       // Add messages to history (append for chronological order - newest last)
       const timestamp = Date.now();
@@ -236,9 +238,14 @@ const App: React.FC = () => {
       const newMessages: Message[] = [
         ...messages,
         { role: 'user', text: userText, timestamp },
-        { role: 'model', text: modelText, timestamp: modelTimestamp, audioUrl },
+        { role: 'model', text: modelText, timestamp: modelTimestamp, audioUrl, hint },
       ];
       setMessages(newMessages);
+
+      // Update current hint (only in scenario mode)
+      if (scenarioMode === 'practice' && hint) {
+        setCurrentHint(hint);
+      }
 
       // Set the new model message to auto-play
       setAutoPlayMessageId(modelTimestamp);
@@ -331,9 +338,10 @@ const App: React.FC = () => {
 
       // Clear shared conversation history
       clearHistory();
-      // Clear UI messages
+      // Clear UI messages and hint
       setMessages([]);
       setAutoPlayMessageId(null);
+      setCurrentHint(null);
       // Always reset Gemini session when clearing history, preserving scenario if active
       resetSession(activeScenario);
     } catch (error) {
@@ -343,6 +351,7 @@ const App: React.FC = () => {
       // Still clear UI messages even if resetSession fails
       setMessages([]);
       setAutoPlayMessageId(null);
+      setCurrentHint(null);
     }
   };
 
@@ -577,10 +586,11 @@ const App: React.FC = () => {
     setScenario(null);
     setScenarioOpenAI(null);
 
-    // Clear conversation
+    // Clear conversation and hint
     clearHistory();
     setMessages([]);
     setAutoPlayMessageId(null);
+    setCurrentHint(null);
   };
 
   // Status text for the landing view
@@ -733,6 +743,13 @@ const App: React.FC = () => {
               playbackSpeed={playbackSpeed}
               autoPlayMessageId={autoPlayMessageId}
             />
+            {/* Conversation hint - shown only in scenario practice mode; flex-shrink-0 keeps it visible below the scrollable history */}
+            <div className="flex-shrink-0">
+              <ConversationHint
+                hint={currentHint}
+                isVisible={scenarioMode === 'practice' && appState === AppState.IDLE}
+              />
+            </div>
           </main>
 
           {/* Sticky Footer - orb-mic + controls */}

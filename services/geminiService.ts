@@ -2,7 +2,7 @@ import { GoogleGenAI, Chat, Modality, Type } from "@google/genai";
 import { base64ToBytes, pcmToWav } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
-import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt } from "./scenarioService";
+import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
 
 // Gemini TTS output format constants
@@ -327,19 +327,24 @@ export const sendVoiceMessage = async (
       ],
     });
 
-    const modelText = chatResponse.text; // Access text property directly
+    const rawModelText = chatResponse.text; // Access text property directly
 
-    if (!modelText) {
+    if (!rawModelText) {
       throw new Error("No text response received from chat model.");
     }
 
-    // Sync to shared conversation history
+    // Parse hint from response (only present in scenario mode)
+    const { text: modelText, hint } = activeScenario
+      ? parseHintFromResponse(rawModelText)
+      : { text: rawModelText, hint: null };
+
+    // Sync to shared conversation history (use text without hint markers)
     addToHistory("user", userText);
     addToHistory("assistant", modelText);
     // Update sync counter - we've now synced this new message pair
     syncedMessageCount += 2;
 
-    // Step 3: Send Text Response to TTS Model to get Audio
+    // Step 3: Send Text Response to TTS Model to get Audio (use text without hint)
     const systemPrompt = `You are to read out the following text in a friendly, encouraging tone. When speaking French, use a natural French accent. You MUST output ONLY AUDIO, not TEXT. Again, ONLY AUDIO, not TEXT. Here's the text enclosed in <text> tags: <text>${modelText}</text>`;
     const ttsResponse = await ai.models.generateContent({
         model: 'gemini-2.5-flash-preview-tts',
@@ -381,7 +386,8 @@ export const sendVoiceMessage = async (
     return {
       audioUrl,
       userText,
-      modelText
+      modelText,
+      hint: hint || undefined
     };
 
   } catch (error) {

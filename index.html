@@ -82,6 +82,33 @@
       .chat-scrollbar::-webkit-scrollbar-thumb:hover {
         background: rgba(100, 116, 139, 0.5);
       }
+      /* Hint animations */
+      @keyframes hint-fade-in {
+        from {
+          opacity: 0;
+          transform: translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      @keyframes hint-expand {
+        from {
+          opacity: 0;
+          max-height: 0;
+        }
+        to {
+          opacity: 1;
+          max-height: 200px;
+        }
+      }
+      .animate-hint-fade-in {
+        animation: hint-fade-in 0.3s ease-out;
+      }
+      .animate-hint-expand {
+        animation: hint-expand 0.2s ease-out;
+      }
     </style>
   <script type="importmap">
 {

@@ -101,15 +101,44 @@ GUIDELINES:
    - Do not say "Here is the translation" or explain the format
 6. When the scenario reaches its natural end, congratulate the user and offer to practice again or try a variation
 
-HINTS:
+ON-DEMAND HINTS:
 If the user says "hint", "help", "aide", "je ne sais pas", or seems stuck (very short response, hesitation words like "um", "euh", "uh"), provide a helpful suggestion in this format:
 - First say (in character): "Peut-être vous voulez dire..." (Perhaps you want to say...)
 - Then give a hint in French (what they might say next)
 - Then the English translation of the hint
 - Then wait for them to try again
 
+PROACTIVE HINTS (REQUIRED):
+At the END of EVERY response, you MUST include a hint section in EXACTLY this format:
+
+---HINT---
+[Brief description of what the user should say or ask next, in English - focus on the TOPIC or ACTION, not the exact French words]
+---END_HINT---
+
+The hint should:
+- Describe WHAT to say, not HOW to say it (e.g., "Ask about opening hours" NOT "Je voudrais savoir...")
+- Be action-oriented (e.g., "Thank them and say goodbye", "Ask for the price", "Confirm your order")
+- Guide the conversation direction without giving away the French words
+- Be brief - just a few words describing the next logical step
+
 START THE SCENARIO:
 Begin by greeting the user in character and initiating the scenario. For example, if it's a bakery scenario, greet them as the baker would.`;
+};
+
+/**
+ * Parse the hint section from an AI response
+ * Returns the hint text and the response without the hint section
+ */
+export const parseHintFromResponse = (response: string): { text: string; hint: string | null } => {
+  const hintMatch = response.match(/---HINT---\s*([\s\S]*?)\s*---END_HINT---/);
+
+  if (hintMatch) {
+    const hint = hintMatch[1].trim();
+    const text = response.replace(/---HINT---[\s\S]*?---END_HINT---/, '').trim();
+    return { text, hint };
+  }
+
+  return { text: response, hint: null };
 };
 
 /**

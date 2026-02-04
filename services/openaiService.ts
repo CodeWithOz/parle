@@ -1,7 +1,7 @@
 import { base64ToBlob } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
-import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt } from "./scenarioService";
+import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
 
 const SYSTEM_INSTRUCTION = `
@@ -335,13 +335,18 @@ export const sendVoiceMessageOpenAI = async (
       throw new Error(`OpenAI Chat Error: Missing or invalid message content. Status: ${chatRes.status}`);
     }
 
-    const modelText = firstChoice.message.content;
+    const rawModelText = firstChoice.message.content;
 
-    // Add user and assistant messages to shared conversation history
+    // Parse hint from response (only present in scenario mode)
+    const { text: modelText, hint } = activeScenario
+      ? parseHintFromResponse(rawModelText)
+      : { text: rawModelText, hint: null };
+
+    // Add user and assistant messages to shared conversation history (use text without hint markers)
     addToHistory("user", userText);
     addToHistory("assistant", modelText);
 
-    // --- Step 3: TTS (gpt-4o-mini-tts) ---
+    // --- Step 3: TTS (gpt-4o-mini-tts) --- (use text without hint)
     const ttsRes = await fetch("https://api.openai.com/v1/audio/speech", {
       method: "POST",
       headers: {
@@ -368,7 +373,8 @@ export const sendVoiceMessageOpenAI = async (
     return {
       audioUrl,
       userText,
-      modelText
+      modelText,
+      hint: hint || undefined
     };
 
   } catch (error) {
