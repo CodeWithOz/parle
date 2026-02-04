@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AppState, Provider, Message, ScenarioMode, Scenario } from './types';
+import { AppState, Provider, Message, ScenarioMode, Scenario, AudioData } from './types';
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
 import { initializeSession, sendVoiceMessage, resetSession, setScenario, processScenarioDescription, transcribeAndCleanupAudio } from './services/geminiService';
@@ -42,6 +42,12 @@ const App: React.FC = () => {
   const [showTranscriptOptions, setShowTranscriptOptions] = useState(false);
   const [rawTranscript, setRawTranscript] = useState<string | null>(null);
   const [cleanedTranscript, setCleanedTranscript] = useState<string | null>(null);
+
+  // Audio retry state - stores last recorded audio for retry on failure
+  const [lastChatAudio, setLastChatAudio] = useState<AudioData | null>(null);
+  const [lastDescriptionAudio, setLastDescriptionAudio] = useState<AudioData | null>(null);
+  const [canRetryChatAudio, setCanRetryChatAudio] = useState(false);
+  const [canRetryDescriptionAudio, setCanRetryDescriptionAudio] = useState(false);
 
   // API Key management state
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -192,22 +198,23 @@ const App: React.FC = () => {
       return;
     }
 
+    // Clear retry state when starting a new recording
+    setCanRetryChatAudio(false);
+    setLastChatAudio(null);
+
     setAppState(AppState.RECORDING);
     await startRecording();
   };
 
-  const handleStopRecording = async () => {
+  /**
+   * Processes audio data (from recording or retry) and sends it to the AI
+   */
+  const processAudioMessage = async (audioData: AudioData) => {
     processingAbortedRef.current = false;
     setAppState(AppState.PROCESSING);
 
     try {
-      // Destructure base64 and mimeType from the hook
-      const { base64, mimeType } = await stopRecording();
-
-      // Check if user aborted while recording was stopping
-      if (processingAbortedRef.current) {
-        return;
-      }
+      const { base64, mimeType } = audioData;
 
       const response = provider === 'gemini'
         ? await sendVoiceMessage(base64, mimeType)
@@ -236,7 +243,43 @@ const App: React.FC = () => {
       // Set the new model message to auto-play
       setAutoPlayMessageId(modelTimestamp);
 
+      // Success - clear retry state
+      setCanRetryChatAudio(false);
+      setLastChatAudio(null);
       setAppState(AppState.IDLE);
+
+    } catch (error) {
+      // If aborted, don't show error
+      if (processingAbortedRef.current) {
+        return;
+      }
+      console.error("Interaction failed", error);
+      // Enable retry with the stored audio
+      setCanRetryChatAudio(true);
+      setAppState(AppState.ERROR);
+      showErrorFlash();
+    }
+  };
+
+  const handleStopRecording = async () => {
+    processingAbortedRef.current = false;
+    setAppState(AppState.PROCESSING);
+
+    try {
+      // Destructure base64 and mimeType from the hook
+      const { base64, mimeType } = await stopRecording();
+
+      // Check if user aborted while recording was stopping
+      if (processingAbortedRef.current) {
+        return;
+      }
+
+      // Store the audio for potential retry
+      const audioData: AudioData = { base64, mimeType };
+      setLastChatAudio(audioData);
+
+      // Process the audio
+      await processAudioMessage(audioData);
 
     } catch (error) {
       // If aborted, don't show error
@@ -247,6 +290,17 @@ const App: React.FC = () => {
       setAppState(AppState.ERROR);
       showErrorFlash();
     }
+  };
+
+  /**
+   * Retry sending the last recorded chat audio
+   */
+  const handleRetryChatAudio = async () => {
+    if (!lastChatAudio) {
+      console.error("No audio to retry");
+      return;
+    }
+    await processAudioMessage(lastChatAudio);
   };
 
   // Abort handler - cancels in-flight processing
@@ -315,6 +369,9 @@ const App: React.FC = () => {
     setShowTranscriptOptions(false);
     setRawTranscript(null);
     setCleanedTranscript(null);
+    // Clear description retry state
+    setCanRetryDescriptionAudio(false);
+    setLastDescriptionAudio(null);
     if (scenarioRecordingRef.current) {
       cancelRecording();
       scenarioRecordingRef.current = false;
@@ -335,6 +392,10 @@ const App: React.FC = () => {
         return;
       }
 
+      // Clear retry state when starting a new recording
+      setCanRetryDescriptionAudio(false);
+      setLastDescriptionAudio(null);
+
       scenarioRecordingRef.current = true;
       setIsRecordingDescription(true);
       await startRecording();
@@ -346,13 +407,14 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStopRecordingDescription = async (): Promise<void> => {
-    scenarioRecordingRef.current = false;
-    setIsRecordingDescription(false);
+  /**
+   * Process description audio (from recording or retry) and transcribe it
+   */
+  const processDescriptionAudio = async (audioData: AudioData): Promise<void> => {
     setIsTranscribingDescription(true);
 
     try {
-      const { base64, mimeType } = await stopRecording();
+      const { base64, mimeType } = audioData;
 
       // Single LLM call to transcribe and clean up the audio
       const { rawTranscript: rawText, cleanedTranscript: cleanedText } = provider === 'gemini'
@@ -369,18 +431,57 @@ const App: React.FC = () => {
 
       if (!rawText.trim() || !cleanedText.trim()) {
         showErrorFlash('Transcription was empty. Please try again.');
+        // Keep retry available for empty transcription
+        setCanRetryDescriptionAudio(true);
         return;
       }
 
+      // Success - clear retry state
+      setCanRetryDescriptionAudio(false);
+      setLastDescriptionAudio(null);
       setShowTranscriptOptions(true);
     } catch (error) {
       console.error('Error transcribing description:', error);
       if (scenarioSetupOpenRef.current) {
+        // Enable retry with the stored audio
+        setCanRetryDescriptionAudio(true);
         showErrorFlash('Failed to transcribe audio. Please try again.');
       }
     } finally {
       setIsTranscribingDescription(false);
     }
+  };
+
+  const handleStopRecordingDescription = async (): Promise<void> => {
+    scenarioRecordingRef.current = false;
+    setIsRecordingDescription(false);
+
+    try {
+      const { base64, mimeType } = await stopRecording();
+
+      // Store the audio for potential retry
+      const audioData: AudioData = { base64, mimeType };
+      setLastDescriptionAudio(audioData);
+
+      // Process the audio
+      await processDescriptionAudio(audioData);
+    } catch (error) {
+      console.error('Error stopping recording description:', error);
+      if (scenarioSetupOpenRef.current) {
+        showErrorFlash('Failed to process recording. Please try again.');
+      }
+    }
+  };
+
+  /**
+   * Retry transcribing the last recorded description audio
+   */
+  const handleRetryDescriptionAudio = async (): Promise<void> => {
+    if (!lastDescriptionAudio) {
+      console.error("No audio to retry");
+      return;
+    }
+    await processDescriptionAudio(lastDescriptionAudio);
   };
 
   const handleSelectTranscript = (useCleaned: boolean) => {
@@ -591,14 +692,30 @@ const App: React.FC = () => {
             {getStatusText()}
           </div>
 
-          {/* Cancel Button — between status text and footer, always reserves space */}
-          <button
-            onClick={handleCancelRecording}
-            className={`mt-2 px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors rounded-lg hover:bg-slate-800/50 border border-slate-700/50 ${appState === AppState.RECORDING ? '' : 'invisible'}`}
-            tabIndex={appState === AppState.RECORDING ? 0 : -1}
-          >
-            Cancel (Esc)
-          </button>
+          {/* Action Buttons — between status text and footer */}
+          <div className="mt-2 flex items-center gap-3">
+            {/* Cancel Recording Button */}
+            <button
+              onClick={handleCancelRecording}
+              className={`px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors rounded-lg hover:bg-slate-800/50 border border-slate-700/50 ${appState === AppState.RECORDING ? '' : 'hidden'}`}
+              tabIndex={appState === AppState.RECORDING ? 0 : -1}
+            >
+              Cancel (Esc)
+            </button>
+
+            {/* Retry Button - visible when audio processing failed */}
+            {canRetryChatAudio && appState === AppState.ERROR && (
+              <button
+                onClick={handleRetryChatAudio}
+                className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white transition-colors rounded-lg"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                </svg>
+                Retry
+              </button>
+            )}
+          </div>
 
           {/* Footer Info */}
           <div className="pt-1 text-center text-slate-600 text-xs">
@@ -624,6 +741,21 @@ const App: React.FC = () => {
             {errorFlashVisible && (
               <div className="px-4 py-2 text-center">
                 <p className="text-red-400 text-xs font-medium animate-pulse">{errorFlashMessage}</p>
+              </div>
+            )}
+
+            {/* Retry Button - visible when audio processing failed */}
+            {canRetryChatAudio && appState === AppState.ERROR && (
+              <div className="px-4 py-2 text-center">
+                <button
+                  onClick={handleRetryChatAudio}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white transition-colors rounded-lg"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                  </svg>
+                  Retry
+                </button>
               </div>
             )}
 
@@ -680,6 +812,8 @@ const App: React.FC = () => {
           cleanedTranscript={cleanedTranscript}
           onSelectTranscript={handleSelectTranscript}
           onDismissTranscriptOptions={handleDismissTranscriptOptions}
+          canRetryDescriptionAudio={canRetryDescriptionAudio}
+          onRetryDescriptionAudio={handleRetryDescriptionAudio}
         />
       )}
 

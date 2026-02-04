@@ -32,3 +32,11 @@ export interface Scenario {
   createdAt: number;
   isActive: boolean;
 }
+
+/**
+ * Represents recorded audio data that can be stored for retry operations
+ */
+export interface AudioData {
+  base64: string;
+  mimeType: string;
+}
