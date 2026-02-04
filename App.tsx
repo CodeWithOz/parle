@@ -626,11 +626,13 @@ const App: React.FC = () => {
               playbackSpeed={playbackSpeed}
               autoPlayMessageId={autoPlayMessageId}
             />
-            {/* Conversation hint - shown only in scenario practice mode */}
-            <ConversationHint
-              hint={currentHint}
-              isVisible={scenarioMode === 'practice' && appState === AppState.IDLE}
-            />
+            {/* Conversation hint - shown only in scenario practice mode; flex-shrink-0 keeps it visible below the scrollable history */}
+            <div className="flex-shrink-0">
+              <ConversationHint
+                hint={currentHint}
+                isVisible={scenarioMode === 'practice' && appState === AppState.IDLE}
+              />
+            </div>
           </main>
 
           {/* Sticky Footer - orb-mic + controls */}

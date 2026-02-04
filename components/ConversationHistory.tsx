@@ -144,7 +144,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
 
   // Messages are now in chronological order (oldest first, newest last)
   return (
-    <div className="flex flex-col w-full h-full">
+    <div className="flex flex-col w-full flex-grow min-h-0">
       {/* Clear button header */}
       <div className="flex items-center justify-between px-4 py-2 flex-shrink-0">
         <div className="flex items-center gap-2">
