@@ -620,7 +620,7 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="h-screen bg-slate-900 flex flex-col relative overflow-hidden">
+    <div className="min-h-dvh h-dvh bg-slate-900 flex flex-col relative overflow-hidden">
 
       {/* Background Ambience */}
       <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
@@ -743,11 +743,11 @@ const App: React.FC = () => {
               playbackSpeed={playbackSpeed}
               autoPlayMessageId={autoPlayMessageId}
             />
-            {/* Conversation hint - shown only in scenario practice mode; flex-shrink-0 keeps it visible below the scrollable history */}
+            {/* Conversation hint - shown in scenario practice when idle or recording; flex-shrink-0 keeps it visible below the scrollable history */}
             <div className="flex-shrink-0">
               <ConversationHint
                 hint={currentHint}
-                isVisible={scenarioMode === 'practice' && appState === AppState.IDLE}
+                isVisible={scenarioMode === 'practice' && (appState === AppState.IDLE || appState === AppState.RECORDING)}
               />
             </div>
           </main>
