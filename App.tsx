@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AppState, Provider, Message, ScenarioMode, Scenario, AudioData } from './types';
+import { AppState, Message, ScenarioMode, Scenario, AudioData } from './types';
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
-import { initializeSession, sendVoiceMessage, resetSession, setScenario, processScenarioDescription, transcribeAndCleanupAudio } from './services/geminiService';
-import { sendVoiceMessageOpenAI, setScenarioOpenAI, processScenarioDescriptionOpenAI, transcribeAndCleanupAudioOpenAI } from './services/openaiService';
+import { initializeSession, sendVoiceMessage, resetSession, setScenario, transcribeAndCleanupAudio } from './services/geminiService';
+import { processScenarioDescriptionOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
 import { hasApiKeyOrEnv } from './services/apiKeyService';
 import { Orb } from './components/Orb';
@@ -26,7 +26,6 @@ const App: React.FC = () => {
 
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
-  const [provider, setProvider] = useState<Provider>('gemini');
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [autoPlayMessageId, setAutoPlayMessageId] = useState<number | null>(null);
@@ -67,7 +66,7 @@ const App: React.FC = () => {
   const [errorFlashMessage, setErrorFlashMessage] = useState<string>('');
 
   const hasMessages = messages.length > 0;
-  const selectedProviderMissingKey = apiKeyCheckDone && !hasApiKeyOrEnv(provider);
+  const geminiKeyMissing = apiKeyCheckDone && !hasApiKeyOrEnv('gemini');
 
   /**
    * Shows an error flash message that auto-dismisses after 3 seconds
@@ -188,7 +187,7 @@ const App: React.FC = () => {
   }, [checkMicrophonePermission, requestMicrophonePermission]);
 
   const handleStartRecording = async () => {
-    if (!hasApiKeyOrEnv(provider)) {
+    if (!hasApiKeyOrEnv('gemini')) {
       setShowApiKeyModal(true);
       return;
     }
@@ -218,9 +217,8 @@ const App: React.FC = () => {
     try {
       const { base64, mimeType } = audioData;
 
-      const response = provider === 'gemini'
-        ? await sendVoiceMessage(base64, mimeType)
-        : await sendVoiceMessageOpenAI(base64, mimeType);
+      // Use Gemini for speaking practice
+      const response = await sendVoiceMessage(base64, mimeType);
 
       // Check if user aborted while waiting for API response
       if (processingAbortedRef.current) {
@@ -388,7 +386,8 @@ const App: React.FC = () => {
   };
 
   const handleStartRecordingDescription = async () => {
-    if (!hasApiKeyOrEnv(provider)) {
+    // Scenario creation requires both Gemini (transcription) and OpenAI (planning)
+    if (!hasApiKeyOrEnv('gemini') || !hasApiKeyOrEnv('openai')) {
       setShowApiKeyModal(true);
       return;
     }
@@ -425,10 +424,8 @@ const App: React.FC = () => {
     try {
       const { base64, mimeType } = audioData;
 
-      // Single LLM call to transcribe and clean up the audio
-      const { rawTranscript: rawText, cleanedTranscript: cleanedText } = provider === 'gemini'
-        ? await transcribeAndCleanupAudio(base64, mimeType)
-        : await transcribeAndCleanupAudioOpenAI(base64, mimeType);
+      // Single LLM call to transcribe and clean up the audio - using Gemini
+      const { rawTranscript: rawText, cleanedTranscript: cleanedText } = await transcribeAndCleanupAudio(base64, mimeType);
 
       // Modal was closed while transcription was in-flight; discard results
       if (!scenarioSetupOpenRef.current) {
@@ -516,16 +513,16 @@ const App: React.FC = () => {
   };
 
   const handleSubmitScenarioDescription = async (description: string, name: string) => {
-    if (!hasApiKeyOrEnv(provider)) {
+    // Scenario creation requires both Gemini (transcription) and OpenAI (planning)
+    if (!hasApiKeyOrEnv('gemini') || !hasApiKeyOrEnv('openai')) {
       setShowApiKeyModal(true);
       return;
     }
     setIsProcessingScenario(true);
 
     try {
-      const summary = provider === 'gemini'
-        ? await processScenarioDescription(description)
-        : await processScenarioDescriptionOpenAI(description);
+      // Use OpenAI for scenario planning
+      const summary = await processScenarioDescriptionOpenAI(description);
 
       setAiSummary(summary);
     } catch (error) {
@@ -560,9 +557,8 @@ const App: React.FC = () => {
     setActiveScenario(scenario);
     setScenarioMode('practice');
 
-    // Configure the AI services with the scenario
+    // Configure Gemini service with the scenario
     setScenario(scenario);
-    setScenarioOpenAI(scenario);
 
     // Close the setup modal
     setScenarioDescription('');
@@ -582,9 +578,8 @@ const App: React.FC = () => {
     setActiveScenario(null);
     setScenarioMode('none');
 
-    // Reset AI services to normal mode
+    // Reset Gemini service to normal mode
     setScenario(null);
-    setScenarioOpenAI(null);
 
     // Clear conversation and hint
     clearHistory();
@@ -601,8 +596,8 @@ const App: React.FC = () => {
     if (appState === AppState.ERROR) {
       return <p className="text-red-400 font-medium animate-pulse">Connection Error. Please try again.</p>;
     }
-    if (selectedProviderMissingKey) {
-      return <p className="text-yellow-400 font-medium text-sm">Warning: No {provider === 'gemini' ? 'Gemini' : 'OpenAI'} API key configured.</p>;
+    if (geminiKeyMissing) {
+      return <p className="text-yellow-400 font-medium text-sm">Warning: No Gemini API key configured.</p>;
     }
     if (appState === AppState.PROCESSING) {
       return <p className="text-slate-400 font-medium">Thinking...</p>;
@@ -636,26 +631,6 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1 sm:gap-2 bg-slate-800/50 p-1 rounded-full border border-slate-700/50 backdrop-blur-sm">
-            <button
-              onClick={() => setProvider('gemini')}
-              className={`px-3 sm:px-4 py-1.5 rounded-full text-xs font-medium transition-all ${provider === 'gemini'
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20'
-                : 'text-slate-400 hover:text-slate-200'
-                }`}
-            >
-              Gemini
-            </button>
-            <button
-              onClick={() => setProvider('openai')}
-              className={`px-3 sm:px-4 py-1.5 rounded-full text-xs font-medium transition-all ${provider === 'openai'
-                ? 'bg-green-600 text-white shadow-lg shadow-green-500/20'
-                : 'text-slate-400 hover:text-slate-200'
-                }`}
-            >
-              OpenAI
-            </button>
-          </div>
           <button
             onClick={() => setShowApiKeyModal(true)}
             className="p-2 text-slate-400 hover:text-white transition-colors bg-slate-800/50 rounded-full border border-slate-700/50"
@@ -831,6 +806,8 @@ const App: React.FC = () => {
           onDismissTranscriptOptions={handleDismissTranscriptOptions}
           canRetryDescriptionAudio={canRetryDescriptionAudio}
           onRetryDescriptionAudio={handleRetryDescriptionAudio}
+          geminiKeyMissing={apiKeyCheckDone && !hasApiKeyOrEnv('gemini')}
+          openaiKeyMissing={apiKeyCheckDone && !hasApiKeyOrEnv('openai')}
         />
       )}
 
