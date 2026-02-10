@@ -156,10 +156,10 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                 <h3 className="text-sm font-medium text-yellow-400 mb-1">API Keys Required</h3>
                 <p className="text-sm text-yellow-200/90">
                   {geminiKeyMissing && openaiKeyMissing
-                    ? 'Both Gemini and OpenAI API keys are required for scenario creation. Gemini is used for transcription and OpenAI is used for planning.'
+                    ? 'Both Gemini and OpenAI API keys are required for scenario creation. Gemini is used for audio transcription when you describe a scenario and OpenAI is used for planning how the scenario will unfold during the conversation.'
                     : geminiKeyMissing
-                    ? 'Gemini API key is required for transcription during scenario creation.'
-                    : 'OpenAI API key is required for planning during scenario creation.'}
+                    ? 'Gemini API key is required for audio transcription when you describe a scenario.'
+                    : 'OpenAI API key is required for planning how the scenario will unfold during the conversation.'}
                 </p>
               </div>
             </div>
