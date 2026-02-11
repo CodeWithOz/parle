@@ -82,6 +82,14 @@ export const deleteScenario = (scenarioId: string): Scenario[] => {
  * Generate the system instruction for scenario practice mode
  */
 export const generateScenarioSystemInstruction = (scenario: Scenario): string => {
+  // Check if this is a multi-character scenario
+  const isMultiCharacter = scenario.characters && scenario.characters.length > 1;
+
+  if (isMultiCharacter) {
+    return generateMultiCharacterSystemInstruction(scenario);
+  }
+
+  // Single-character scenario (original behavior)
   return `You are participating in a role-play scenario to help the user practice French.
 
 SCENARIO CONTEXT:
@@ -126,6 +134,58 @@ Begin by greeting the user in character and initiating the scenario. For example
 };
 
 /**
+ * Generate the system instruction for multi-character scenario practice mode
+ */
+export const generateMultiCharacterSystemInstruction = (scenario: Scenario): string => {
+  const characterList = scenario.characters!.map(c => `- ${c.name} (${c.role})`).join('\n');
+
+  return `You are participating in a multi-character role-play scenario to help the user practice French.
+
+SCENARIO CONTEXT:
+${scenario.description}
+
+YOUR ROLE:
+You control MULTIPLE characters in this scenario:
+${characterList}
+
+Each character should respond naturally based on their role. Multiple characters can respond in one turn if contextually appropriate (e.g., a baker might respond, then a cashier might chime in about payment).
+
+RESPONSE FORMAT (CRITICAL):
+When responding, you MUST format your response with character names like this:
+
+[CHARACTER_NAME]: Their French response... English translation...
+
+For example:
+[BAKER]: Bonjour! Bienvenue à notre boulangerie! ... Hello! Welcome to our bakery!
+[CASHIER]: Oui, comment puis-je vous aider aujourd'hui? ... Yes, how can I help you today?
+
+GUIDELINES:
+1. Stay in character for each speaker
+2. Speak in French primarily for each character
+3. If the user makes French mistakes, gently model the correct form in your response while staying in character
+4. Follow the scenario progression, but adapt naturally to what the user actually says
+5. Each character's response MUST follow this structure:
+   - First, their French response (in character)
+   - Then, immediately provide the ENGLISH translation
+   - Do not say "Here is the translation" or explain the format
+6. Decide which character(s) should respond based on the context
+7. When the scenario reaches its natural end, have the appropriate character(s) congratulate the user
+
+ON-DEMAND HINTS:
+If the user says "hint", "help", "aide", "je ne sais pas", or seems stuck, have the appropriate character provide a helpful suggestion.
+
+PROACTIVE HINTS (REQUIRED):
+At the END of EVERY response (after all character responses), you MUST include a hint section in EXACTLY this format:
+
+---HINT---
+[Brief description of what the user should say or ask next, in English - focus on the TOPIC or ACTION, not the exact French words]
+---END_HINT---
+
+START THE SCENARIO:
+Begin by having the appropriate character(s) greet the user and initiate the scenario.`;
+};
+
+/**
  * Parse the hint section from an AI response
  * Returns the hint text and the response without the hint section
  */
@@ -142,6 +202,68 @@ export const parseHintFromResponse = (response: string): { text: string; hint: s
 };
 
 /**
+ * Parse a multi-character response from the AI
+ * Format: [CHARACTER_NAME]: text... [CHARACTER_NAME]: text...
+ * Returns array of character responses and extracted hint
+ */
+export const parseMultiCharacterResponse = (
+  response: string,
+  scenario: Scenario
+): {
+  characterResponses: Array<{ characterId: string; characterName: string; text: string }>;
+  hint: string | null;
+} => {
+  // First extract hint
+  const { text: responseWithoutHint, hint } = parseHintFromResponse(response);
+
+  // Parse character responses using regex: [CHARACTER_NAME]: text
+  const characterPattern = /\[([^\]]+)\]:\s*([^\[]*?)(?=\[|$)/g;
+  const matches = [...responseWithoutHint.matchAll(characterPattern)];
+
+  if (matches.length === 0) {
+    // No character markers found - treat as single response from first character
+    const firstCharacter = scenario.characters?.[0];
+    if (firstCharacter) {
+      return {
+        characterResponses: [{
+          characterId: firstCharacter.id,
+          characterName: firstCharacter.name,
+          text: responseWithoutHint.trim()
+        }],
+        hint
+      };
+    }
+    // Fallback if no characters defined
+    return {
+      characterResponses: [{
+        characterId: 'default',
+        characterName: 'AI',
+        text: responseWithoutHint.trim()
+      }],
+      hint
+    };
+  }
+
+  const characterResponses = matches.map(match => {
+    const characterName = match[1].trim();
+    const text = match[2].trim();
+
+    // Find character by name (case-insensitive)
+    const character = scenario.characters?.find(
+      c => c.name.toLowerCase() === characterName.toLowerCase()
+    );
+
+    return {
+      characterId: character?.id || `unknown_${characterName}`,
+      characterName: character?.name || characterName,
+      text
+    };
+  });
+
+  return { characterResponses, hint };
+};
+
+/**
  * Generate a prompt to have the AI summarize and confirm understanding of a scenario
  */
 export const generateScenarioSummaryPrompt = (description: string): string => {
@@ -149,11 +271,32 @@ export const generateScenarioSummaryPrompt = (description: string): string => {
 
 "${description}"
 
-Please:
-1. Briefly summarize what you understand about the scenario (2-3 sentences)
-2. Identify your role (who you will play)
-3. Mention the key interactions that will happen
-4. Confirm you're ready to begin when they are
+Please analyze this scenario and respond in JSON format with the following structure:
 
-Respond in English since we're still in the setup phase.`;
+{
+  "summary": "Brief 2-3 sentence summary of the scenario",
+  "characters": [
+    {
+      "name": "Character name (e.g., Baker, Waiter, Manager)",
+      "role": "Brief role description (e.g., baker, waiter, hotel receptionist)",
+      "description": "Optional brief description of the character's personality or demeanor"
+    }
+  ]
+}
+
+Guidelines:
+1. Identify ALL distinct characters/people the user will interact with in this scenario
+2. If only one character is mentioned or implied, return an array with just that one character
+3. Character names should be role-based (e.g., "Baker", "Cashier", "Waiter", "Manager")
+4. Keep role descriptions short and lowercase (e.g., "baker", "cashier")
+5. The summary should confirm understanding and readiness to begin
+
+Example for "I went to a bakery and spoke to the baker about bread, then paid the cashier":
+{
+  "summary": "I understand! You visited a bakery where you'll speak with the baker about bread options, and then complete your purchase with the cashier. I'll play both the baker and cashier roles. Ready to begin when you are!",
+  "characters": [
+    {"name": "Baker", "role": "baker", "description": "Friendly and knowledgeable about bread"},
+    {"name": "Cashier", "role": "cashier", "description": "Efficient and helpful with payments"}
+  ]
+}`;
 };

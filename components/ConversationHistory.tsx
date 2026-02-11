@@ -77,6 +77,9 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
     };
   }, [autoPlay, message.role, message.audioUrl]);
 
+  // Check if this is a multi-audio message
+  const isMultiAudio = Array.isArray(message.audioUrl);
+
   return (
     <div
       className={`flex flex-col animate-slide-up ${message.role === 'user' ? 'items-end' : 'items-start'}`}
@@ -88,18 +91,45 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
             : 'bg-slate-800/80 text-slate-200 border border-slate-700/50 rounded-bl-md'
         }`}
       >
+        {/* Character name for model messages */}
+        {message.role === 'model' && message.characterName && (
+          <div className="text-xs text-slate-400 font-medium mb-2 flex items-center gap-1">
+            <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
+            {message.characterName}
+          </div>
+        )}
+
         <p className="text-sm leading-relaxed">{message.text}</p>
+
+        {/* Audio controls */}
         {message.role === 'model' && message.audioUrl && (
-          <audio
-            ref={audioRef}
-            src={message.audioUrl}
-            controls
-            className="w-full mt-3"
-          />
+          <>
+            {isMultiAudio ? (
+              // Multiple audio files (multi-character)
+              <div className="space-y-2 mt-3">
+                {(message.audioUrl as string[]).map((url, idx) => (
+                  <audio
+                    key={idx}
+                    src={url}
+                    controls
+                    className="w-full"
+                  />
+                ))}
+              </div>
+            ) : (
+              // Single audio file
+              <audio
+                ref={audioRef}
+                src={message.audioUrl as string}
+                controls
+                className="w-full mt-3"
+              />
+            )}
+          </>
         )}
       </div>
       <span className={`text-xs text-slate-500 mt-1 ${message.role === 'user' ? 'mr-1' : 'ml-1'}`}>
-        {message.role === 'user' ? 'You' : 'AI'}
+        {message.role === 'user' ? 'You' : (message.characterName || 'AI')}
       </span>
     </div>
   );

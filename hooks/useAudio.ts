@@ -304,6 +304,92 @@ export const useAudio = () => {
     }
   }, []);
 
+  /**
+   * Play multiple audio files sequentially
+   * @param audioUrls Array of audio URLs to play in sequence
+   * @param speed Playback speed
+   * @param onEachEnded Callback fired when each audio finishes (with index)
+   * @param onAllEnded Callback fired when all audios have finished playing
+   */
+  const playAudioSequence = useCallback((
+    audioUrls: string[],
+    speed: number,
+    onEachEnded: (index: number) => void,
+    onAllEnded: () => void
+  ) => {
+    if (audioUrls.length === 0) {
+      onAllEnded();
+      return;
+    }
+
+    let currentIndex = 0;
+
+    const playNext = () => {
+      if (currentIndex >= audioUrls.length) {
+        onAllEnded();
+        return;
+      }
+
+      // Clean up previous audio if exists
+      if (audioElementRef.current) {
+        const prevAudio = audioElementRef.current;
+        prevAudio.onended = null;
+        prevAudio.onpause = null;
+        prevAudio.pause();
+      }
+      if (currentAudioUrlRef.current && currentIndex > 0) {
+        URL.revokeObjectURL(currentAudioUrlRef.current);
+      }
+
+      // Create new audio element for current URL
+      const audio = new Audio(audioUrls[currentIndex]);
+      audio.playbackRate = speed;
+      currentAudioUrlRef.current = audioUrls[currentIndex];
+      audioElementRef.current = audio;
+
+      // Set up event listeners for this audio
+      audio.onloadedmetadata = () => {
+        setDuration(audio.duration);
+      };
+
+      audio.ontimeupdate = () => {
+        setCurrentTime(audio.currentTime);
+      };
+
+      audio.onplay = () => {
+        setIsPlaying(true);
+        setIsPaused(false);
+      };
+
+      audio.onpause = () => {
+        // Only update if audio was actually playing
+        if (audio.currentTime > 0 && audio.currentTime < audio.duration) {
+          setIsPlaying(false);
+          setIsPaused(true);
+        }
+      };
+
+      audio.onended = () => {
+        setIsPlaying(false);
+        setIsPaused(false);
+        setCurrentTime(0);
+        onEachEnded(currentIndex);
+        currentIndex++;
+        playNext(); // Play next audio
+      };
+
+      // Start playing
+      audio.play().catch(err => {
+        console.error(`Error playing audio at index ${currentIndex}:`, err);
+        // Try to continue with next audio even if this one fails
+        currentIndex++;
+        playNext();
+      });
+    };
+
+    playNext();
+  }, []);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -328,6 +414,7 @@ export const useAudio = () => {
     seekTo,
     stopAudio,
     updatePlaybackSpeed,
+    playAudioSequence,
     getAudioContext, // Exposed to initialize context on user interaction
     checkMicrophonePermission,
     requestMicrophonePermission

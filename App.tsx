@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AppState, Message, ScenarioMode, Scenario, AudioData } from './types';
+import { AppState, Message, ScenarioMode, Scenario, AudioData, Character } from './types';
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
 import { initializeSession, sendVoiceMessage, resetSession, setScenario, transcribeAndCleanupAudio } from './services/geminiService';
 import { processScenarioDescriptionOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
 import { hasApiKeyOrEnv } from './services/apiKeyService';
+import { assignVoicesToCharacters } from './services/voiceService';
+import { generateId } from './services/scenarioService';
 import { Orb } from './components/Orb';
 import { Controls } from './components/Controls';
 import { ConversationHistory } from './components/ConversationHistory';
@@ -43,6 +45,7 @@ const App: React.FC = () => {
   const [showTranscriptOptions, setShowTranscriptOptions] = useState(false);
   const [rawTranscript, setRawTranscript] = useState<string | null>(null);
   const [cleanedTranscript, setCleanedTranscript] = useState<string | null>(null);
+  const [scenarioCharacters, setScenarioCharacters] = useState<Character[]>([]); // NEW: Characters for scenario
 
   // Audio retry state - stores last recorded audio for retry on failure
   const [lastChatAudio, setLastChatAudio] = useState<AudioData | null>(null);
@@ -223,30 +226,64 @@ const App: React.FC = () => {
       // Check if user aborted while waiting for API response
       if (processingAbortedRef.current) {
         if (response.audioUrl) {
-          URL.revokeObjectURL(response.audioUrl);
+          if (Array.isArray(response.audioUrl)) {
+            response.audioUrl.forEach(url => URL.revokeObjectURL(url));
+          } else {
+            URL.revokeObjectURL(response.audioUrl);
+          }
         }
         return;
       }
 
-      const { audioUrl, userText, modelText, hint } = response;
+      // Handle multi-character response
+      if (Array.isArray(response.audioUrl)) {
+        const timestamp = Date.now();
+        const userMessage: Message = { role: 'user', text: response.userText, timestamp };
 
-      // Add messages to history (append for chronological order - newest last)
-      const timestamp = Date.now();
-      const modelTimestamp = timestamp + 1;
-      const newMessages: Message[] = [
-        ...messages,
-        { role: 'user', text: userText, timestamp },
-        { role: 'model', text: modelText, timestamp: modelTimestamp, audioUrl, hint },
-      ];
-      setMessages(newMessages);
+        // Create a message for each character response
+        const modelMessages: Message[] = response.characters!.map((char, idx) => ({
+          role: 'model' as const,
+          text: (response.modelText as string[])[idx],
+          timestamp: timestamp + idx + 1,
+          audioUrl: (response.audioUrl as string[])[idx],
+          characterId: char.characterId,
+          characterName: char.characterName,
+          voiceName: char.voiceName,
+          hint: idx === response.characters!.length - 1 ? response.hint : undefined
+        }));
 
-      // Update current hint (only in scenario mode)
-      if (scenarioMode === 'practice' && hint) {
-        setCurrentHint(hint);
+        const newMessages: Message[] = [...messages, userMessage, ...modelMessages];
+        setMessages(newMessages);
+
+        // Update current hint (only in scenario mode, from last character)
+        if (scenarioMode === 'practice' && response.hint) {
+          setCurrentHint(response.hint);
+        }
+
+        // Set the first character message to auto-play
+        setAutoPlayMessageId(timestamp + 1);
+      } else {
+        // Single-character response (original behavior)
+        const { audioUrl, userText, modelText, hint } = response;
+
+        // Add messages to history (append for chronological order - newest last)
+        const timestamp = Date.now();
+        const modelTimestamp = timestamp + 1;
+        const newMessages: Message[] = [
+          ...messages,
+          { role: 'user', text: userText, timestamp },
+          { role: 'model', text: modelText as string, timestamp: modelTimestamp, audioUrl: audioUrl as string, hint },
+        ];
+        setMessages(newMessages);
+
+        // Update current hint (only in scenario mode)
+        if (scenarioMode === 'practice' && hint) {
+          setCurrentHint(hint);
+        }
+
+        // Set the new model message to auto-play
+        setAutoPlayMessageId(modelTimestamp);
       }
-
-      // Set the new model message to auto-play
-      setAutoPlayMessageId(modelTimestamp);
 
       // Success - clear retry state
       setCanRetryChatAudio(false);
@@ -330,7 +367,11 @@ const App: React.FC = () => {
       // Revoke all audio URLs before clearing messages
       messages.forEach(msg => {
         if (msg.audioUrl) {
-          URL.revokeObjectURL(msg.audioUrl);
+          if (Array.isArray(msg.audioUrl)) {
+            msg.audioUrl.forEach(url => URL.revokeObjectURL(url));
+          } else {
+            URL.revokeObjectURL(msg.audioUrl);
+          }
         }
       });
 
@@ -371,6 +412,7 @@ const App: React.FC = () => {
     setScenarioDescription('');
     setScenarioName('');
     setAiSummary(null);
+    setScenarioCharacters([]); // Clear characters
     setIsRecordingDescription(false);
     setIsTranscribingDescription(false);
     setShowTranscriptOptions(false);
@@ -521,13 +563,40 @@ const App: React.FC = () => {
     setIsProcessingScenario(true);
 
     try {
-      // Use OpenAI for scenario planning
-      const summary = await processScenarioDescriptionOpenAI(description);
+      // Use OpenAI for scenario planning (returns JSON with summary and characters)
+      const result = await processScenarioDescriptionOpenAI(description);
 
-      setAiSummary(summary);
+      // Try to parse as JSON first
+      let parsed: { summary: string; characters?: Array<{ name: string; role: string; description?: string }> };
+      try {
+        parsed = JSON.parse(result);
+      } catch (parseError) {
+        // If not JSON, treat as plain summary (backward compatibility)
+        console.warn('Scenario description response is not JSON, treating as plain text');
+        parsed = { summary: result, characters: [] };
+      }
+
+      setAiSummary(parsed.summary);
+
+      // Extract and assign voices to characters
+      if (parsed.characters && parsed.characters.length > 0) {
+        const charactersWithIds = parsed.characters.map((char, idx) => ({
+          id: `${generateId()}_${idx}`,
+          name: char.name,
+          role: char.role,
+          description: char.description
+        }));
+
+        const charactersWithVoices = assignVoicesToCharacters(charactersWithIds);
+        setScenarioCharacters(charactersWithVoices);
+      } else {
+        // No characters extracted, fallback to single-character mode
+        setScenarioCharacters([]);
+      }
     } catch (error) {
       console.error('Error processing scenario:', error);
       setAiSummary('I understand your scenario. Ready to begin when you are!');
+      setScenarioCharacters([]); // Fallback to single-character
     } finally {
       setIsProcessingScenario(false);
     }
@@ -542,7 +611,11 @@ const App: React.FC = () => {
     // Revoke all audio URLs before clearing messages to prevent memory leaks
     messages.forEach(msg => {
       if (msg.audioUrl) {
-        URL.revokeObjectURL(msg.audioUrl);
+        if (Array.isArray(msg.audioUrl)) {
+          msg.audioUrl.forEach(url => URL.revokeObjectURL(url));
+        } else {
+          URL.revokeObjectURL(msg.audioUrl);
+        }
       }
     });
 
@@ -553,12 +626,18 @@ const App: React.FC = () => {
     clearHistory();
     setMessages([]);
 
+    // Enhance scenario with characters
+    const enhancedScenario: Scenario = {
+      ...scenario,
+      characters: scenarioCharacters.length > 0 ? scenarioCharacters : undefined
+    };
+
     // Set the scenario for both providers
-    setActiveScenario(scenario);
+    setActiveScenario(enhancedScenario);
     setScenarioMode('practice');
 
     // Configure Gemini service with the scenario
-    setScenario(scenario);
+    setScenario(enhancedScenario);
 
     // Close the setup modal
     setScenarioDescription('');
@@ -570,13 +649,18 @@ const App: React.FC = () => {
     // Revoke all audio URLs before clearing messages
     messages.forEach(msg => {
       if (msg.audioUrl) {
-        URL.revokeObjectURL(msg.audioUrl);
+        if (Array.isArray(msg.audioUrl)) {
+          msg.audioUrl.forEach(url => URL.revokeObjectURL(url));
+        } else {
+          URL.revokeObjectURL(msg.audioUrl);
+        }
       }
     });
 
-    // Clear the scenario
+    // Clear the scenario and characters
     setActiveScenario(null);
     setScenarioMode('none');
+    setScenarioCharacters([]);
 
     // Reset Gemini service to normal mode
     setScenario(null);
@@ -808,6 +892,7 @@ const App: React.FC = () => {
           onRetryDescriptionAudio={handleRetryDescriptionAudio}
           geminiKeyMissing={apiKeyCheckDone && !hasApiKeyOrEnv('gemini')}
           openaiKeyMissing={apiKeyCheckDone && !hasApiKeyOrEnv('openai')}
+          characters={scenarioCharacters}
         />
       )}
 

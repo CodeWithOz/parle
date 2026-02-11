@@ -9,19 +9,35 @@ export enum AppState {
 
 export type Provider = 'gemini' | 'openai';
 
+export interface Character {
+  id: string;
+  name: string;
+  role: string;
+  voiceName: string;
+  description?: string;
+}
+
 export interface Message {
   role: 'user' | 'model';
   text: string;
   timestamp: number;
-  audioUrl?: string; // Blob URL for the audio
+  audioUrl?: string | string[]; // Blob URL for the audio (array for multi-character)
   hint?: string; // Optional hint for what the user could say next (in roleplay mode)
+  characterId?: string; // NEW: ID of the character who spoke
+  characterName?: string; // NEW: Name of the character who spoke
+  voiceName?: string; // NEW: Voice used for this message
 }
 
 export interface VoiceResponse {
-  audioUrl: string; // Blob URL for the audio
+  audioUrl: string | string[]; // Support array for multi-character
   userText: string;
-  modelText: string;
+  modelText: string | string[]; // Support array for multi-character
   hint?: string; // Optional hint for what the user could say next (in roleplay mode)
+  characters?: Array<{ // NEW: Character info for multi-character responses
+    characterId: string;
+    characterName: string;
+    voiceName: string;
+  }>;
 }
 
 export type ScenarioMode = 'none' | 'setup' | 'practice';
@@ -33,6 +49,7 @@ export interface Scenario {
   aiSummary?: string;
   createdAt: number;
   isActive: boolean;
+  characters?: Character[]; // NEW: Characters in this scenario
 }
 
 /**

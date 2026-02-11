@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Scenario } from '../types';
+import { Scenario, Character } from '../types';
 import { loadScenarios, saveScenario, deleteScenario, generateId } from '../services/scenarioService';
 
 interface ScenarioSetupProps {
@@ -27,6 +27,7 @@ interface ScenarioSetupProps {
   onRetryDescriptionAudio: () => Promise<void>;
   geminiKeyMissing: boolean;
   openaiKeyMissing: boolean;
+  characters?: Character[]; // NEW: Characters for this scenario
 }
 
 export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
@@ -54,6 +55,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   onRetryDescriptionAudio,
   geminiKeyMissing,
   openaiKeyMissing,
+  characters,
 }) => {
   const [savedScenarios, setSavedScenarios] = useState<Scenario[]>([]);
   const [showSaved, setShowSaved] = useState(false);
@@ -399,6 +401,38 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                   <p className="text-slate-300 whitespace-pre-wrap">{aiSummary}</p>
                 </div>
               </div>
+
+              {/* Characters Display */}
+              {characters && characters.length > 1 && (
+                <div>
+                  <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
+                    </svg>
+                    Characters in this scenario
+                  </h4>
+                  <div className="space-y-2">
+                    {characters.map(char => (
+                      <div key={char.id} className="flex justify-between items-center p-3 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
+                            <p className="text-sm font-medium text-slate-200">{char.name}</p>
+                          </div>
+                          <p className="text-xs text-slate-400 ml-4 mt-1">{char.role}</p>
+                          {char.description && (
+                            <p className="text-xs text-slate-500 ml-4 mt-1">{char.description}</p>
+                          )}
+                        </div>
+                        <div className="text-right ml-3">
+                          <p className="text-xs text-slate-400">Voice</p>
+                          <p className="text-xs font-medium text-blue-400">{char.voiceName}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="flex gap-4">

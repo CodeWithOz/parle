@@ -2,7 +2,7 @@ import { GoogleGenAI, Chat, Modality, Type } from "@google/genai";
 import { base64ToBytes, pcmToWav } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
-import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse } from "./scenarioService";
+import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse, parseMultiCharacterResponse } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
 
 // Gemini TTS output format constants
@@ -248,14 +248,69 @@ export const initializeSession = async () => {
   ensureAiInitialized();
   // We use gemini-2.0-flash-lite for the logic/conversation as it handles audio input well,
   // but we will ask for TEXT output to maintain REST compatibility, then TTS it.
-  
+
   // If there was a pending scenario set before ai was initialized, use it
   if (pendingScenario) {
     activeScenario = pendingScenario;
   }
-  
+
   // Create session with any pending state (scenario, history)
   createChatSession();
+};
+
+/**
+ * Generate speech audio for a specific character using Gemini TTS
+ * @param text The text to convert to speech
+ * @param voiceName The Gemini voice name to use
+ * @returns Blob URL for the generated audio
+ */
+export const generateCharacterSpeech = async (
+  text: string,
+  voiceName: string
+): Promise<string> => {
+  if (!ai) {
+    ensureAiInitialized();
+  }
+
+  const systemPrompt = `You are to read out the following text in a friendly, encouraging tone. When speaking French, use a natural French accent. You MUST output ONLY AUDIO, not TEXT. Again, ONLY AUDIO, not TEXT. Here's the text enclosed in <text> tags: <text>${text}</text>`;
+
+  const ttsResponse = await ai!.models.generateContent({
+    model: 'gemini-2.5-flash-preview-tts',
+    contents: [{ parts: [{ text: systemPrompt }] }],
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName: voiceName
+          }
+        }
+      }
+    }
+  });
+
+  // Extract audio from TTS response
+  const candidate = ttsResponse.candidates?.[0];
+  const parts = candidate?.content?.parts;
+
+  if (!parts || parts.length === 0) {
+    throw new Error(`No content received from TTS model for character with voice ${voiceName}.`);
+  }
+
+  // Find the inline data part which contains the audio
+  const audioPart = parts.find(p => p.inlineData);
+
+  if (!audioPart || !audioPart.inlineData) {
+    throw new Error(`No audio data received from TTS model for character with voice ${voiceName}.`);
+  }
+
+  // Convert base64 to blob and create URL
+  const audioBytes = base64ToBytes(audioPart.inlineData.data);
+  // Gemini TTS returns raw PCM, convert it to WAV format
+  const audioBlob = pcmToWav(audioBytes, DEFAULT_PCM_SAMPLE_RATE, DEFAULT_PCM_CHANNELS);
+  const audioUrl = URL.createObjectURL(audioBlob);
+
+  return audioUrl;
 };
 
 /**
@@ -333,62 +388,70 @@ export const sendVoiceMessage = async (
       throw new Error("No text response received from chat model.");
     }
 
-    // Parse hint from response (only present in scenario mode)
-    const { text: modelText, hint } = activeScenario
-      ? parseHintFromResponse(rawModelText)
-      : { text: rawModelText, hint: null };
+    // Check if this is a multi-character scenario
+    const isMultiCharacter = activeScenario?.characters && activeScenario.characters.length > 1;
 
-    // Sync to shared conversation history (use text without hint markers)
-    addToHistory("user", userText);
-    addToHistory("assistant", modelText);
-    // Update sync counter - we've now synced this new message pair
-    syncedMessageCount += 2;
+    if (isMultiCharacter) {
+      // Parse multi-character response
+      const parsed = parseMultiCharacterResponse(rawModelText, activeScenario);
 
-    // Step 3: Send Text Response to TTS Model to get Audio (use text without hint)
-    const systemPrompt = `You are to read out the following text in a friendly, encouraging tone. When speaking French, use a natural French accent. You MUST output ONLY AUDIO, not TEXT. Again, ONLY AUDIO, not TEXT. Here's the text enclosed in <text> tags: <text>${modelText}</text>`;
-    const ttsResponse = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-preview-tts',
-      contents: [{ parts: [{ text: systemPrompt }] }],
-        config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-                voiceConfig: {
-                    prebuiltVoiceConfig: {
-                        voiceName: "Aoede"
-                    }
-                }
-            }
+      // Generate audio for each character IN PARALLEL
+      const audioPromises = parsed.characterResponses.map(async (charResp) => {
+        const character = activeScenario.characters!.find(c => c.id === charResp.characterId);
+        if (!character) {
+          throw new Error(`Character not found: ${charResp.characterId}`);
         }
-    });
+        const audioUrl = await generateCharacterSpeech(charResp.text, character.voiceName);
+        return { ...charResp, audioUrl, voiceName: character.voiceName };
+      });
 
-    // Extract audio from TTS response
-    const candidate = ttsResponse.candidates?.[0];
-    const parts = candidate?.content?.parts;
+      const characterAudios = await Promise.all(audioPromises);
 
-    if (!parts || parts.length === 0) {
-      throw new Error("No content received from TTS model.");
+      // Construct combined text for conversation history (without character markers)
+      const combinedModelText = parsed.characterResponses.map(cr => cr.text).join(' ');
+
+      // Sync to shared conversation history
+      addToHistory("user", userText);
+      addToHistory("assistant", combinedModelText);
+      syncedMessageCount += 2;
+
+      // Return multi-character response
+      return {
+        audioUrl: characterAudios.map(ca => ca.audioUrl),
+        modelText: characterAudios.map(ca => ca.text),
+        userText,
+        hint: parsed.hint || undefined,
+        characters: characterAudios.map(ca => ({
+          characterId: ca.characterId,
+          characterName: ca.characterName,
+          voiceName: ca.voiceName
+        }))
+      };
+    } else {
+      // Single-character scenario (original behavior)
+      // Parse hint from response (only present in scenario mode)
+      const { text: modelText, hint } = activeScenario
+        ? parseHintFromResponse(rawModelText)
+        : { text: rawModelText, hint: null };
+
+      // Sync to shared conversation history (use text without hint markers)
+      addToHistory("user", userText);
+      addToHistory("assistant", modelText);
+      // Update sync counter - we've now synced this new message pair
+      syncedMessageCount += 2;
+
+      // Step 3: Send Text Response to TTS Model to get Audio (use text without hint)
+      // Use character voice if available, otherwise default
+      const voiceName = activeScenario?.characters?.[0]?.voiceName || "Aoede";
+      const audioUrl = await generateCharacterSpeech(modelText, voiceName);
+
+      return {
+        audioUrl,
+        userText,
+        modelText,
+        hint: hint || undefined
+      };
     }
-
-    // Find the inline data part which contains the audio
-    const audioPart = parts.find(p => p.inlineData);
-
-    if (!audioPart || !audioPart.inlineData) {
-      throw new Error("No audio data received from TTS model.");
-    }
-
-    // Convert base64 to blob and create URL
-    const audioBytes = base64ToBytes(audioPart.inlineData.data);
-    // Gemini TTS returns raw PCM, convert it to WAV format
-    // Note: Callers must call URL.revokeObjectURL(audioUrl) when finished to avoid memory leaks
-    const audioBlob = pcmToWav(audioBytes, DEFAULT_PCM_SAMPLE_RATE, DEFAULT_PCM_CHANNELS);
-    const audioUrl = URL.createObjectURL(audioBlob);
-
-    return {
-      audioUrl,
-      userText,
-      modelText,
-      hint: hint || undefined
-    };
 
   } catch (error) {
     console.error("Error communicating with Gemini:", error);
