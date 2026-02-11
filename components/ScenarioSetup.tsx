@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Scenario } from '../types';
 import { loadScenarios, saveScenario, deleteScenario, generateId } from '../services/scenarioService';
 
@@ -57,10 +57,21 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 }) => {
   const [savedScenarios, setSavedScenarios] = useState<Scenario[]>([]);
   const [showSaved, setShowSaved] = useState(false);
+  const transcriptOptionsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setSavedScenarios(loadScenarios());
   }, []);
+
+  // Scroll transcript options into view when they appear
+  useEffect(() => {
+    if (showTranscriptOptions && transcriptOptionsRef.current) {
+      transcriptOptionsRef.current.scrollIntoView({
+        behavior: 'smooth',
+        block: 'nearest'
+      });
+    }
+  }, [showTranscriptOptions]);
 
   const handleSubmit = () => {
     if (currentDescription.trim() && currentName.trim()) {
@@ -329,7 +340,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 
               {/* Transcript Selection UI */}
               {showTranscriptOptions && rawTranscript && cleanedTranscript && (
-                <div className="space-y-4 p-4 bg-slate-700/30 rounded-lg border border-slate-600">
+                <div ref={transcriptOptionsRef} className="space-y-4 p-4 bg-slate-700/30 rounded-lg border border-slate-600">
                   <div className="flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
