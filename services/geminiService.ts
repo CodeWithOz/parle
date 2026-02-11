@@ -263,7 +263,8 @@ export const initializeSession = async () => {
  */
 export const sendVoiceMessage = async (
   audioBase64: string,
-  mimeType: string
+  mimeType: string,
+  signal?: AbortSignal
 ): Promise<VoiceResponse> => {
   if (!chatSession || !ai) {
     if (activeScenario) {
@@ -277,8 +278,22 @@ export const sendVoiceMessage = async (
   }
 
   try {
+    // Helper to make API calls cancellable via AbortSignal
+    const abortablePromise = <T>(promise: Promise<T>): Promise<T> => {
+      if (!signal) return promise;
+
+      return Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(new DOMException('Request aborted', 'AbortError'));
+          });
+        })
+      ]);
+    };
+
     // Step 1: Transcribe user audio
-    const transcribeResponse = await ai.models.generateContent({
+    const transcribeResponse = await abortablePromise(ai.models.generateContent({
       model: 'gemini-2.0-flash-lite',
       contents: [{
         parts: [
@@ -291,7 +306,7 @@ export const sendVoiceMessage = async (
           },
         ],
       }],
-    });
+    }));
 
     const userText = transcribeResponse.text || "";
 
@@ -316,7 +331,7 @@ export const sendVoiceMessage = async (
     }
     
     // Step 2: Send User Audio to Chat Model to get Text Response
-    const chatResponse = await chatSession.sendMessage({
+    const chatResponse = await abortablePromise(chatSession.sendMessage({
       message: [
         {
           inlineData: {
@@ -325,7 +340,7 @@ export const sendVoiceMessage = async (
           },
         },
       ],
-    });
+    }));
 
     const rawModelText = chatResponse.text; // Access text property directly
 
@@ -338,6 +353,12 @@ export const sendVoiceMessage = async (
       ? parseHintFromResponse(rawModelText)
       : { text: rawModelText, hint: null };
 
+    // Check if operation was cancelled before updating history
+    if (signal?.aborted) {
+      // Operation was cancelled, don't add to history
+      throw new DOMException('Request aborted', 'AbortError');
+    }
+
     // Sync to shared conversation history (use text without hint markers)
     addToHistory("user", userText);
     addToHistory("assistant", modelText);
@@ -346,7 +367,7 @@ export const sendVoiceMessage = async (
 
     // Step 3: Send Text Response to TTS Model to get Audio (use text without hint)
     const systemPrompt = `You are to read out the following text in a friendly, encouraging tone. When speaking French, use a natural French accent. You MUST output ONLY AUDIO, not TEXT. Again, ONLY AUDIO, not TEXT. Here's the text enclosed in <text> tags: <text>${modelText}</text>`;
-    const ttsResponse = await ai.models.generateContent({
+    const ttsResponse = await abortablePromise(ai.models.generateContent({
         model: 'gemini-2.5-flash-preview-tts',
       contents: [{ parts: [{ text: systemPrompt }] }],
         config: {
@@ -359,7 +380,7 @@ export const sendVoiceMessage = async (
                 }
             }
         }
-    });
+    }));
 
     // Extract audio from TTS response
     const candidate = ttsResponse.candidates?.[0];
