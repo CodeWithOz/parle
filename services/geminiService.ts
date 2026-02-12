@@ -318,7 +318,8 @@ export const generateCharacterSpeech = async (
  */
 export const sendVoiceMessage = async (
   audioBase64: string,
-  mimeType: string
+  mimeType: string,
+  signal?: AbortSignal
 ): Promise<VoiceResponse> => {
   if (!chatSession || !ai) {
     if (activeScenario) {
@@ -332,8 +333,22 @@ export const sendVoiceMessage = async (
   }
 
   try {
+    // Helper to make API calls cancellable via AbortSignal
+    const abortablePromise = <T>(promise: Promise<T>): Promise<T> => {
+      if (!signal) return promise;
+
+      return Promise.race([
+        promise,
+        new Promise<T>((_, reject) => {
+          signal.addEventListener('abort', () => {
+            reject(new DOMException('Request aborted', 'AbortError'));
+          });
+        })
+      ]);
+    };
+
     // Step 1: Transcribe user audio
-    const transcribeResponse = await ai.models.generateContent({
+    const transcribeResponse = await abortablePromise(ai.models.generateContent({
       model: 'gemini-2.0-flash-lite',
       contents: [{
         parts: [
@@ -346,7 +361,7 @@ export const sendVoiceMessage = async (
           },
         ],
       }],
-    });
+    }));
 
     const userText = transcribeResponse.text || "";
 
@@ -371,7 +386,7 @@ export const sendVoiceMessage = async (
     }
     
     // Step 2: Send User Audio to Chat Model to get Text Response
-    const chatResponse = await chatSession.sendMessage({
+    const chatResponse = await abortablePromise(chatSession.sendMessage({
       message: [
         {
           inlineData: {
@@ -380,7 +395,7 @@ export const sendVoiceMessage = async (
           },
         },
       ],
-    });
+    }));
 
     const rawModelText = chatResponse.text; // Access text property directly
 
@@ -394,6 +409,11 @@ export const sendVoiceMessage = async (
     if (isMultiCharacter) {
       // Parse multi-character response
       const parsed = parseMultiCharacterResponse(rawModelText, activeScenario);
+
+      // Check if operation was cancelled before updating history
+      if (signal?.aborted) {
+        throw new DOMException('Request aborted', 'AbortError');
+      }
 
       // Generate audio for each character IN PARALLEL
       const audioPromises = parsed.characterResponses.map(async (charResp) => {
@@ -433,6 +453,11 @@ export const sendVoiceMessage = async (
       const { text: modelText, hint } = activeScenario
         ? parseHintFromResponse(rawModelText)
         : { text: rawModelText, hint: null };
+
+      // Check if operation was cancelled before updating history
+      if (signal?.aborted) {
+        throw new DOMException('Request aborted', 'AbortError');
+      }
 
       // Sync to shared conversation history (use text without hint markers)
       addToHistory("user", userText);

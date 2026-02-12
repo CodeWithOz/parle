@@ -63,6 +63,8 @@ const App: React.FC = () => {
 
   // Ref to track if processing was aborted by the user
   const processingAbortedRef = useRef(false);
+  // AbortController for cancelling in-flight requests
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Error flash state
   const [errorFlashVisible, setErrorFlashVisible] = useState(false);
@@ -215,13 +217,19 @@ const App: React.FC = () => {
    */
   const processAudioMessage = async (audioData: AudioData) => {
     processingAbortedRef.current = false;
+    // Create a new AbortController for this request
+    abortControllerRef.current = new AbortController();
     setAppState(AppState.PROCESSING);
 
     try {
       const { base64, mimeType } = audioData;
 
       // Use Gemini for speaking practice
-      const response = await sendVoiceMessage(base64, mimeType);
+      const response = await sendVoiceMessage(
+        base64,
+        mimeType,
+        abortControllerRef.current.signal
+      );
 
       // Check if user aborted while waiting for API response
       if (processingAbortedRef.current) {
@@ -300,6 +308,9 @@ const App: React.FC = () => {
       setCanRetryChatAudio(true);
       setAppState(AppState.ERROR);
       showErrorFlash();
+    } finally {
+      // Clean up AbortController
+      abortControllerRef.current = null;
     }
   };
 
@@ -348,6 +359,10 @@ const App: React.FC = () => {
   // Abort handler - cancels in-flight processing
   const handleAbortProcessing = useCallback(() => {
     processingAbortedRef.current = true;
+    // Abort the in-flight network requests
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
     setAppState(AppState.IDLE);
   }, []);
 
