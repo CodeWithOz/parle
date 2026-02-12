@@ -240,7 +240,7 @@ const App: React.FC = () => {
         const timestamp = Date.now();
         const userMessage: Message = { role: 'user', text: response.userText, timestamp };
 
-        // Create a message for each character response
+        // Create separate messages for each character
         const modelMessages: Message[] = response.characters!.map((char, idx) => ({
           role: 'model' as const,
           text: (response.modelText as string[])[idx],
@@ -260,7 +260,7 @@ const App: React.FC = () => {
           setCurrentHint(response.hint);
         }
 
-        // Set the first character message to auto-play
+        // Set the first character message to auto-play (others will auto-play sequentially)
         setAutoPlayMessageId(timestamp + 1);
       } else {
         // Single-character response (original behavior)
@@ -627,9 +627,10 @@ const App: React.FC = () => {
     setMessages([]);
 
     // Enhance scenario with characters
+    // Use scenarioCharacters if available (new scenario), otherwise fall back to scenario.characters (existing scenario)
     const enhancedScenario: Scenario = {
       ...scenario,
-      characters: scenarioCharacters.length > 0 ? scenarioCharacters : undefined
+      characters: scenarioCharacters.length > 0 ? scenarioCharacters : scenario.characters
     };
 
     // Set the scenario for both providers

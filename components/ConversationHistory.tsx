@@ -13,9 +13,10 @@ interface MessageItemProps {
   playbackSpeed: number;
   autoPlay: boolean;
   onAudioRef: (audio: HTMLAudioElement | null, messageId: number) => void;
+  onAudioEnded?: () => void;
 }
 
-const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef }) => {
+const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef, onAudioEnded }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
 
   // Update playback rate when speed changes
@@ -77,8 +78,23 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
     };
   }, [autoPlay, message.role, message.audioUrl]);
 
-  // Check if this is a multi-audio message
-  const isMultiAudio = Array.isArray(message.audioUrl);
+  // Add ended event listener to trigger next message
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !onAudioEnded) {
+      return;
+    }
+
+    const handleEnded = () => {
+      onAudioEnded();
+    };
+
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, [onAudioEnded]);
 
   return (
     <div
@@ -99,33 +115,16 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
           </div>
         )}
 
-        <p className="text-sm leading-relaxed">{message.text}</p>
+        <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.text}</p>
 
         {/* Audio controls */}
-        {message.role === 'model' && message.audioUrl && (
-          <>
-            {isMultiAudio ? (
-              // Multiple audio files (multi-character)
-              <div className="space-y-2 mt-3">
-                {(message.audioUrl as string[]).map((url, idx) => (
-                  <audio
-                    key={idx}
-                    src={url}
-                    controls
-                    className="w-full"
-                  />
-                ))}
-              </div>
-            ) : (
-              // Single audio file
-              <audio
-                ref={audioRef}
-                src={message.audioUrl as string}
-                controls
-                className="w-full mt-3"
-              />
-            )}
-          </>
+        {message.role === 'model' && message.audioUrl && typeof message.audioUrl === 'string' && (
+          <audio
+            ref={audioRef}
+            src={message.audioUrl}
+            controls
+            className="w-full mt-3"
+          />
         )}
       </div>
       <span className={`text-xs text-slate-500 mt-1 ${message.role === 'user' ? 'mr-1' : 'ml-1'}`}>
@@ -143,6 +142,14 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
 }) => {
   const audioElementsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [currentAutoPlayId, setCurrentAutoPlayId] = React.useState<number | null>(null);
+
+  // Sync currentAutoPlayId with prop
+  useEffect(() => {
+    if (autoPlayMessageId !== null && autoPlayMessageId !== undefined) {
+      setCurrentAutoPlayId(autoPlayMessageId);
+    }
+  }, [autoPlayMessageId]);
 
   const handleAudioRef = useCallback((audio: HTMLAudioElement | null, messageId: number) => {
     if (audio) {
@@ -152,14 +159,30 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
     }
   }, []);
 
+  // Handle audio ended - trigger next message if it exists
+  const handleAudioEnded = useCallback((messageTimestamp: number) => {
+    // Find the message that just ended
+    const currentIndex = messages.findIndex(m => m.timestamp === messageTimestamp);
+    if (currentIndex === -1) return;
+
+    // Check if next message exists and is a model message
+    if (currentIndex + 1 < messages.length) {
+      const nextMessage = messages[currentIndex + 1];
+      // Only auto-play if next message is from model and has consecutive timestamp
+      if (nextMessage.role === 'model' && nextMessage.timestamp === messageTimestamp + 1) {
+        setCurrentAutoPlayId(nextMessage.timestamp);
+      }
+    }
+  }, [messages]);
+
   // Pause all audio except the one that should auto-play
   useEffect(() => {
     audioElementsRef.current.forEach((audio, messageId) => {
-      if (messageId !== autoPlayMessageId && !audio.paused) {
+      if (messageId !== currentAutoPlayId && !audio.paused) {
         audio.pause();
       }
     });
-  }, [autoPlayMessageId]);
+  }, [currentAutoPlayId]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -198,8 +221,9 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
               key={message.timestamp + '-' + index}
               message={message}
               playbackSpeed={playbackSpeed}
-              autoPlay={autoPlayMessageId === message.timestamp}
+              autoPlay={currentAutoPlayId === message.timestamp}
               onAudioRef={handleAudioRef}
+              onAudioEnded={() => handleAudioEnded(message.timestamp)}
             />
           ))}
           <div ref={bottomRef} />

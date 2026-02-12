@@ -116,6 +116,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
       aiSummary: aiSummary || undefined,
       createdAt: Date.now(),
       isActive: true,
+      characters: characters, // Include characters data
     };
 
     try {

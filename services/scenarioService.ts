@@ -153,11 +153,13 @@ Each character should respond naturally based on their role. Multiple characters
 RESPONSE FORMAT (CRITICAL):
 When responding, you MUST format your response with character names like this:
 
-[CHARACTER_NAME]: Their French response... English translation...
+[CHARACTER_NAME]: Complete French response... Complete English translation...
+
+IMPORTANT: Put the ENTIRE French response first, then the ENTIRE English translation second. DO NOT interleave them.
 
 For example:
-[BAKER]: Bonjour! Bienvenue à notre boulangerie! ... Hello! Welcome to our bakery!
-[CASHIER]: Oui, comment puis-je vous aider aujourd'hui? ... Yes, how can I help you today?
+[BAKER]: Bonjour! Bienvenue à notre boulangerie! Que désirez-vous aujourd'hui? ... Hello! Welcome to our bakery! What would you like today?
+[CASHIER]: Ça fait cinq euros, s'il vous plaît. ... That's five euros, please.
 
 GUIDELINES:
 1. Stay in character for each speaker
@@ -165,9 +167,10 @@ GUIDELINES:
 3. If the user makes French mistakes, gently model the correct form in your response while staying in character
 4. Follow the scenario progression, but adapt naturally to what the user actually says
 5. Each character's response MUST follow this structure:
-   - First, their French response (in character)
-   - Then, immediately provide the ENGLISH translation
+   - First, their COMPLETE French response (in character) - all French sentences together
+   - Then, immediately provide the COMPLETE ENGLISH translation - all English sentences together
    - Do not say "Here is the translation" or explain the format
+   - Do NOT interleave French and English - all French first, then all English
 6. Decide which character(s) should respond based on the context
 7. When the scenario reaches its natural end, have the appropriate character(s) congratulate the user
 
@@ -178,8 +181,10 @@ PROACTIVE HINTS (REQUIRED):
 At the END of EVERY response (after all character responses), you MUST include a hint section in EXACTLY this format:
 
 ---HINT---
-[Brief description of what the user should say or ask next, in English - focus on the TOPIC or ACTION, not the exact French words]
+Brief description of what the user should say or ask next, in English - focus on the TOPIC or ACTION, not the exact French words
 ---END_HINT---
+
+Do NOT wrap the hint in square brackets.
 
 START THE SCENARIO:
 Begin by having the appropriate character(s) greet the user and initiate the scenario.`;
@@ -193,7 +198,9 @@ export const parseHintFromResponse = (response: string): { text: string; hint: s
   const hintMatch = response.match(/---HINT---\s*([\s\S]*?)\s*---END_HINT---/);
 
   if (hintMatch) {
-    const hint = hintMatch[1].trim();
+    let hint = hintMatch[1].trim();
+    // Remove leading/trailing square brackets if present (e.g., "[Tell the baker...]" -> "Tell the baker...")
+    hint = hint.replace(/^\[|\]$/g, '').trim();
     const text = response.replace(/---HINT---[\s\S]*?---END_HINT---/, '').trim();
     return { text, hint };
   }
@@ -260,7 +267,24 @@ export const parseMultiCharacterResponse = (
     };
   });
 
-  return { characterResponses, hint };
+  // Merge consecutive responses from the same character
+  const mergedResponses = characterResponses.reduce<Array<{ characterId: string; characterName: string; text: string }>>((acc, current) => {
+    if (acc.length === 0) {
+      return [current];
+    }
+
+    const lastResponse = acc[acc.length - 1];
+    if (lastResponse.characterId === current.characterId) {
+      // Same character - merge the text with a space
+      lastResponse.text = `${lastResponse.text} ${current.text}`;
+      return acc;
+    }
+
+    // Different character - add as new response
+    return [...acc, current];
+  }, []);
+
+  return { characterResponses: mergedResponses, hint };
 };
 
 /**
@@ -271,32 +295,14 @@ export const generateScenarioSummaryPrompt = (description: string): string => {
 
 "${description}"
 
-Please analyze this scenario and respond in JSON format with the following structure:
-
-{
-  "summary": "Brief 2-3 sentence summary of the scenario",
-  "characters": [
-    {
-      "name": "Character name (e.g., Baker, Waiter, Manager)",
-      "role": "Brief role description (e.g., baker, waiter, hotel receptionist)",
-      "description": "Optional brief description of the character's personality or demeanor"
-    }
-  ]
-}
-
-Guidelines:
-1. Identify ALL distinct characters/people the user will interact with in this scenario
+Please analyze this scenario and identify:
+1. ALL distinct characters/people the user will interact with in this scenario
 2. If only one character is mentioned or implied, return an array with just that one character
 3. Character names should be role-based (e.g., "Baker", "Cashier", "Waiter", "Manager")
 4. Keep role descriptions short and lowercase (e.g., "baker", "cashier")
-5. The summary should confirm understanding and readiness to begin
+5. Write a brief 2-3 sentence summary confirming understanding and readiness to begin
 
 Example for "I went to a bakery and spoke to the baker about bread, then paid the cashier":
-{
-  "summary": "I understand! You visited a bakery where you'll speak with the baker about bread options, and then complete your purchase with the cashier. I'll play both the baker and cashier roles. Ready to begin when you are!",
-  "characters": [
-    {"name": "Baker", "role": "baker", "description": "Friendly and knowledgeable about bread"},
-    {"name": "Cashier", "role": "cashier", "description": "Efficient and helpful with payments"}
-  ]
-}`;
+- Summary: "I understand! You visited a bakery where you'll speak with the baker about bread options, and then complete your purchase with the cashier. I'll play both the baker and cashier roles. Ready to begin when you are!"
+- Characters: Baker (role: baker, friendly and knowledgeable), Cashier (role: cashier, efficient and helpful)`;
 };

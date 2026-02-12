@@ -1,8 +1,53 @@
+import { z } from "zod";
 import { base64ToBlob } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
 import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
+
+// Zod schema for scenario extraction
+const CharacterSchema = z.object({
+  name: z.string().describe("Character name (e.g., Baker, Waiter, Manager)"),
+  role: z.string().describe("Brief role description (e.g., baker, waiter, hotel receptionist)"),
+});
+
+const ScenarioSummarySchema = z.object({
+  summary: z.string().describe("Brief 2-3 sentence summary of the scenario"),
+  characters: z.array(CharacterSchema).describe("All distinct characters/people the user will interact with in this scenario")
+});
+
+// JSON schema for OpenAI structured outputs (manually defined from Zod schema)
+// Note: OpenAI strict mode requires all properties to be in 'required' array, so we can't have optional fields
+const ScenarioSummaryJSONSchema = {
+  type: "object" as const,
+  properties: {
+    summary: {
+      type: "string" as const,
+      description: "Brief 2-3 sentence summary of the scenario"
+    },
+    characters: {
+      type: "array" as const,
+      description: "All distinct characters/people the user will interact with in this scenario",
+      items: {
+        type: "object" as const,
+        properties: {
+          name: {
+            type: "string" as const,
+            description: "Character name (e.g., Baker, Waiter, Manager)"
+          },
+          role: {
+            type: "string" as const,
+            description: "Brief role description (e.g., baker, waiter, hotel receptionist)"
+          }
+        },
+        required: ["name", "role"] as const,
+        additionalProperties: false
+      }
+    }
+  },
+  required: ["summary", "characters"] as const,
+  additionalProperties: false
+};
 
 const SYSTEM_INSTRUCTION = `
 You are a friendly and patient French language tutor. 
@@ -44,7 +89,7 @@ export const setScenarioOpenAI = (scenario: Scenario | null) => {
 };
 
 /**
- * Gets AI's understanding/summary of a scenario description using OpenAI.
+ * Gets AI's understanding/summary of a scenario description using OpenAI with structured output.
  */
 export const processScenarioDescriptionOpenAI = async (description: string): Promise<string> => {
   const apiKey = getApiKeyOrEnv('openai');
@@ -63,7 +108,15 @@ export const processScenarioDescriptionOpenAI = async (description: string): Pro
       model: "gpt-5-nano",
       messages: [
         { role: "user", content: generateScenarioSummaryPrompt(description) }
-      ]
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "scenario_summary",
+          strict: true,
+          schema: ScenarioSummaryJSONSchema
+        }
+      }
     })
   });
 
@@ -77,21 +130,29 @@ export const processScenarioDescriptionOpenAI = async (description: string): Pro
   // Defensive validation
   if (!json || typeof json !== 'object') {
     console.warn('OpenAI response validation failed: invalid response format');
-    return "I understand the scenario. Ready to begin when you are!";
+    return JSON.stringify({ summary: "I understand the scenario. Ready to begin when you are!", characters: [] });
   }
 
   if (!Array.isArray(json.choices) || json.choices.length === 0) {
     console.warn('OpenAI response validation failed: missing or empty choices array');
-    return "I understand the scenario. Ready to begin when you are!";
+    return JSON.stringify({ summary: "I understand the scenario. Ready to begin when you are!", characters: [] });
   }
 
   const firstChoice = json.choices[0];
   if (!firstChoice || !firstChoice.message || typeof firstChoice.message.content !== 'string') {
     console.warn('OpenAI response validation failed: missing or invalid message content');
-    return "I understand the scenario. Ready to begin when you are!";
+    return JSON.stringify({ summary: "I understand the scenario. Ready to begin when you are!", characters: [] });
   }
 
-  return firstChoice.message.content;
+  // Parse and validate with Zod
+  try {
+    const parsed = JSON.parse(firstChoice.message.content);
+    const validated = ScenarioSummarySchema.parse(parsed);
+    return JSON.stringify(validated);
+  } catch (error) {
+    console.warn('Failed to parse OpenAI structured output:', error);
+    return JSON.stringify({ summary: "I understand the scenario. Ready to begin when you are!", characters: [] });
+  }
 };
 
 /**
