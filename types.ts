@@ -26,6 +26,7 @@ export interface Message {
   characterId?: string; // NEW: ID of the character who spoke
   characterName?: string; // NEW: Name of the character who spoke
   voiceName?: string; // NEW: Voice used for this message
+  audioGenerationFailed?: boolean; // NEW: Track if audio TTS failed
 }
 
 export interface VoiceResponse {
@@ -37,6 +38,7 @@ export interface VoiceResponse {
     characterId: string;
     characterName: string;
     voiceName: string;
+    audioGenerationFailed?: boolean; // NEW: Track if TTS failed for this character
   }>;
 }
 

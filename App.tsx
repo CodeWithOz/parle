@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AppState, Message, ScenarioMode, Scenario, AudioData, Character } from './types';
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
-import { initializeSession, sendVoiceMessage, resetSession, setScenario, transcribeAndCleanupAudio } from './services/geminiService';
+import { initializeSession, sendVoiceMessage, resetSession, setScenario, transcribeAndCleanupAudio, generateCharacterSpeech } from './services/geminiService';
 import { processScenarioDescriptionOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
 import { hasApiKeyOrEnv } from './services/apiKeyService';
@@ -235,7 +235,9 @@ const App: React.FC = () => {
       if (processingAbortedRef.current) {
         if (response.audioUrl) {
           if (Array.isArray(response.audioUrl)) {
-            response.audioUrl.forEach(url => URL.revokeObjectURL(url));
+            response.audioUrl.forEach(url => {
+              URL.revokeObjectURL(url);
+            });
           } else {
             URL.revokeObjectURL(response.audioUrl);
           }
@@ -245,23 +247,48 @@ const App: React.FC = () => {
 
       // Handle multi-character response
       if (Array.isArray(response.audioUrl)) {
+        // Validate multi-character response structure
+        if (!response.characters || !Array.isArray(response.characters)) {
+          console.error('Multi-character response missing characters array');
+          return;
+        }
+
+        if (!Array.isArray(response.modelText)) {
+          console.error('Multi-character response has invalid modelText');
+          return;
+        }
+
+        // Verify all arrays have matching lengths
+        const audioUrls = response.audioUrl;
+        const characters = response.characters;
+        const modelTexts = response.modelText;
+
+        if (audioUrls.length !== characters.length || audioUrls.length !== modelTexts.length) {
+          console.error('Multi-character response arrays have mismatched lengths', {
+            audioUrls: audioUrls.length,
+            characters: characters.length,
+            modelTexts: modelTexts.length
+          });
+          return;
+        }
+
         const timestamp = Date.now();
         const userMessage: Message = { role: 'user', text: response.userText, timestamp };
 
         // Create separate messages for each character
-        const modelMessages: Message[] = response.characters!.map((char, idx) => ({
+        const modelMessages: Message[] = characters.map((char, idx) => ({
           role: 'model' as const,
-          text: (response.modelText as string[])[idx],
+          text: modelTexts[idx],
           timestamp: timestamp + idx + 1,
-          audioUrl: (response.audioUrl as string[])[idx],
+          audioUrl: audioUrls[idx],
           characterId: char.characterId,
           characterName: char.characterName,
           voiceName: char.voiceName,
-          hint: idx === response.characters!.length - 1 ? response.hint : undefined
+          hint: idx === characters.length - 1 ? response.hint : undefined,
+          audioGenerationFailed: char.audioGenerationFailed || false
         }));
 
-        const newMessages: Message[] = [...messages, userMessage, ...modelMessages];
-        setMessages(newMessages);
+        setMessages(prev => [...prev, userMessage, ...modelMessages]);
 
         // Update current hint (only in scenario mode, from last character)
         if (scenarioMode === 'practice' && response.hint) {
@@ -277,12 +304,11 @@ const App: React.FC = () => {
         // Add messages to history (append for chronological order - newest last)
         const timestamp = Date.now();
         const modelTimestamp = timestamp + 1;
-        const newMessages: Message[] = [
-          ...messages,
+        setMessages(prev => [
+          ...prev,
           { role: 'user', text: userText, timestamp },
           { role: 'model', text: modelText as string, timestamp: modelTimestamp, audioUrl: audioUrl as string, hint },
-        ];
-        setMessages(newMessages);
+        ]);
 
         // Update current hint (only in scenario mode)
         if (scenarioMode === 'practice' && hint) {
@@ -356,6 +382,31 @@ const App: React.FC = () => {
     await processAudioMessage(lastChatAudio);
   };
 
+  /**
+   * Retry generating audio for a specific message that failed
+   */
+  const handleRetryAudioGeneration = async (messageTimestamp: number) => {
+    const message = messages.find(m => m.timestamp === messageTimestamp);
+    if (!message || !message.audioGenerationFailed || !message.voiceName) {
+      console.error("Cannot retry audio generation for this message");
+      return;
+    }
+
+    try {
+      const audioUrl = await generateCharacterSpeech(message.text, message.voiceName);
+
+      // Update message with new audio
+      setMessages(prev => prev.map(m =>
+        m.timestamp === messageTimestamp
+          ? { ...m, audioUrl, audioGenerationFailed: false }
+          : m
+      ));
+    } catch (err) {
+      console.error('Audio generation retry failed:', err);
+      // Could show a toast notification here
+    }
+  };
+
   // Abort handler - cancels in-flight processing
   const handleAbortProcessing = useCallback(() => {
     processingAbortedRef.current = true;
@@ -383,7 +434,9 @@ const App: React.FC = () => {
       messages.forEach(msg => {
         if (msg.audioUrl) {
           if (Array.isArray(msg.audioUrl)) {
-            msg.audioUrl.forEach(url => URL.revokeObjectURL(url));
+            msg.audioUrl.forEach(url => {
+              URL.revokeObjectURL(url);
+            });
           } else {
             URL.revokeObjectURL(msg.audioUrl);
           }
@@ -817,6 +870,7 @@ const App: React.FC = () => {
               onClear={handleClearHistory}
               playbackSpeed={playbackSpeed}
               autoPlayMessageId={autoPlayMessageId}
+              onRetryAudio={handleRetryAudioGeneration}
             />
             {/* Conversation hint - shown in scenario practice when idle or recording; flex-shrink-0 keeps it visible below the scrollable history */}
             <div className="flex-shrink-0">

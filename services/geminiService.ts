@@ -272,7 +272,10 @@ export const generateCharacterSpeech = async (
     ensureAiInitialized();
   }
 
-  const systemPrompt = `You are to read out the following text in a friendly, encouraging tone. When speaking French, use a natural French accent. You MUST output ONLY AUDIO, not TEXT. Again, ONLY AUDIO, not TEXT. Here's the text enclosed in <text> tags: <text>${text}</text>`;
+  // Sanitize text to prevent breaking the delimiter
+  const sanitizedText = text.replace(/<\/text>/g, '<\\/text>');
+
+  const systemPrompt = `You are to read out the following text in a friendly, encouraging tone. When speaking French, use a natural French accent. You MUST output ONLY AUDIO, not TEXT. Again, ONLY AUDIO, not TEXT. Here's the text enclosed in <text> tags: <text>${sanitizedText}</text>`;
 
   const ttsResponse = await ai!.models.generateContent({
     model: 'gemini-2.5-flash-preview-tts',
@@ -404,9 +407,7 @@ export const sendVoiceMessage = async (
     }
 
     // Check if this is a multi-character scenario
-    const isMultiCharacter = activeScenario?.characters && activeScenario.characters.length > 1;
-
-    if (isMultiCharacter) {
+    if (activeScenario && activeScenario.characters && activeScenario.characters.length > 1) {
       // Parse multi-character response
       const parsed = parseMultiCharacterResponse(rawModelText, activeScenario);
 
@@ -417,7 +418,7 @@ export const sendVoiceMessage = async (
 
       // Generate audio for each character IN PARALLEL
       const audioPromises = parsed.characterResponses.map(async (charResp) => {
-        const character = activeScenario.characters!.find(c => c.id === charResp.characterId);
+        const character = activeScenario.characters.find(c => c.id === charResp.characterId);
         if (!character) {
           throw new Error(`Character not found: ${charResp.characterId}`);
         }
@@ -425,7 +426,23 @@ export const sendVoiceMessage = async (
         return { ...charResp, audioUrl, voiceName: character.voiceName };
       });
 
-      const characterAudios = await Promise.all(audioPromises);
+      const results = await Promise.allSettled(audioPromises);
+
+      // Process results: extract successes and mark failures
+      const characterAudios = results.map((result, idx) => {
+        if (result.status === 'rejected') {
+          console.error(`TTS failed for character ${parsed.characterResponses[idx].characterName}:`, result.reason);
+          // Return character data without audio, flagged as failed
+          const character = activeScenario.characters.find(c => c.id === parsed.characterResponses[idx].characterId);
+          return {
+            ...parsed.characterResponses[idx],
+            audioUrl: undefined,
+            audioGenerationFailed: true,
+            voiceName: character?.voiceName || ''
+          };
+        }
+        return { ...result.value, audioGenerationFailed: false };
+      });
 
       // Construct combined text for conversation history (without character markers)
       const combinedModelText = parsed.characterResponses.map(cr => cr.text).join(' ');
@@ -444,7 +461,8 @@ export const sendVoiceMessage = async (
         characters: characterAudios.map(ca => ({
           characterId: ca.characterId,
           characterName: ca.characterName,
-          voiceName: ca.voiceName
+          voiceName: ca.voiceName,
+          audioGenerationFailed: ca.audioGenerationFailed
         }))
       };
     } else {

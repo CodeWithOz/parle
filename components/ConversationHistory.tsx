@@ -6,6 +6,7 @@ interface ConversationHistoryProps {
   onClear: () => void;
   playbackSpeed: number;
   autoPlayMessageId?: number | null;
+  onRetryAudio?: (messageTimestamp: number) => void;
 }
 
 interface MessageItemProps {
@@ -14,9 +15,10 @@ interface MessageItemProps {
   autoPlay: boolean;
   onAudioRef: (audio: HTMLAudioElement | null, messageId: number) => void;
   onAudioEnded?: () => void;
+  onRetryAudio?: (messageTimestamp: number) => void;
 }
 
-const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef, onAudioEnded }) => {
+const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef, onAudioEnded, onRetryAudio }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
 
   // Update playback rate when speed changes
@@ -117,14 +119,31 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
 
         <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.text}</p>
 
-        {/* Audio controls */}
-        {message.role === 'model' && message.audioUrl && typeof message.audioUrl === 'string' && (
-          <audio
-            ref={audioRef}
-            src={message.audioUrl}
-            controls
-            className="w-full mt-3"
-          />
+        {/* Audio controls or retry button */}
+        {message.role === 'model' && (
+          <>
+            {message.audioUrl && typeof message.audioUrl === 'string' ? (
+              <audio
+                ref={audioRef}
+                src={message.audioUrl}
+                controls
+                className="w-full mt-3"
+              />
+            ) : message.audioGenerationFailed ? (
+              <div className="mt-3 flex items-center gap-2 text-xs">
+                <span className="text-yellow-400/80">⚠️ Audio unavailable</span>
+                {onRetryAudio && (
+                  <button
+                    onClick={() => onRetryAudio(message.timestamp)}
+                    className="px-2 py-1 bg-slate-700/50 hover:bg-slate-600/50 rounded text-slate-300 transition-colors flex items-center gap-1"
+                  >
+                    <span>🔄</span>
+                    <span>Retry</span>
+                  </button>
+                )}
+              </div>
+            ) : null}
+          </>
         )}
       </div>
       <span className={`text-xs text-slate-500 mt-1 ${message.role === 'user' ? 'mr-1' : 'ml-1'}`}>
@@ -138,7 +157,8 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   messages,
   onClear,
   playbackSpeed,
-  autoPlayMessageId
+  autoPlayMessageId,
+  onRetryAudio
 }) => {
   const audioElementsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -146,9 +166,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
 
   // Sync currentAutoPlayId with prop
   useEffect(() => {
-    if (autoPlayMessageId !== null && autoPlayMessageId !== undefined) {
-      setCurrentAutoPlayId(autoPlayMessageId);
-    }
+    setCurrentAutoPlayId(autoPlayMessageId ?? null);
   }, [autoPlayMessageId]);
 
   const handleAudioRef = useCallback((audio: HTMLAudioElement | null, messageId: number) => {
@@ -224,6 +242,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
               autoPlay={currentAutoPlayId === message.timestamp}
               onAudioRef={handleAudioRef}
               onAudioEnded={() => handleAudioEnded(message.timestamp)}
+              onRetryAudio={onRetryAudio}
             />
           ))}
           <div ref={bottomRef} />
