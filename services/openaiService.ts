@@ -1,3 +1,4 @@
+import { ChatOpenAI } from "@langchain/openai";
 import { z } from "zod";
 import { base64ToBlob } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
@@ -13,41 +14,8 @@ const CharacterSchema = z.object({
 
 const ScenarioSummarySchema = z.object({
   summary: z.string().describe("Brief 2-3 sentence summary of the scenario"),
-  characters: z.array(CharacterSchema).describe("All distinct characters/people the user will interact with in this scenario")
+  characters: z.array(CharacterSchema).min(1).max(5).describe("All distinct characters/people the user will interact with in this scenario (1-5 characters)")
 });
-
-// JSON schema for OpenAI structured outputs (manually defined from Zod schema)
-// Note: OpenAI strict mode requires all properties to be in 'required' array, so we can't have optional fields
-const ScenarioSummaryJSONSchema = {
-  type: "object" as const,
-  properties: {
-    summary: {
-      type: "string" as const,
-      description: "Brief 2-3 sentence summary of the scenario"
-    },
-    characters: {
-      type: "array" as const,
-      description: "All distinct characters/people the user will interact with in this scenario",
-      items: {
-        type: "object" as const,
-        properties: {
-          name: {
-            type: "string" as const,
-            description: "Character name (e.g., Baker, Waiter, Manager)"
-          },
-          role: {
-            type: "string" as const,
-            description: "Brief role description (e.g., baker, waiter, hotel receptionist)"
-          }
-        },
-        required: ["name", "role"] as const,
-        additionalProperties: false
-      }
-    }
-  },
-  required: ["summary", "characters"] as const,
-  additionalProperties: false
-};
 
 const SYSTEM_INSTRUCTION = `
 You are a friendly and patient French language tutor. 
@@ -98,60 +66,29 @@ export const processScenarioDescriptionOpenAI = async (description: string): Pro
     throw new Error("Missing OpenAI API Key");
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model: "gpt-5-nano",
-      messages: [
-        { role: "user", content: generateScenarioSummaryPrompt(description) }
-      ],
-      response_format: {
-        type: "json_schema",
-        json_schema: {
-          name: "scenario_summary",
-          strict: true,
-          schema: ScenarioSummaryJSONSchema
-        }
-      }
-    })
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenAI Error: ${response.status} ${errorText}`);
-  }
-
-  const json = await response.json();
-
-  // Defensive validation
-  if (!json || typeof json !== 'object') {
-    console.warn('OpenAI response validation failed: invalid response format');
-    return JSON.stringify({ summary: "I understand the scenario. Ready to begin when you are!", characters: [] });
-  }
-
-  if (!Array.isArray(json.choices) || json.choices.length === 0) {
-    console.warn('OpenAI response validation failed: missing or empty choices array');
-    return JSON.stringify({ summary: "I understand the scenario. Ready to begin when you are!", characters: [] });
-  }
-
-  const firstChoice = json.choices[0];
-  if (!firstChoice || !firstChoice.message || typeof firstChoice.message.content !== 'string') {
-    console.warn('OpenAI response validation failed: missing or invalid message content');
-    return JSON.stringify({ summary: "I understand the scenario. Ready to begin when you are!", characters: [] });
-  }
-
-  // Parse and validate with Zod
   try {
-    const parsed = JSON.parse(firstChoice.message.content);
-    const validated = ScenarioSummarySchema.parse(parsed);
-    return JSON.stringify(validated);
+    // Use Langchain ChatOpenAI with structured output
+    const model = new ChatOpenAI({
+      apiKey,
+      model: "gpt-5-nano",
+      temperature: 0.7
+    });
+
+    const structuredModel = model.withStructuredOutput(ScenarioSummarySchema, {
+      name: "scenario_summary"
+    });
+
+    const result = await structuredModel.invoke(generateScenarioSummaryPrompt(description));
+
+    // Result is already validated by Zod through Langchain
+    return JSON.stringify(result);
   } catch (error) {
-    console.warn('Failed to parse OpenAI structured output:', error);
-    return JSON.stringify({ summary: "I understand the scenario. Ready to begin when you are!", characters: [] });
+    console.warn('Failed to process scenario with OpenAI:', error);
+    // Fallback response
+    return JSON.stringify({
+      summary: "I understand the scenario. Ready to begin when you are!",
+      characters: []
+    });
   }
 };
 

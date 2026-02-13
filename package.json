@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@google/genai": "^1.37.0",
+    "@langchain/google-genai": "^2.1.18",
+    "@langchain/openai": "^1.2.7",
+    "langchain": "^1.2.24",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "zod": "^4.3.6"

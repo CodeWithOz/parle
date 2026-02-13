@@ -1,9 +1,22 @@
-import { GoogleGenAI, Chat, Modality, Type } from "@google/genai";
+import { GoogleGenAI, Chat, Modality, Type, Schema } from "@google/genai";
+import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
+import { z } from "zod";
 import { base64ToBytes, pcmToWav } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
 import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse, parseMultiCharacterResponse } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
+
+// Zod schema for multi-character structured output
+const CharacterResponseSchema = z.object({
+  characterName: z.string().describe("The exact character name from the scenario"),
+  text: z.string().describe("The character's complete response (French first, then English translation)")
+});
+
+const MultiCharacterResponseSchema = z.object({
+  characterResponses: z.array(CharacterResponseSchema).describe("Array of character responses in order"),
+  hint: z.string().nullable().optional().describe("Optional hint for what the user should say next")
+});
 
 // Gemini TTS output format constants
 const DEFAULT_PCM_SAMPLE_RATE = 24000; // 24kHz sample rate
@@ -50,6 +63,9 @@ function createChatSession(): void {
     ? generateScenarioSystemInstruction(activeScenario)
     : SYSTEM_INSTRUCTION;
 
+  // Check if multi-character scenario for JSON response
+  const isMultiCharacter = activeScenario && activeScenario.characters && activeScenario.characters.length > 1;
+
   // Convert history to SDK format if provided
   const historyMessages = pendingHistory ? pendingHistory.map(msg => ({
     role: msg.role === 'user' ? 'user' : 'model',
@@ -60,6 +76,9 @@ function createChatSession(): void {
     model: 'gemini-2.0-flash-lite',
     config: {
       systemInstruction: systemInstruction,
+      ...(isMultiCharacter && {
+        responseMimeType: 'application/json'
+      })
     },
     ...(historyMessages && { history: historyMessages }),
   });
@@ -317,6 +336,23 @@ export const generateCharacterSpeech = async (
 };
 
 /**
+ * Create Zod schema for multi-character response with exact character names
+ */
+const createMultiCharacterSchema = (scenario: Scenario) => {
+  const characterNames = scenario.characters!.map(c => c.name);
+
+  return z.object({
+    characterResponses: z.array(
+      z.object({
+        characterName: z.enum(characterNames as [string, ...string[]]).describe(`Must be one of: ${characterNames.join(', ')}`),
+        text: z.string().describe("The character's complete response (French first, then English translation)")
+      })
+    ),
+    hint: z.string().nullable().optional().describe("Optional hint for what the user should say next")
+  });
+};
+
+/**
  * Sends a user audio blob to the model and returns the response with audio and text.
  */
 export const sendVoiceMessage = async (
@@ -408,8 +444,25 @@ export const sendVoiceMessage = async (
 
     // Check if this is a multi-character scenario
     if (activeScenario && activeScenario.characters && activeScenario.characters.length > 1) {
-      // Parse multi-character response
-      const parsed = parseMultiCharacterResponse(rawModelText, activeScenario);
+      // Parse and validate JSON response with Zod
+      const MultiCharacterSchema = createMultiCharacterSchema(activeScenario);
+      const jsonResponse = JSON.parse(rawModelText);
+      const validated = MultiCharacterSchema.parse(jsonResponse);
+
+      // Map validated response to include character IDs
+      const characterResponses = validated.characterResponses.map(resp => {
+        const character = activeScenario.characters!.find(c => c.name === resp.characterName)!;
+        return {
+          characterId: character.id,
+          characterName: character.name,
+          text: resp.text.trim()
+        };
+      });
+
+      const parsed = {
+        characterResponses,
+        hint: validated.hint || null
+      };
 
       // Check if operation was cancelled before updating history
       if (signal?.aborted) {
@@ -418,22 +471,14 @@ export const sendVoiceMessage = async (
 
       // Generate audio for each character IN PARALLEL
       const audioPromises = parsed.characterResponses.map(async (charResp) => {
-        // Try to find character by ID first
-        let character = activeScenario.characters.find(c => c.id === charResp.characterId);
-
-        // Fallback: try to find by name if ID doesn't match (handles "unknown_" IDs from fuzzy matching)
-        if (!character) {
-          character = activeScenario.characters.find(c =>
-            c.name.toLowerCase() === charResp.characterName.toLowerCase()
-          );
-        }
+        const character = activeScenario.characters.find(c => c.id === charResp.characterId);
 
         if (!character) {
           throw new Error(`Character not found: ${charResp.characterName} (ID: ${charResp.characterId})`);
         }
 
         const audioUrl = await generateCharacterSpeech(charResp.text, character.voiceName);
-        return { ...charResp, audioUrl, voiceName: character.voiceName, characterId: character.id };
+        return { ...charResp, audioUrl, voiceName: character.voiceName };
       });
 
       const results = await Promise.allSettled(audioPromises);
@@ -443,19 +488,12 @@ export const sendVoiceMessage = async (
         if (result.status === 'rejected') {
           console.error(`TTS failed for character ${parsed.characterResponses[idx].characterName}:`, result.reason);
           // Return character data without audio, flagged as failed
-          // Try to find character by ID first, then by name if ID not found (handles "unknown_" IDs)
-          let character = activeScenario.characters.find(c => c.id === parsed.characterResponses[idx].characterId);
-          if (!character) {
-            character = activeScenario.characters.find(c =>
-              c.name.toLowerCase() === parsed.characterResponses[idx].characterName.toLowerCase()
-            );
-          }
+          const character = activeScenario.characters.find(c => c.id === parsed.characterResponses[idx].characterId);
           return {
             ...parsed.characterResponses[idx],
             audioUrl: undefined,
             audioGenerationFailed: true,
-            voiceName: character?.voiceName || '',
-            characterId: character?.id || parsed.characterResponses[idx].characterId // Use real ID if found
+            voiceName: character?.voiceName || ''
           };
         }
         return { ...result.value, audioGenerationFailed: false };

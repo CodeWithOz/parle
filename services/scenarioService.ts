@@ -151,17 +151,27 @@ ${characterList}
 Each character should respond naturally based on their role. Multiple characters can respond in one turn if contextually appropriate (e.g., a baker might respond, then a cashier might chime in about payment).
 
 RESPONSE FORMAT (CRITICAL):
-When responding, you MUST use the EXACT character names from the list above, formatted in square brackets like this:
+You MUST respond with structured JSON in this exact format:
 
-[EXACT_NAME_FROM_LIST]: Complete French response... Complete English translation...
+{
+  "characterResponses": [
+    {
+      "characterName": "Baker",
+      "text": "Bonjour! Bienvenue à notre boulangerie! Que désirez-vous aujourd'hui? ... Hello! Welcome to our bakery! What would you like today?"
+    },
+    {
+      "characterName": "Cashier",
+      "text": "Ça fait cinq euros, s'il vous plaît. ... That's five euros, please."
+    }
+  ],
+  "hint": "Ask what you'd like to buy"
+}
 
 IMPORTANT:
-- Use the EXACT character names as shown in the list above (e.g., if the character is "Security Guard", use [Security Guard]: not [SECURITY]:)
-- Put the ENTIRE French response first, then the ENTIRE English translation second. DO NOT interleave them.
-
-For example:
-[Baker]: Bonjour! Bienvenue à notre boulangerie! Que désirez-vous aujourd'hui? ... Hello! Welcome to our bakery! What would you like today?
-[Cashier]: Ça fait cinq euros, s'il vous plaît. ... That's five euros, please.
+- Use the EXACT character names as shown in the character list above
+- Put the ENTIRE French response first, then the ENTIRE English translation in the "text" field
+- DO NOT interleave French and English
+- Include a "hint" field if appropriate (can be null)
 
 GUIDELINES:
 1. Stay in character for each speaker
@@ -257,26 +267,11 @@ export const parseMultiCharacterResponse = (
     const characterName = match[1].trim();
     const text = match[2].trim();
 
-    // Find character by name with flexible matching
-    let character = scenario.characters?.find(
+    // Find character by name (exact match, case-insensitive)
+    // With structured outputs, names should always match exactly
+    const character = scenario.characters?.find(
       c => c.name.toLowerCase() === characterName.toLowerCase()
     );
-
-    // Fallback: Try partial match (e.g., "SECURITY" matches "Security Guard")
-    if (!character) {
-      character = scenario.characters?.find(c => {
-        const nameLower = c.name.toLowerCase();
-        const inputLower = characterName.toLowerCase();
-        return nameLower.includes(inputLower) || inputLower.includes(nameLower);
-      });
-    }
-
-    // Fallback: Try role-based match
-    if (!character) {
-      character = scenario.characters?.find(c =>
-        c.role.toLowerCase().includes(characterName.toLowerCase())
-      );
-    }
 
     return {
       characterId: character?.id || `unknown_${characterName}`,
