@@ -52,6 +52,7 @@ const App: React.FC = () => {
   const [lastDescriptionAudio, setLastDescriptionAudio] = useState<AudioData | null>(null);
   const [canRetryChatAudio, setCanRetryChatAudio] = useState(false);
   const [canRetryDescriptionAudio, setCanRetryDescriptionAudio] = useState(false);
+  const [retryingMessageTimestamp, setRetryingMessageTimestamp] = useState<number | null>(null);
 
   // API Key management state
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -388,9 +389,15 @@ const App: React.FC = () => {
   const handleRetryAudioGeneration = async (messageTimestamp: number) => {
     const message = messages.find(m => m.timestamp === messageTimestamp);
     if (!message || !message.audioGenerationFailed || !message.voiceName) {
-      console.error("Cannot retry audio generation for this message");
+      console.error("Cannot retry audio generation for this message", {
+        hasMessage: !!message,
+        audioGenerationFailed: message?.audioGenerationFailed,
+        voiceName: message?.voiceName
+      });
       return;
     }
+
+    setRetryingMessageTimestamp(messageTimestamp);
 
     try {
       const audioUrl = await generateCharacterSpeech(message.text, message.voiceName);
@@ -404,6 +411,8 @@ const App: React.FC = () => {
     } catch (err) {
       console.error('Audio generation retry failed:', err);
       // Could show a toast notification here
+    } finally {
+      setRetryingMessageTimestamp(null);
     }
   };
 
@@ -871,6 +880,7 @@ const App: React.FC = () => {
               playbackSpeed={playbackSpeed}
               autoPlayMessageId={autoPlayMessageId}
               onRetryAudio={handleRetryAudioGeneration}
+              retryingMessageTimestamp={retryingMessageTimestamp}
             />
             {/* Conversation hint - shown in scenario practice when idle or recording; flex-shrink-0 keeps it visible below the scrollable history */}
             <div className="flex-shrink-0">

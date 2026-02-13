@@ -7,6 +7,7 @@ interface ConversationHistoryProps {
   playbackSpeed: number;
   autoPlayMessageId?: number | null;
   onRetryAudio?: (messageTimestamp: number) => void;
+  retryingMessageTimestamp?: number | null;
 }
 
 interface MessageItemProps {
@@ -16,9 +17,10 @@ interface MessageItemProps {
   onAudioRef: (audio: HTMLAudioElement | null, messageId: number) => void;
   onAudioEnded?: () => void;
   onRetryAudio?: (messageTimestamp: number) => void;
+  isRetrying?: boolean;
 }
 
-const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef, onAudioEnded, onRetryAudio }) => {
+const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef, onAudioEnded, onRetryAudio, isRetrying }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
 
   // Update playback rate when speed changes
@@ -135,10 +137,15 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
                 {onRetryAudio && (
                   <button
                     onClick={() => onRetryAudio(message.timestamp)}
-                    className="px-2 py-1 bg-slate-700/50 hover:bg-slate-600/50 rounded text-slate-300 transition-colors flex items-center gap-1"
+                    disabled={isRetrying}
+                    className={`px-2 py-1 rounded text-slate-300 transition-colors flex items-center gap-1 ${
+                      isRetrying
+                        ? 'bg-slate-700/30 cursor-not-allowed opacity-60'
+                        : 'bg-slate-700/50 hover:bg-slate-600/50'
+                    }`}
                   >
-                    <span>🔄</span>
-                    <span>Retry</span>
+                    <span>{isRetrying ? '⏳' : '🔄'}</span>
+                    <span>{isRetrying ? 'Retrying...' : 'Retry'}</span>
                   </button>
                 )}
               </div>
@@ -158,7 +165,8 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   onClear,
   playbackSpeed,
   autoPlayMessageId,
-  onRetryAudio
+  onRetryAudio,
+  retryingMessageTimestamp
 }) => {
   const audioElementsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -243,6 +251,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
               onAudioRef={handleAudioRef}
               onAudioEnded={() => handleAudioEnded(message.timestamp)}
               onRetryAudio={onRetryAudio}
+              isRetrying={retryingMessageTimestamp === message.timestamp}
             />
           ))}
           <div ref={bottomRef} />

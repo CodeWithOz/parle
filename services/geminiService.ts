@@ -418,12 +418,22 @@ export const sendVoiceMessage = async (
 
       // Generate audio for each character IN PARALLEL
       const audioPromises = parsed.characterResponses.map(async (charResp) => {
-        const character = activeScenario.characters.find(c => c.id === charResp.characterId);
+        // Try to find character by ID first
+        let character = activeScenario.characters.find(c => c.id === charResp.characterId);
+
+        // Fallback: try to find by name if ID doesn't match (handles "unknown_" IDs from fuzzy matching)
         if (!character) {
-          throw new Error(`Character not found: ${charResp.characterId}`);
+          character = activeScenario.characters.find(c =>
+            c.name.toLowerCase() === charResp.characterName.toLowerCase()
+          );
         }
+
+        if (!character) {
+          throw new Error(`Character not found: ${charResp.characterName} (ID: ${charResp.characterId})`);
+        }
+
         const audioUrl = await generateCharacterSpeech(charResp.text, character.voiceName);
-        return { ...charResp, audioUrl, voiceName: character.voiceName };
+        return { ...charResp, audioUrl, voiceName: character.voiceName, characterId: character.id };
       });
 
       const results = await Promise.allSettled(audioPromises);
@@ -433,12 +443,19 @@ export const sendVoiceMessage = async (
         if (result.status === 'rejected') {
           console.error(`TTS failed for character ${parsed.characterResponses[idx].characterName}:`, result.reason);
           // Return character data without audio, flagged as failed
-          const character = activeScenario.characters.find(c => c.id === parsed.characterResponses[idx].characterId);
+          // Try to find character by ID first, then by name if ID not found (handles "unknown_" IDs)
+          let character = activeScenario.characters.find(c => c.id === parsed.characterResponses[idx].characterId);
+          if (!character) {
+            character = activeScenario.characters.find(c =>
+              c.name.toLowerCase() === parsed.characterResponses[idx].characterName.toLowerCase()
+            );
+          }
           return {
             ...parsed.characterResponses[idx],
             audioUrl: undefined,
             audioGenerationFailed: true,
-            voiceName: character?.voiceName || ''
+            voiceName: character?.voiceName || '',
+            characterId: character?.id || parsed.characterResponses[idx].characterId // Use real ID if found
           };
         }
         return { ...result.value, audioGenerationFailed: false };
