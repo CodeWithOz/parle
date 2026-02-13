@@ -51,8 +51,8 @@ function createChatSession(): void {
     ? generateScenarioSystemInstruction(activeScenario)
     : SYSTEM_INSTRUCTION;
 
-  // Check if multi-character scenario for JSON response
-  const isMultiCharacter = activeScenario && activeScenario.characters && activeScenario.characters.length > 1;
+  // Check if scenario mode (single or multi-character) for JSON response
+  const isScenarioMode = activeScenario !== null;
 
   // Convert history to SDK format if provided
   const historyMessages = pendingHistory ? pendingHistory.map(msg => ({
@@ -64,7 +64,7 @@ function createChatSession(): void {
     model: 'gemini-2.0-flash-lite',
     config: {
       systemInstruction: systemInstruction,
-      ...(isMultiCharacter && {
+      ...(isScenarioMode && {
         responseMimeType: 'application/json'
       })
     },
@@ -329,6 +329,16 @@ export const generateCharacterSpeech = async (
 const MAX_CHARACTERS = 5;
 
 /**
+ * Zod schema for single-character response.
+ * Separates French and English for TTS control.
+ */
+const SingleCharacterSchema = z.object({
+  french: z.string().describe("The complete response in French only"),
+  english: z.string().describe("The English translation of the French response"),
+  hint: z.string().describe("Hint for what the user should say or ask next - brief description in English")
+});
+
+/**
  * Create Zod schema for multi-character response.
  * Uses fixed labels ("Character 1", "Character 2", etc.) instead of actual names
  * because LLMs don't reliably use exact character names in structured output.
@@ -343,7 +353,8 @@ const createMultiCharacterSchema = (scenario: Scenario) => {
     characterResponses: z.array(
       z.object({
         characterName: z.string().describe(`Must be one of: ${labels.join(', ')}`),
-        text: z.string().describe("The character's complete response (French first, then English translation)"),
+        french: z.string().describe("The character's complete response in French only"),
+        english: z.string().describe("The English translation of the French response"),
         hint: z.string().optional().describe("Optional per-character hint")
       })
     ),
@@ -481,7 +492,8 @@ export const sendVoiceMessage = async (
         return {
           characterId: character.id,
           characterName: character.name,
-          text: resp.text.trim()
+          french: resp.french.trim(),
+          english: resp.english.trim()
         };
       });
 
@@ -501,6 +513,7 @@ export const sendVoiceMessage = async (
       }
 
       // Generate audio for each character IN PARALLEL (wrapped with abort support)
+      // Only use French text for TTS
       const audioPromises = parsed.characterResponses.map(async (charResp) => {
         const character = activeScenario.characters.find(c => c.id === charResp.characterId);
 
@@ -508,7 +521,7 @@ export const sendVoiceMessage = async (
           throw new Error(`Character not found: ${charResp.characterName} (ID: ${charResp.characterId})`);
         }
 
-        const audioUrl = await abortablePromise(generateCharacterSpeech(charResp.text, character.voiceName));
+        const audioUrl = await abortablePromise(generateCharacterSpeech(charResp.french, character.voiceName));
         return { ...charResp, audioUrl, voiceName: character.voiceName };
       });
 
@@ -530,8 +543,8 @@ export const sendVoiceMessage = async (
         return { ...result.value, audioGenerationFailed: false };
       });
 
-      // Construct combined text for conversation history (without character markers)
-      const combinedModelText = parsed.characterResponses.map(cr => cr.text).join(' ');
+      // Construct combined text for conversation history (French followed by English)
+      const combinedModelText = parsed.characterResponses.map(cr => `${cr.french} ${cr.english}`).join(' ');
 
       // Check again after audio generation (user may have aborted during TTS)
       if (signal?.aborted) {
@@ -548,9 +561,10 @@ export const sendVoiceMessage = async (
       syncedMessageCount += 2;
 
       // Return multi-character response
+      // Combine French and English for display
       return {
         audioUrl: characterAudios.map(ca => ca.audioUrl),
-        modelText: characterAudios.map(ca => ca.text),
+        modelText: characterAudios.map(ca => `${ca.french} ${ca.english}`),
         userText,
         hint: parsed.hint, // Required field, always present
         characters: characterAudios.map(ca => ({
@@ -561,34 +575,77 @@ export const sendVoiceMessage = async (
         }))
       };
     } else {
-      // Single-character scenario (original behavior)
-      // Parse hint from response (only present in scenario mode)
-      const { text: modelText, hint } = activeScenario
-        ? parseHintFromResponse(rawModelText)
-        : { text: rawModelText, hint: null };
+      // Single-character scenario with JSON response
+      if (activeScenario) {
+        // Parse and validate JSON response
+        let jsonResponse;
+        try {
+          jsonResponse = JSON.parse(rawModelText);
+        } catch (parseError) {
+          const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+          throw new Error(`Failed to parse single-character response as JSON: ${errorMessage}. Raw response: ${rawModelText}`);
+        }
 
-      // Check if operation was cancelled before updating history
-      if (signal?.aborted) {
-        throw new DOMException('Request aborted', 'AbortError');
+        // Use safeParse for better error handling
+        const validationResult = SingleCharacterSchema.safeParse(jsonResponse);
+        if (!validationResult.success) {
+          throw new Error(`Failed to validate single-character response: ${validationResult.error.message}. Raw response: ${rawModelText}`);
+        }
+
+        const validated = validationResult.data;
+
+        // Check if operation was cancelled before updating history
+        if (signal?.aborted) {
+          throw new DOMException('Request aborted', 'AbortError');
+        }
+
+        // Combine French and English for display and history
+        const modelText = `${validated.french} ${validated.english}`;
+
+        // Sync to shared conversation history
+        addToHistory("user", userText);
+        addToHistory("assistant", modelText);
+        // Update sync counter - we've now synced this new message pair
+        syncedMessageCount += 2;
+
+        // Step 3: Send Text Response to TTS Model to get Audio (use ONLY French text)
+        // Use character voice if available, otherwise default (wrapped with abort support)
+        const voiceName = activeScenario?.characters?.[0]?.voiceName || "aoede";
+        const audioUrl = await abortablePromise(generateCharacterSpeech(validated.french, voiceName));
+
+        return {
+          audioUrl,
+          userText,
+          modelText,
+          hint: validated.hint
+        };
+      } else {
+        // No scenario - free conversation mode (no JSON, no separation needed)
+        // Parse hint from response (shouldn't have hints in free mode)
+        const { text: modelText, hint } = parseHintFromResponse(rawModelText);
+
+        // Check if operation was cancelled before updating history
+        if (signal?.aborted) {
+          throw new DOMException('Request aborted', 'AbortError');
+        }
+
+        // Sync to shared conversation history
+        addToHistory("user", userText);
+        addToHistory("assistant", modelText);
+        // Update sync counter - we've now synced this new message pair
+        syncedMessageCount += 2;
+
+        // Step 3: Send Text Response to TTS Model to get Audio
+        const voiceName = "aoede";
+        const audioUrl = await abortablePromise(generateCharacterSpeech(modelText, voiceName));
+
+        return {
+          audioUrl,
+          userText,
+          modelText,
+          hint: hint || undefined
+        };
       }
-
-      // Sync to shared conversation history (use text without hint markers)
-      addToHistory("user", userText);
-      addToHistory("assistant", modelText);
-      // Update sync counter - we've now synced this new message pair
-      syncedMessageCount += 2;
-
-      // Step 3: Send Text Response to TTS Model to get Audio (use text without hint)
-      // Use character voice if available, otherwise default (wrapped with abort support)
-      const voiceName = activeScenario?.characters?.[0]?.voiceName || "aoede";
-      const audioUrl = await abortablePromise(generateCharacterSpeech(modelText, voiceName));
-
-      return {
-        audioUrl,
-        userText,
-        modelText,
-        hint: hint || undefined
-      };
     }
 
   } catch (error) {
