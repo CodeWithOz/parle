@@ -52,7 +52,7 @@ const App: React.FC = () => {
   const [lastDescriptionAudio, setLastDescriptionAudio] = useState<AudioData | null>(null);
   const [canRetryChatAudio, setCanRetryChatAudio] = useState(false);
   const [canRetryDescriptionAudio, setCanRetryDescriptionAudio] = useState(false);
-  const [retryingMessageTimestamp, setRetryingMessageTimestamp] = useState<number | null>(null);
+  const [retryingMessageTimestamps, setRetryingMessageTimestamps] = useState<Set<number>>(new Set());
 
   // API Key management state
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -251,11 +251,15 @@ const App: React.FC = () => {
         // Validate multi-character response structure
         if (!response.characters || !Array.isArray(response.characters)) {
           console.error('Multi-character response missing characters array');
+          setAppState(AppState.ERROR);
+          showErrorFlash('Invalid response format from AI');
           return;
         }
 
         if (!Array.isArray(response.modelText)) {
           console.error('Multi-character response has invalid modelText');
+          setAppState(AppState.ERROR);
+          showErrorFlash('Invalid response format from AI');
           return;
         }
 
@@ -270,6 +274,8 @@ const App: React.FC = () => {
             characters: characters.length,
             modelTexts: modelTexts.length
           });
+          setAppState(AppState.ERROR);
+          showErrorFlash('Invalid response format from AI');
           return;
         }
 
@@ -397,7 +403,8 @@ const App: React.FC = () => {
       return;
     }
 
-    setRetryingMessageTimestamp(messageTimestamp);
+    // Add this message to the retrying set
+    setRetryingMessageTimestamps(prev => new Set(prev).add(messageTimestamp));
 
     try {
       const audioUrl = await generateCharacterSpeech(message.text, message.voiceName);
@@ -412,7 +419,12 @@ const App: React.FC = () => {
       console.error('Audio generation retry failed:', err);
       // Could show a toast notification here
     } finally {
-      setRetryingMessageTimestamp(null);
+      // Remove this message from the retrying set
+      setRetryingMessageTimestamps(prev => {
+        const next = new Set(prev);
+        next.delete(messageTimestamp);
+        return next;
+      });
     }
   };
 
@@ -880,7 +892,7 @@ const App: React.FC = () => {
               playbackSpeed={playbackSpeed}
               autoPlayMessageId={autoPlayMessageId}
               onRetryAudio={handleRetryAudioGeneration}
-              retryingMessageTimestamp={retryingMessageTimestamp}
+              retryingMessageTimestamps={retryingMessageTimestamps}
             />
             {/* Conversation hint - shown in scenario practice when idle or recording; flex-shrink-0 keeps it visible below the scrollable history */}
             <div className="flex-shrink-0">

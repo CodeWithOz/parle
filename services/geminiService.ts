@@ -1,22 +1,10 @@
 import { GoogleGenAI, Chat, Modality, Type, Schema } from "@google/genai";
-import { ChatGoogleGenerativeAI } from "@langchain/google-genai";
 import { z } from "zod";
 import { base64ToBytes, pcmToWav } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
 import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse, parseMultiCharacterResponse } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
-
-// Zod schema for multi-character structured output
-const CharacterResponseSchema = z.object({
-  characterName: z.string().describe("The exact character name from the scenario"),
-  text: z.string().describe("The character's complete response (French first, then English translation)")
-});
-
-const MultiCharacterResponseSchema = z.object({
-  characterResponses: z.array(CharacterResponseSchema).describe("Array of character responses in order"),
-  hint: z.string().nullable().optional().describe("Optional hint for what the user should say next")
-});
 
 // Gemini TTS output format constants
 const DEFAULT_PCM_SAMPLE_RATE = 24000; // 24kHz sample rate
@@ -348,7 +336,7 @@ const createMultiCharacterSchema = (scenario: Scenario) => {
         text: z.string().describe("The character's complete response (French first, then English translation)")
       })
     ),
-    hint: z.string().nullable().optional().describe("Optional hint for what the user should say next")
+    hint: z.string().describe("Required hint for what the user should say or ask next - brief description in English")
   });
 };
 
@@ -446,7 +434,15 @@ export const sendVoiceMessage = async (
     if (activeScenario && activeScenario.characters && activeScenario.characters.length > 1) {
       // Parse and validate JSON response with Zod
       const MultiCharacterSchema = createMultiCharacterSchema(activeScenario);
-      const jsonResponse = JSON.parse(rawModelText);
+
+      let jsonResponse;
+      try {
+        jsonResponse = JSON.parse(rawModelText);
+      } catch (parseError) {
+        const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+        throw new Error(`Failed to parse multi-character response as JSON: ${errorMessage}. Raw response: ${rawModelText}`);
+      }
+
       const validated = MultiCharacterSchema.parse(jsonResponse);
 
       // Map validated response to include character IDs
@@ -461,7 +457,7 @@ export const sendVoiceMessage = async (
 
       const parsed = {
         characterResponses,
-        hint: validated.hint || null
+        hint: validated.hint // Required field, always a string
       };
 
       // Check if operation was cancelled before updating history
@@ -491,7 +487,7 @@ export const sendVoiceMessage = async (
           const character = activeScenario.characters.find(c => c.id === parsed.characterResponses[idx].characterId);
           return {
             ...parsed.characterResponses[idx],
-            audioUrl: undefined,
+            audioUrl: '', // Use empty string instead of undefined to satisfy type
             audioGenerationFailed: true,
             voiceName: character?.voiceName || ''
           };
@@ -512,7 +508,7 @@ export const sendVoiceMessage = async (
         audioUrl: characterAudios.map(ca => ca.audioUrl),
         modelText: characterAudios.map(ca => ca.text),
         userText,
-        hint: parsed.hint || undefined,
+        hint: parsed.hint, // Required field, always present
         characters: characterAudios.map(ca => ({
           characterId: ca.characterId,
           characterName: ca.characterName,

@@ -7,7 +7,7 @@ interface ConversationHistoryProps {
   playbackSpeed: number;
   autoPlayMessageId?: number | null;
   onRetryAudio?: (messageTimestamp: number) => void;
-  retryingMessageTimestamp?: number | null;
+  retryingMessageTimestamps?: Set<number>;
 }
 
 interface MessageItemProps {
@@ -166,7 +166,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   playbackSpeed,
   autoPlayMessageId,
   onRetryAudio,
-  retryingMessageTimestamp
+  retryingMessageTimestamps
 }) => {
   const audioElementsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -251,7 +251,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
               onAudioRef={handleAudioRef}
               onAudioEnded={() => handleAudioEnded(message.timestamp)}
               onRetryAudio={onRetryAudio}
-              isRetrying={retryingMessageTimestamp === message.timestamp}
+              isRetrying={retryingMessageTimestamps?.has(message.timestamp) || false}
             />
           ))}
           <div ref={bottomRef} />

@@ -190,13 +190,7 @@ ON-DEMAND HINTS:
 If the user says "hint", "help", "aide", "je ne sais pas", or seems stuck, have the appropriate character provide a helpful suggestion.
 
 PROACTIVE HINTS (REQUIRED):
-At the END of EVERY response (after all character responses), you MUST include a hint section in EXACTLY this format:
-
----HINT---
-Brief description of what the user should say or ask next, in English - focus on the TOPIC or ACTION, not the exact French words
----END_HINT---
-
-Do NOT wrap the hint in square brackets.
+For EVERY response, you MUST include a "hint" field in the JSON with a brief description of what the user should say or ask next, in English. Focus on the TOPIC or ACTION, not the exact French words. Example: "Ask what you'd like to buy" or "Thank them and say goodbye".
 
 START THE SCENARIO:
 Begin by having the appropriate character(s) greet the user and initiate the scenario.`;
