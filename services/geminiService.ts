@@ -1,4 +1,4 @@
-import { GoogleGenAI, Chat, Modality, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Chat, Modality, Type } from "@google/genai";
 import { z } from "zod";
 import { base64ToBytes, pcmToWav } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
@@ -443,11 +443,20 @@ export const sendVoiceMessage = async (
         throw new Error(`Failed to parse multi-character response as JSON: ${errorMessage}. Raw response: ${rawModelText}`);
       }
 
-      const validated = MultiCharacterSchema.parse(jsonResponse);
+      // Use safeParse for better error handling
+      const validationResult = MultiCharacterSchema.safeParse(jsonResponse);
+      if (!validationResult.success) {
+        throw new Error(`Failed to validate multi-character response: ${validationResult.error.message}. Raw response: ${rawModelText}`);
+      }
+
+      const validated = validationResult.data;
 
       // Map validated response to include character IDs
       const characterResponses = validated.characterResponses.map(resp => {
-        const character = activeScenario.characters!.find(c => c.name === resp.characterName)!;
+        const character = activeScenario.characters!.find(c => c.name === resp.characterName);
+        if (!character) {
+          throw new Error(`Character "${resp.characterName}" not found in scenario "${activeScenario.name}" (ID: ${activeScenario.id}). Available characters: ${activeScenario.characters!.map(c => c.name).join(', ')}`);
+        }
         return {
           characterId: character.id,
           characterName: character.name,
