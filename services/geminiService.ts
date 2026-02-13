@@ -324,18 +324,25 @@ export const generateCharacterSpeech = async (
 };
 
 /**
- * Create Zod schema for multi-character response
- * Note: We use string instead of enum because AI models often don't respect exact enum values
- * and may use lowercase or shortened versions. We'll do fuzzy matching after validation.
+ * Max number of characters supported in multi-character scenarios
+ */
+const MAX_CHARACTERS = 5;
+
+/**
+ * Create Zod schema for multi-character response.
+ * Uses fixed labels ("Character 1", "Character 2", etc.) instead of actual names
+ * because LLMs don't reliably use exact character names in structured output.
+ * The processing code maps these labels back to actual characters by index.
  */
 const createMultiCharacterSchema = (scenario: Scenario) => {
-  const characterNames = scenario.characters!.map(c => c.name);
+  const count = Math.min(scenario.characters!.length, MAX_CHARACTERS);
+  const labels = Array.from({ length: count }, (_, i) => `Character ${i + 1}`);
 
   // Allow hint at top level OR inside each character response (LLMs place it inconsistently)
   return z.object({
     characterResponses: z.array(
       z.object({
-        characterName: z.string().describe(`Character name - should be one of: ${characterNames.join(', ')}`),
+        characterName: z.string().describe(`Must be one of: ${labels.join(', ')}`),
         text: z.string().describe("The character's complete response (French first, then English translation)"),
         hint: z.string().optional().describe("Optional per-character hint")
       })
@@ -455,34 +462,22 @@ export const sendVoiceMessage = async (
 
       const validated = validationResult.data;
 
-      // Map validated response to include character IDs
-      // Use case-insensitive and partial matching since AI models often don't respect exact names
+      // Map fixed character labels ("Character 1", etc.) back to actual characters by index
       const characterResponses = validated.characterResponses.map(resp => {
-        const aiName = resp.characterName.toLowerCase().trim();
+        const label = resp.characterName.trim();
 
-        // Try exact case-insensitive match first
-        let character = activeScenario.characters!.find(c =>
-          c.name.toLowerCase() === aiName
-        );
-
-        // If no exact match, try partial match (AI name is contained in character name)
-        if (!character) {
-          character = activeScenario.characters!.find(c =>
-            c.name.toLowerCase().includes(aiName) || aiName.includes(c.name.toLowerCase())
-          );
+        // Extract the number from "Character N" label
+        const match = label.match(/^character\s+(\d+)$/i);
+        if (!match) {
+          throw new Error(`Unexpected character label "${label}" — expected format "Character N". Raw response: ${rawModelText}`);
         }
 
-        // If still no match, try matching by role
-        if (!character) {
-          character = activeScenario.characters!.find(c =>
-            c.role.toLowerCase().includes(aiName) || aiName.includes(c.role.toLowerCase())
-          );
+        const index = parseInt(match[1], 10) - 1; // Convert 1-based to 0-based
+        if (index < 0 || index >= activeScenario.characters!.length) {
+          throw new Error(`Character index ${index + 1} out of range (scenario has ${activeScenario.characters!.length} characters). Raw response: ${rawModelText}`);
         }
 
-        if (!character) {
-          throw new Error(`Character "${resp.characterName}" not found in scenario "${activeScenario.name}" (ID: ${activeScenario.id}). Available characters: ${activeScenario.characters!.map(c => `${c.name} (${c.role})`).join(', ')}`);
-        }
-
+        const character = activeScenario.characters![index];
         return {
           characterId: character.id,
           characterName: character.name,
