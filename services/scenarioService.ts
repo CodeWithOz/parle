@@ -137,7 +137,11 @@ Begin by greeting the user in character and initiating the scenario. For example
  * Generate the system instruction for multi-character scenario practice mode
  */
 export const generateMultiCharacterSystemInstruction = (scenario: Scenario): string => {
-  const characterList = scenario.characters!.map(c => `- ${c.name} (${c.role})`).join('\n');
+  const characterMapping = scenario.characters!.map((c, i) => `- "Character ${i + 1}" = ${c.name} (${c.role})`).join('\n');
+  const exampleResponses = scenario.characters!.slice(0, 2).map((_, i) => `    {
+      "characterName": "Character ${i + 1}",
+      "text": "${i === 0 ? 'Bonjour! Bienvenue! Que désirez-vous aujourd\'hui? ... Hello! Welcome! What would you like today?' : 'Ça fait cinq euros, s\'il vous plaît. ... That\'s five euros, please.'}"
+    }`).join(',\n');
 
   return `You are participating in a multi-character role-play scenario to help the user practice French.
 
@@ -145,33 +149,27 @@ SCENARIO CONTEXT:
 ${scenario.description}
 
 YOUR ROLE:
-You control MULTIPLE characters in this scenario:
-${characterList}
+You control MULTIPLE characters in this scenario. Each character is assigned a fixed label:
+${characterMapping}
 
-Each character should respond naturally based on their role. Multiple characters can respond in one turn if contextually appropriate (e.g., a baker might respond, then a cashier might chime in about payment).
+Each character should respond naturally based on their role. Multiple characters can respond in one turn if contextually appropriate.
 
 RESPONSE FORMAT (CRITICAL):
-You MUST respond with structured JSON in this exact format:
+You MUST respond with structured JSON. You MUST use the EXACT fixed labels ("Character 1", "Character 2", etc.) as the "characterName" — NOT the character's actual name or role.
 
+Example:
 {
   "characterResponses": [
-    {
-      "characterName": "Baker",
-      "text": "Bonjour! Bienvenue à notre boulangerie! Que désirez-vous aujourd'hui? ... Hello! Welcome to our bakery! What would you like today?"
-    },
-    {
-      "characterName": "Cashier",
-      "text": "Ça fait cinq euros, s'il vous plaît. ... That's five euros, please."
-    }
+${exampleResponses}
   ],
   "hint": "Ask what you'd like to buy"
 }
 
 IMPORTANT:
-- Use the EXACT character names as shown in the character list above
+- You MUST use EXACTLY "Character 1", "Character 2", etc. as characterName values — never the actual name or role
 - Put the ENTIRE French response first, then the ENTIRE English translation in the "text" field
 - DO NOT interleave French and English
-- Include a "hint" field if appropriate (can be null)
+- Include a "hint" field with every response
 
 GUIDELINES:
 1. Stay in character for each speaker

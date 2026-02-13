@@ -71,7 +71,6 @@ export const processScenarioDescriptionOpenAI = async (description: string): Pro
     const model = new ChatOpenAI({
       apiKey,
       model: "gpt-5-nano",
-      temperature: 0.7
     });
 
     const structuredModel = model.withStructuredOutput(ScenarioSummarySchema, {

@@ -324,21 +324,30 @@ export const generateCharacterSpeech = async (
 };
 
 /**
- * Create Zod schema for multi-character response
- * Note: We use string instead of enum because AI models often don't respect exact enum values
- * and may use lowercase or shortened versions. We'll do fuzzy matching after validation.
+ * Max number of characters supported in multi-character scenarios
+ */
+const MAX_CHARACTERS = 5;
+
+/**
+ * Create Zod schema for multi-character response.
+ * Uses fixed labels ("Character 1", "Character 2", etc.) instead of actual names
+ * because LLMs don't reliably use exact character names in structured output.
+ * The processing code maps these labels back to actual characters by index.
  */
 const createMultiCharacterSchema = (scenario: Scenario) => {
-  const characterNames = scenario.characters!.map(c => c.name);
+  const count = Math.min(scenario.characters!.length, MAX_CHARACTERS);
+  const labels = Array.from({ length: count }, (_, i) => `Character ${i + 1}`);
 
+  // Allow hint at top level OR inside each character response (LLMs place it inconsistently)
   return z.object({
     characterResponses: z.array(
       z.object({
-        characterName: z.string().describe(`Character name - should be one of: ${characterNames.join(', ')}`),
-        text: z.string().describe("The character's complete response (French first, then English translation)")
+        characterName: z.string().describe(`Must be one of: ${labels.join(', ')}`),
+        text: z.string().describe("The character's complete response (French first, then English translation)"),
+        hint: z.string().optional().describe("Optional per-character hint")
       })
     ),
-    hint: z.string().describe("Required hint for what the user should say or ask next - brief description in English")
+    hint: z.string().optional().describe("Hint for what the user should say or ask next - brief description in English")
   });
 };
 
@@ -453,34 +462,22 @@ export const sendVoiceMessage = async (
 
       const validated = validationResult.data;
 
-      // Map validated response to include character IDs
-      // Use case-insensitive and partial matching since AI models often don't respect exact names
+      // Map fixed character labels ("Character 1", etc.) back to actual characters by index
       const characterResponses = validated.characterResponses.map(resp => {
-        const aiName = resp.characterName.toLowerCase().trim();
+        const label = resp.characterName.trim();
 
-        // Try exact case-insensitive match first
-        let character = activeScenario.characters!.find(c =>
-          c.name.toLowerCase() === aiName
-        );
-
-        // If no exact match, try partial match (AI name is contained in character name)
-        if (!character) {
-          character = activeScenario.characters!.find(c =>
-            c.name.toLowerCase().includes(aiName) || aiName.includes(c.name.toLowerCase())
-          );
+        // Extract the number from "Character N" label
+        const match = label.match(/^character\s+(\d+)$/i);
+        if (!match) {
+          throw new Error(`Unexpected character label "${label}" — expected format "Character N". Raw response: ${rawModelText}`);
         }
 
-        // If still no match, try matching by role
-        if (!character) {
-          character = activeScenario.characters!.find(c =>
-            c.role.toLowerCase().includes(aiName) || aiName.includes(c.role.toLowerCase())
-          );
+        const index = parseInt(match[1], 10) - 1; // Convert 1-based to 0-based
+        if (index < 0 || index >= activeScenario.characters!.length) {
+          throw new Error(`Character index ${index + 1} out of range (scenario has ${activeScenario.characters!.length} characters). Raw response: ${rawModelText}`);
         }
 
-        if (!character) {
-          throw new Error(`Character "${resp.characterName}" not found in scenario "${activeScenario.name}" (ID: ${activeScenario.id}). Available characters: ${activeScenario.characters!.map(c => `${c.name} (${c.role})`).join(', ')}`);
-        }
-
+        const character = activeScenario.characters![index];
         return {
           characterId: character.id,
           characterName: character.name,
@@ -488,9 +485,14 @@ export const sendVoiceMessage = async (
         };
       });
 
+      // Extract hint: prefer top-level, fall back to last character response's hint
+      const hint = validated.hint
+        || validated.characterResponses[validated.characterResponses.length - 1]?.hint
+        || "Continue the conversation";
+
       const parsed = {
         characterResponses,
-        hint: validated.hint // Required field, always a string
+        hint
       };
 
       // Check if operation was cancelled before updating history
@@ -498,7 +500,7 @@ export const sendVoiceMessage = async (
         throw new DOMException('Request aborted', 'AbortError');
       }
 
-      // Generate audio for each character IN PARALLEL
+      // Generate audio for each character IN PARALLEL (wrapped with abort support)
       const audioPromises = parsed.characterResponses.map(async (charResp) => {
         const character = activeScenario.characters.find(c => c.id === charResp.characterId);
 
@@ -506,7 +508,7 @@ export const sendVoiceMessage = async (
           throw new Error(`Character not found: ${charResp.characterName} (ID: ${charResp.characterId})`);
         }
 
-        const audioUrl = await generateCharacterSpeech(charResp.text, character.voiceName);
+        const audioUrl = await abortablePromise(generateCharacterSpeech(charResp.text, character.voiceName));
         return { ...charResp, audioUrl, voiceName: character.voiceName };
       });
 
@@ -530,6 +532,15 @@ export const sendVoiceMessage = async (
 
       // Construct combined text for conversation history (without character markers)
       const combinedModelText = parsed.characterResponses.map(cr => cr.text).join(' ');
+
+      // Check again after audio generation (user may have aborted during TTS)
+      if (signal?.aborted) {
+        // Revoke any successfully generated audio URLs
+        characterAudios.forEach(ca => {
+          if (ca.audioUrl) URL.revokeObjectURL(ca.audioUrl);
+        });
+        throw new DOMException('Request aborted', 'AbortError');
+      }
 
       // Sync to shared conversation history
       addToHistory("user", userText);
@@ -568,9 +579,9 @@ export const sendVoiceMessage = async (
       syncedMessageCount += 2;
 
       // Step 3: Send Text Response to TTS Model to get Audio (use text without hint)
-      // Use character voice if available, otherwise default
+      // Use character voice if available, otherwise default (wrapped with abort support)
       const voiceName = activeScenario?.characters?.[0]?.voiceName || "Aoede";
-      const audioUrl = await generateCharacterSpeech(modelText, voiceName);
+      const audioUrl = await abortablePromise(generateCharacterSpeech(modelText, voiceName));
 
       return {
         audioUrl,
