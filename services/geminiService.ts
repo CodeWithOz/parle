@@ -580,7 +580,7 @@ export const sendVoiceMessage = async (
 
       // Step 3: Send Text Response to TTS Model to get Audio (use text without hint)
       // Use character voice if available, otherwise default (wrapped with abort support)
-      const voiceName = activeScenario?.characters?.[0]?.voiceName || "Aoede";
+      const voiceName = activeScenario?.characters?.[0]?.voiceName || "aoede";
       const audioUrl = await abortablePromise(generateCharacterSpeech(modelText, voiceName));
 
       return {
