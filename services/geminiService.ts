@@ -331,14 +331,16 @@ export const generateCharacterSpeech = async (
 const createMultiCharacterSchema = (scenario: Scenario) => {
   const characterNames = scenario.characters!.map(c => c.name);
 
+  // Allow hint at top level OR inside each character response (LLMs place it inconsistently)
   return z.object({
     characterResponses: z.array(
       z.object({
         characterName: z.string().describe(`Character name - should be one of: ${characterNames.join(', ')}`),
-        text: z.string().describe("The character's complete response (French first, then English translation)")
+        text: z.string().describe("The character's complete response (French first, then English translation)"),
+        hint: z.string().optional().describe("Optional per-character hint")
       })
     ),
-    hint: z.string().describe("Required hint for what the user should say or ask next - brief description in English")
+    hint: z.string().optional().describe("Hint for what the user should say or ask next - brief description in English")
   });
 };
 
@@ -488,9 +490,14 @@ export const sendVoiceMessage = async (
         };
       });
 
+      // Extract hint: prefer top-level, fall back to last character response's hint
+      const hint = validated.hint
+        || validated.characterResponses[validated.characterResponses.length - 1]?.hint
+        || "Continue the conversation";
+
       const parsed = {
         characterResponses,
-        hint: validated.hint // Required field, always a string
+        hint
       };
 
       // Check if operation was cancelled before updating history
