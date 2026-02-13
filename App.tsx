@@ -336,8 +336,8 @@ const App: React.FC = () => {
       setAppState(AppState.IDLE);
 
     } catch (error) {
-      // If aborted, don't show error
-      if (processingAbortedRef.current) {
+      // If aborted or superseded by a newer request, don't show error
+      if (processingAbortedRef.current || currentRequestId !== requestIdRef.current) {
         return;
       }
       console.error("Interaction failed", error);
