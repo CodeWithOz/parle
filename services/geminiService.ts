@@ -617,7 +617,7 @@ export const sendVoiceMessage = async (
 
         const validated = validationResult.data;
 
-        // Check if operation was cancelled before generating audio
+        // Check if operation was cancelled before updating history
         if (signal?.aborted) {
           throw new DOMException('Request aborted', 'AbortError');
         }
@@ -625,16 +625,22 @@ export const sendVoiceMessage = async (
         // Combine French and English for display and history
         const modelText = `${validated.french} ${validated.english}`;
 
+        // Update history before TTS so text is displayed even if TTS fails
+        addToHistory("user", userText);
+        addToHistory("assistant", modelText);
+        syncedMessageCount += 2;
+
         // Step 3: Send Text Response to TTS Model to get Audio (use ONLY French text)
         // Use character voice if available, otherwise default (wrapped with abort support)
         const voiceName = activeScenario?.characters?.[0]?.voiceName || "aoede";
-        const audioUrl = await abortablePromise(generateCharacterSpeech(validated.french, voiceName));
 
-        // Only update history after successful audio generation
-        addToHistory("user", userText);
-        addToHistory("assistant", modelText);
-        // Update sync counter - we've now synced this new message pair
-        syncedMessageCount += 2;
+        let audioUrl = '';
+        try {
+          audioUrl = await abortablePromise(generateCharacterSpeech(validated.french, voiceName));
+        } catch (ttsError) {
+          console.error('TTS generation failed for single-character response:', ttsError);
+          // Return empty audioUrl - UI will show "Audio unavailable" with retry button
+        }
 
         return {
           audioUrl,
@@ -647,20 +653,26 @@ export const sendVoiceMessage = async (
         // Parse hint from response (shouldn't have hints in free mode)
         const { text: modelText, hint } = parseHintFromResponse(rawModelText);
 
-        // Check if operation was cancelled before generating audio
+        // Check if operation was cancelled before updating history
         if (signal?.aborted) {
           throw new DOMException('Request aborted', 'AbortError');
         }
 
-        // Step 3: Send Text Response to TTS Model to get Audio
-        const voiceName = "aoede";
-        const audioUrl = await abortablePromise(generateCharacterSpeech(modelText, voiceName));
-
-        // Only update history after successful audio generation
+        // Update history before TTS so text is displayed even if TTS fails
         addToHistory("user", userText);
         addToHistory("assistant", modelText);
-        // Update sync counter - we've now synced this new message pair
         syncedMessageCount += 2;
+
+        // Step 3: Send Text Response to TTS Model to get Audio
+        const voiceName = "aoede";
+
+        let audioUrl = '';
+        try {
+          audioUrl = await abortablePromise(generateCharacterSpeech(modelText, voiceName));
+        } catch (ttsError) {
+          console.error('TTS generation failed for free-conversation response:', ttsError);
+          // Return empty audioUrl - UI will show "Audio unavailable" with retry button
+        }
 
         return {
           audioUrl,
