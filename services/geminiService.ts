@@ -324,7 +324,9 @@ export const generateCharacterSpeech = async (
 };
 
 /**
- * Create Zod schema for multi-character response with exact character names
+ * Create Zod schema for multi-character response
+ * Note: We use string instead of enum because AI models often don't respect exact enum values
+ * and may use lowercase or shortened versions. We'll do fuzzy matching after validation.
  */
 const createMultiCharacterSchema = (scenario: Scenario) => {
   const characterNames = scenario.characters!.map(c => c.name);
@@ -332,7 +334,7 @@ const createMultiCharacterSchema = (scenario: Scenario) => {
   return z.object({
     characterResponses: z.array(
       z.object({
-        characterName: z.enum(characterNames as [string, ...string[]]).describe(`Must be one of: ${characterNames.join(', ')}`),
+        characterName: z.string().describe(`Character name - should be one of: ${characterNames.join(', ')}`),
         text: z.string().describe("The character's complete response (French first, then English translation)")
       })
     ),
@@ -452,11 +454,33 @@ export const sendVoiceMessage = async (
       const validated = validationResult.data;
 
       // Map validated response to include character IDs
+      // Use case-insensitive and partial matching since AI models often don't respect exact names
       const characterResponses = validated.characterResponses.map(resp => {
-        const character = activeScenario.characters!.find(c => c.name === resp.characterName);
+        const aiName = resp.characterName.toLowerCase().trim();
+
+        // Try exact case-insensitive match first
+        let character = activeScenario.characters!.find(c =>
+          c.name.toLowerCase() === aiName
+        );
+
+        // If no exact match, try partial match (AI name is contained in character name)
         if (!character) {
-          throw new Error(`Character "${resp.characterName}" not found in scenario "${activeScenario.name}" (ID: ${activeScenario.id}). Available characters: ${activeScenario.characters!.map(c => c.name).join(', ')}`);
+          character = activeScenario.characters!.find(c =>
+            c.name.toLowerCase().includes(aiName) || aiName.includes(c.name.toLowerCase())
+          );
         }
+
+        // If still no match, try matching by role
+        if (!character) {
+          character = activeScenario.characters!.find(c =>
+            c.role.toLowerCase().includes(aiName) || aiName.includes(c.role.toLowerCase())
+          );
+        }
+
+        if (!character) {
+          throw new Error(`Character "${resp.characterName}" not found in scenario "${activeScenario.name}" (ID: ${activeScenario.id}). Available characters: ${activeScenario.characters!.map(c => `${c.name} (${c.role})`).join(', ')}`);
+        }
+
         return {
           characterId: character.id,
           characterName: character.name,
