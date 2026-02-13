@@ -1,8 +1,9 @@
 import { GoogleGenAI, Chat, Modality, Type } from "@google/genai";
+import { z } from "zod";
 import { base64ToBytes, pcmToWav } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
-import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse } from "./scenarioService";
+import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse, parseMultiCharacterResponse } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
 
 // Gemini TTS output format constants
@@ -50,6 +51,9 @@ function createChatSession(): void {
     ? generateScenarioSystemInstruction(activeScenario)
     : SYSTEM_INSTRUCTION;
 
+  // Check if multi-character scenario for JSON response
+  const isMultiCharacter = activeScenario && activeScenario.characters && activeScenario.characters.length > 1;
+
   // Convert history to SDK format if provided
   const historyMessages = pendingHistory ? pendingHistory.map(msg => ({
     role: msg.role === 'user' ? 'user' : 'model',
@@ -60,6 +64,9 @@ function createChatSession(): void {
     model: 'gemini-2.0-flash-lite',
     config: {
       systemInstruction: systemInstruction,
+      ...(isMultiCharacter && {
+        responseMimeType: 'application/json'
+      })
     },
     ...(historyMessages && { history: historyMessages }),
   });
@@ -248,14 +255,89 @@ export const initializeSession = async () => {
   ensureAiInitialized();
   // We use gemini-2.0-flash-lite for the logic/conversation as it handles audio input well,
   // but we will ask for TEXT output to maintain REST compatibility, then TTS it.
-  
+
   // If there was a pending scenario set before ai was initialized, use it
   if (pendingScenario) {
     activeScenario = pendingScenario;
   }
-  
+
   // Create session with any pending state (scenario, history)
   createChatSession();
+};
+
+/**
+ * Generate speech audio for a specific character using Gemini TTS
+ * @param text The text to convert to speech
+ * @param voiceName The Gemini voice name to use
+ * @returns Blob URL for the generated audio
+ */
+export const generateCharacterSpeech = async (
+  text: string,
+  voiceName: string
+): Promise<string> => {
+  if (!ai) {
+    ensureAiInitialized();
+  }
+
+  // Sanitize text to prevent breaking the delimiter
+  const sanitizedText = text.replace(/<\/text>/g, '<\\/text>');
+
+  const systemPrompt = `You are to read out the following text in a friendly, encouraging tone. When speaking French, use a natural French accent. You MUST output ONLY AUDIO, not TEXT. Again, ONLY AUDIO, not TEXT. Here's the text enclosed in <text> tags: <text>${sanitizedText}</text>`;
+
+  const ttsResponse = await ai!.models.generateContent({
+    model: 'gemini-2.5-flash-preview-tts',
+    contents: [{ parts: [{ text: systemPrompt }] }],
+    config: {
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: {
+          prebuiltVoiceConfig: {
+            voiceName: voiceName
+          }
+        }
+      }
+    }
+  });
+
+  // Extract audio from TTS response
+  const candidate = ttsResponse.candidates?.[0];
+  const parts = candidate?.content?.parts;
+
+  if (!parts || parts.length === 0) {
+    throw new Error(`No content received from TTS model for character with voice ${voiceName}.`);
+  }
+
+  // Find the inline data part which contains the audio
+  const audioPart = parts.find(p => p.inlineData);
+
+  if (!audioPart || !audioPart.inlineData) {
+    throw new Error(`No audio data received from TTS model for character with voice ${voiceName}.`);
+  }
+
+  // Convert base64 to blob and create URL
+  const audioBytes = base64ToBytes(audioPart.inlineData.data);
+  // Gemini TTS returns raw PCM, convert it to WAV format
+  const audioBlob = pcmToWav(audioBytes, DEFAULT_PCM_SAMPLE_RATE, DEFAULT_PCM_CHANNELS);
+  const audioUrl = URL.createObjectURL(audioBlob);
+
+  return audioUrl;
+};
+
+/**
+ * Create Zod schema for multi-character response with exact character names
+ */
+const createMultiCharacterSchema = (scenario: Scenario) => {
+  const characterNames = scenario.characters!.map(c => c.name);
+
+  return z.object({
+    characterResponses: z.array(
+      z.object({
+        characterName: z.enum(characterNames as [string, ...string[]]).describe(`Must be one of: ${characterNames.join(', ')}`),
+        text: z.string().describe("The character's complete response (French first, then English translation)")
+      })
+    ),
+    hint: z.string().describe("Required hint for what the user should say or ask next - brief description in English")
+  });
 };
 
 /**
@@ -348,68 +430,131 @@ export const sendVoiceMessage = async (
       throw new Error("No text response received from chat model.");
     }
 
-    // Parse hint from response (only present in scenario mode)
-    const { text: modelText, hint } = activeScenario
-      ? parseHintFromResponse(rawModelText)
-      : { text: rawModelText, hint: null };
+    // Check if this is a multi-character scenario
+    if (activeScenario && activeScenario.characters && activeScenario.characters.length > 1) {
+      // Parse and validate JSON response with Zod
+      const MultiCharacterSchema = createMultiCharacterSchema(activeScenario);
 
-    // Check if operation was cancelled before updating history
-    if (signal?.aborted) {
-      // Operation was cancelled, don't add to history
-      throw new DOMException('Request aborted', 'AbortError');
-    }
+      let jsonResponse;
+      try {
+        jsonResponse = JSON.parse(rawModelText);
+      } catch (parseError) {
+        const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+        throw new Error(`Failed to parse multi-character response as JSON: ${errorMessage}. Raw response: ${rawModelText}`);
+      }
 
-    // Sync to shared conversation history (use text without hint markers)
-    addToHistory("user", userText);
-    addToHistory("assistant", modelText);
-    // Update sync counter - we've now synced this new message pair
-    syncedMessageCount += 2;
+      // Use safeParse for better error handling
+      const validationResult = MultiCharacterSchema.safeParse(jsonResponse);
+      if (!validationResult.success) {
+        throw new Error(`Failed to validate multi-character response: ${validationResult.error.message}. Raw response: ${rawModelText}`);
+      }
 
-    // Step 3: Send Text Response to TTS Model to get Audio (use text without hint)
-    const systemPrompt = `You are to read out the following text in a friendly, encouraging tone. When speaking French, use a natural French accent. You MUST output ONLY AUDIO, not TEXT. Again, ONLY AUDIO, not TEXT. Here's the text enclosed in <text> tags: <text>${modelText}</text>`;
-    const ttsResponse = await abortablePromise(ai.models.generateContent({
-        model: 'gemini-2.5-flash-preview-tts',
-      contents: [{ parts: [{ text: systemPrompt }] }],
-        config: {
-            responseModalities: [Modality.AUDIO],
-            speechConfig: {
-                voiceConfig: {
-                    prebuiltVoiceConfig: {
-                        voiceName: "Aoede"
-                    }
-                }
-            }
+      const validated = validationResult.data;
+
+      // Map validated response to include character IDs
+      const characterResponses = validated.characterResponses.map(resp => {
+        const character = activeScenario.characters!.find(c => c.name === resp.characterName);
+        if (!character) {
+          throw new Error(`Character "${resp.characterName}" not found in scenario "${activeScenario.name}" (ID: ${activeScenario.id}). Available characters: ${activeScenario.characters!.map(c => c.name).join(', ')}`);
         }
-    }));
+        return {
+          characterId: character.id,
+          characterName: character.name,
+          text: resp.text.trim()
+        };
+      });
 
-    // Extract audio from TTS response
-    const candidate = ttsResponse.candidates?.[0];
-    const parts = candidate?.content?.parts;
+      const parsed = {
+        characterResponses,
+        hint: validated.hint // Required field, always a string
+      };
 
-    if (!parts || parts.length === 0) {
-      throw new Error("No content received from TTS model.");
+      // Check if operation was cancelled before updating history
+      if (signal?.aborted) {
+        throw new DOMException('Request aborted', 'AbortError');
+      }
+
+      // Generate audio for each character IN PARALLEL
+      const audioPromises = parsed.characterResponses.map(async (charResp) => {
+        const character = activeScenario.characters.find(c => c.id === charResp.characterId);
+
+        if (!character) {
+          throw new Error(`Character not found: ${charResp.characterName} (ID: ${charResp.characterId})`);
+        }
+
+        const audioUrl = await generateCharacterSpeech(charResp.text, character.voiceName);
+        return { ...charResp, audioUrl, voiceName: character.voiceName };
+      });
+
+      const results = await Promise.allSettled(audioPromises);
+
+      // Process results: extract successes and mark failures
+      const characterAudios = results.map((result, idx) => {
+        if (result.status === 'rejected') {
+          console.error(`TTS failed for character ${parsed.characterResponses[idx].characterName}:`, result.reason);
+          // Return character data without audio, flagged as failed
+          const character = activeScenario.characters.find(c => c.id === parsed.characterResponses[idx].characterId);
+          return {
+            ...parsed.characterResponses[idx],
+            audioUrl: '', // Use empty string instead of undefined to satisfy type
+            audioGenerationFailed: true,
+            voiceName: character?.voiceName || ''
+          };
+        }
+        return { ...result.value, audioGenerationFailed: false };
+      });
+
+      // Construct combined text for conversation history (without character markers)
+      const combinedModelText = parsed.characterResponses.map(cr => cr.text).join(' ');
+
+      // Sync to shared conversation history
+      addToHistory("user", userText);
+      addToHistory("assistant", combinedModelText);
+      syncedMessageCount += 2;
+
+      // Return multi-character response
+      return {
+        audioUrl: characterAudios.map(ca => ca.audioUrl),
+        modelText: characterAudios.map(ca => ca.text),
+        userText,
+        hint: parsed.hint, // Required field, always present
+        characters: characterAudios.map(ca => ({
+          characterId: ca.characterId,
+          characterName: ca.characterName,
+          voiceName: ca.voiceName,
+          audioGenerationFailed: ca.audioGenerationFailed
+        }))
+      };
+    } else {
+      // Single-character scenario (original behavior)
+      // Parse hint from response (only present in scenario mode)
+      const { text: modelText, hint } = activeScenario
+        ? parseHintFromResponse(rawModelText)
+        : { text: rawModelText, hint: null };
+
+      // Check if operation was cancelled before updating history
+      if (signal?.aborted) {
+        throw new DOMException('Request aborted', 'AbortError');
+      }
+
+      // Sync to shared conversation history (use text without hint markers)
+      addToHistory("user", userText);
+      addToHistory("assistant", modelText);
+      // Update sync counter - we've now synced this new message pair
+      syncedMessageCount += 2;
+
+      // Step 3: Send Text Response to TTS Model to get Audio (use text without hint)
+      // Use character voice if available, otherwise default
+      const voiceName = activeScenario?.characters?.[0]?.voiceName || "Aoede";
+      const audioUrl = await generateCharacterSpeech(modelText, voiceName);
+
+      return {
+        audioUrl,
+        userText,
+        modelText,
+        hint: hint || undefined
+      };
     }
-
-    // Find the inline data part which contains the audio
-    const audioPart = parts.find(p => p.inlineData);
-
-    if (!audioPart || !audioPart.inlineData) {
-      throw new Error("No audio data received from TTS model.");
-    }
-
-    // Convert base64 to blob and create URL
-    const audioBytes = base64ToBytes(audioPart.inlineData.data);
-    // Gemini TTS returns raw PCM, convert it to WAV format
-    // Note: Callers must call URL.revokeObjectURL(audioUrl) when finished to avoid memory leaks
-    const audioBlob = pcmToWav(audioBytes, DEFAULT_PCM_SAMPLE_RATE, DEFAULT_PCM_CHANNELS);
-    const audioUrl = URL.createObjectURL(audioBlob);
-
-    return {
-      audioUrl,
-      userText,
-      modelText,
-      hint: hint || undefined
-    };
 
   } catch (error) {
     console.error("Error communicating with Gemini:", error);

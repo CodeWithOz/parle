@@ -6,6 +6,8 @@ interface ConversationHistoryProps {
   onClear: () => void;
   playbackSpeed: number;
   autoPlayMessageId?: number | null;
+  onRetryAudio?: (messageTimestamp: number) => void;
+  retryingMessageTimestamps?: Set<number>;
 }
 
 interface MessageItemProps {
@@ -13,9 +15,12 @@ interface MessageItemProps {
   playbackSpeed: number;
   autoPlay: boolean;
   onAudioRef: (audio: HTMLAudioElement | null, messageId: number) => void;
+  onAudioEnded?: () => void;
+  onRetryAudio?: (messageTimestamp: number) => void;
+  isRetrying?: boolean;
 }
 
-const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef }) => {
+const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef, onAudioEnded, onRetryAudio, isRetrying }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
 
   // Update playback rate when speed changes
@@ -77,6 +82,24 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
     };
   }, [autoPlay, message.role, message.audioUrl]);
 
+  // Add ended event listener to trigger next message
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !onAudioEnded) {
+      return;
+    }
+
+    const handleEnded = () => {
+      onAudioEnded();
+    };
+
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, [onAudioEnded]);
+
   return (
     <div
       className={`flex flex-col animate-slide-up ${message.role === 'user' ? 'items-end' : 'items-start'}`}
@@ -88,18 +111,50 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
             : 'bg-slate-800/80 text-slate-200 border border-slate-700/50 rounded-bl-md'
         }`}
       >
-        <p className="text-sm leading-relaxed">{message.text}</p>
-        {message.role === 'model' && message.audioUrl && (
-          <audio
-            ref={audioRef}
-            src={message.audioUrl}
-            controls
-            className="w-full mt-3"
-          />
+        {/* Character name for model messages */}
+        {message.role === 'model' && message.characterName && (
+          <div className="text-xs text-slate-400 font-medium mb-2 flex items-center gap-1">
+            <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
+            {message.characterName}
+          </div>
+        )}
+
+        <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.text}</p>
+
+        {/* Audio controls or retry button */}
+        {message.role === 'model' && (
+          <>
+            {message.audioUrl && typeof message.audioUrl === 'string' ? (
+              <audio
+                ref={audioRef}
+                src={message.audioUrl}
+                controls
+                className="w-full mt-3"
+              />
+            ) : message.audioGenerationFailed ? (
+              <div className="mt-3 flex items-center gap-2 text-xs">
+                <span className="text-yellow-400/80">⚠️ Audio unavailable</span>
+                {onRetryAudio && (
+                  <button
+                    onClick={() => onRetryAudio(message.timestamp)}
+                    disabled={isRetrying}
+                    className={`px-2 py-1 rounded text-slate-300 transition-colors flex items-center gap-1 ${
+                      isRetrying
+                        ? 'bg-slate-700/30 cursor-not-allowed opacity-60'
+                        : 'bg-slate-700/50 hover:bg-slate-600/50'
+                    }`}
+                  >
+                    <span>{isRetrying ? '⏳' : '🔄'}</span>
+                    <span>{isRetrying ? 'Retrying...' : 'Retry'}</span>
+                  </button>
+                )}
+              </div>
+            ) : null}
+          </>
         )}
       </div>
       <span className={`text-xs text-slate-500 mt-1 ${message.role === 'user' ? 'mr-1' : 'ml-1'}`}>
-        {message.role === 'user' ? 'You' : 'AI'}
+        {message.role === 'user' ? 'You' : (message.characterName || 'AI')}
       </span>
     </div>
   );
@@ -109,10 +164,18 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   messages,
   onClear,
   playbackSpeed,
-  autoPlayMessageId
+  autoPlayMessageId,
+  onRetryAudio,
+  retryingMessageTimestamps
 }) => {
   const audioElementsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
+  const [currentAutoPlayId, setCurrentAutoPlayId] = React.useState<number | null>(null);
+
+  // Sync currentAutoPlayId with prop
+  useEffect(() => {
+    setCurrentAutoPlayId(autoPlayMessageId ?? null);
+  }, [autoPlayMessageId]);
 
   const handleAudioRef = useCallback((audio: HTMLAudioElement | null, messageId: number) => {
     if (audio) {
@@ -122,14 +185,30 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
     }
   }, []);
 
+  // Handle audio ended - trigger next message if it exists
+  const handleAudioEnded = useCallback((messageTimestamp: number) => {
+    // Find the message that just ended
+    const currentIndex = messages.findIndex(m => m.timestamp === messageTimestamp);
+    if (currentIndex === -1) return;
+
+    // Check if next message exists and is a model message
+    if (currentIndex + 1 < messages.length) {
+      const nextMessage = messages[currentIndex + 1];
+      // Only auto-play if next message is from model and has consecutive timestamp
+      if (nextMessage.role === 'model' && nextMessage.timestamp === messageTimestamp + 1) {
+        setCurrentAutoPlayId(nextMessage.timestamp);
+      }
+    }
+  }, [messages]);
+
   // Pause all audio except the one that should auto-play
   useEffect(() => {
     audioElementsRef.current.forEach((audio, messageId) => {
-      if (messageId !== autoPlayMessageId && !audio.paused) {
+      if (messageId !== currentAutoPlayId && !audio.paused) {
         audio.pause();
       }
     });
-  }, [autoPlayMessageId]);
+  }, [currentAutoPlayId]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -168,8 +247,11 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
               key={message.timestamp + '-' + index}
               message={message}
               playbackSpeed={playbackSpeed}
-              autoPlay={autoPlayMessageId === message.timestamp}
+              autoPlay={currentAutoPlayId === message.timestamp}
               onAudioRef={handleAudioRef}
+              onAudioEnded={() => handleAudioEnded(message.timestamp)}
+              onRetryAudio={onRetryAudio}
+              isRetrying={retryingMessageTimestamps?.has(message.timestamp) || false}
             />
           ))}
           <div ref={bottomRef} />

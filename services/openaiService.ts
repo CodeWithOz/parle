@@ -1,8 +1,21 @@
+import { ChatOpenAI } from "@langchain/openai";
+import { z } from "zod";
 import { base64ToBlob } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
 import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
+
+// Zod schema for scenario extraction
+const CharacterSchema = z.object({
+  name: z.string().describe("Character name (e.g., Baker, Waiter, Manager)"),
+  role: z.string().describe("Brief role description (e.g., baker, waiter, hotel receptionist)"),
+});
+
+const ScenarioSummarySchema = z.object({
+  summary: z.string().describe("Brief 2-3 sentence summary of the scenario"),
+  characters: z.array(CharacterSchema).min(1).max(5).describe("All distinct characters/people the user will interact with in this scenario (1-5 characters)")
+});
 
 const SYSTEM_INSTRUCTION = `
 You are a friendly and patient French language tutor. 
@@ -44,7 +57,7 @@ export const setScenarioOpenAI = (scenario: Scenario | null) => {
 };
 
 /**
- * Gets AI's understanding/summary of a scenario description using OpenAI.
+ * Gets AI's understanding/summary of a scenario description using OpenAI with structured output.
  */
 export const processScenarioDescriptionOpenAI = async (description: string): Promise<string> => {
   const apiKey = getApiKeyOrEnv('openai');
@@ -53,45 +66,30 @@ export const processScenarioDescriptionOpenAI = async (description: string): Pro
     throw new Error("Missing OpenAI API Key");
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
+  try {
+    // Use Langchain ChatOpenAI with structured output
+    const model = new ChatOpenAI({
+      apiKey,
       model: "gpt-5-nano",
-      messages: [
-        { role: "user", content: generateScenarioSummaryPrompt(description) }
-      ]
-    })
-  });
+      temperature: 0.7
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`OpenAI Error: ${response.status} ${errorText}`);
+    const structuredModel = model.withStructuredOutput(ScenarioSummarySchema, {
+      name: "scenario_summary"
+    });
+
+    const result = await structuredModel.invoke(generateScenarioSummaryPrompt(description));
+
+    // Result is already validated by Zod through Langchain
+    return JSON.stringify(result);
+  } catch (error) {
+    console.warn('Failed to process scenario with OpenAI:', error);
+    // Fallback response
+    return JSON.stringify({
+      summary: "I understand the scenario. Ready to begin when you are!",
+      characters: []
+    });
   }
-
-  const json = await response.json();
-
-  // Defensive validation
-  if (!json || typeof json !== 'object') {
-    console.warn('OpenAI response validation failed: invalid response format');
-    return "I understand the scenario. Ready to begin when you are!";
-  }
-
-  if (!Array.isArray(json.choices) || json.choices.length === 0) {
-    console.warn('OpenAI response validation failed: missing or empty choices array');
-    return "I understand the scenario. Ready to begin when you are!";
-  }
-
-  const firstChoice = json.choices[0];
-  if (!firstChoice || !firstChoice.message || typeof firstChoice.message.content !== 'string') {
-    console.warn('OpenAI response validation failed: missing or invalid message content');
-    return "I understand the scenario. Ready to begin when you are!";
-  }
-
-  return firstChoice.message.content;
 };
 
 /**
