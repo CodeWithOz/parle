@@ -498,7 +498,7 @@ export const sendVoiceMessage = async (
         throw new DOMException('Request aborted', 'AbortError');
       }
 
-      // Generate audio for each character IN PARALLEL
+      // Generate audio for each character IN PARALLEL (wrapped with abort support)
       const audioPromises = parsed.characterResponses.map(async (charResp) => {
         const character = activeScenario.characters.find(c => c.id === charResp.characterId);
 
@@ -506,7 +506,7 @@ export const sendVoiceMessage = async (
           throw new Error(`Character not found: ${charResp.characterName} (ID: ${charResp.characterId})`);
         }
 
-        const audioUrl = await generateCharacterSpeech(charResp.text, character.voiceName);
+        const audioUrl = await abortablePromise(generateCharacterSpeech(charResp.text, character.voiceName));
         return { ...charResp, audioUrl, voiceName: character.voiceName };
       });
 
@@ -530,6 +530,15 @@ export const sendVoiceMessage = async (
 
       // Construct combined text for conversation history (without character markers)
       const combinedModelText = parsed.characterResponses.map(cr => cr.text).join(' ');
+
+      // Check again after audio generation (user may have aborted during TTS)
+      if (signal?.aborted) {
+        // Revoke any successfully generated audio URLs
+        characterAudios.forEach(ca => {
+          if (ca.audioUrl) URL.revokeObjectURL(ca.audioUrl);
+        });
+        throw new DOMException('Request aborted', 'AbortError');
+      }
 
       // Sync to shared conversation history
       addToHistory("user", userText);
@@ -568,9 +577,9 @@ export const sendVoiceMessage = async (
       syncedMessageCount += 2;
 
       // Step 3: Send Text Response to TTS Model to get Audio (use text without hint)
-      // Use character voice if available, otherwise default
+      // Use character voice if available, otherwise default (wrapped with abort support)
       const voiceName = activeScenario?.characters?.[0]?.voiceName || "Aoede";
-      const audioUrl = await generateCharacterSpeech(modelText, voiceName);
+      const audioUrl = await abortablePromise(generateCharacterSpeech(modelText, voiceName));
 
       return {
         audioUrl,

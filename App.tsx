@@ -66,6 +66,8 @@ const App: React.FC = () => {
   const processingAbortedRef = useRef(false);
   // AbortController for cancelling in-flight requests
   const abortControllerRef = useRef<AbortController | null>(null);
+  // Request ID counter to detect stale responses from previous requests
+  const requestIdRef = useRef(0);
 
   // Error flash state
   const [errorFlashVisible, setErrorFlashVisible] = useState(false);
@@ -220,6 +222,8 @@ const App: React.FC = () => {
     processingAbortedRef.current = false;
     // Create a new AbortController for this request
     abortControllerRef.current = new AbortController();
+    // Increment request ID so we can detect stale responses
+    const currentRequestId = ++requestIdRef.current;
     setAppState(AppState.PROCESSING);
 
     try {
@@ -232,8 +236,8 @@ const App: React.FC = () => {
         abortControllerRef.current.signal
       );
 
-      // Check if user aborted while waiting for API response
-      if (processingAbortedRef.current) {
+      // Check if user aborted or a newer request has started (stale response)
+      if (processingAbortedRef.current || currentRequestId !== requestIdRef.current) {
         if (response.audioUrl) {
           if (Array.isArray(response.audioUrl)) {
             response.audioUrl.forEach(url => {
