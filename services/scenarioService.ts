@@ -189,7 +189,7 @@ GUIDELINES:
    - Put the COMPLETE ENGLISH translation in the "english" field
    - Do NOT combine French and English in one field
 6. Decide which character(s) should respond based on the context
-7. CRITICAL: If a character needs to say multiple things in one turn, combine ALL of their dialogue into ONE response entry. NEVER create successive responses from the same character. Each character should appear AT MOST ONCE in the characterResponses array per turn.
+7. CRITICAL: NEVER create successive responses from the same character. If the same character needs to speak multiple times in one turn, there MUST be another character's response in between. Characters can speak more than once per turn, but never back-to-back.
 8. When the scenario reaches its natural end, have the appropriate character(s) congratulate the user
 
 ON-DEMAND HINTS:
