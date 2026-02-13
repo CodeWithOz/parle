@@ -497,13 +497,36 @@ export const sendVoiceMessage = async (
         };
       });
 
+      // Merge successive messages from the same character to reduce TTS requests
+      const mergedCharacterResponses = characterResponses.reduce<Array<{
+        characterId: string;
+        characterName: string;
+        french: string;
+        english: string;
+      }>>((acc, current) => {
+        if (acc.length === 0) {
+          return [current];
+        }
+
+        const lastResponse = acc[acc.length - 1];
+        if (lastResponse.characterId === current.characterId) {
+          // Same character speaking again - merge the messages
+          lastResponse.french = `${lastResponse.french} ${current.french}`;
+          lastResponse.english = `${lastResponse.english} ${current.english}`;
+          return acc;
+        }
+
+        // Different character - add as new response
+        return [...acc, current];
+      }, []);
+
       // Extract hint: prefer top-level, fall back to last character response's hint
       const hint = validated.hint
         || validated.characterResponses[validated.characterResponses.length - 1]?.hint
         || "Continue the conversation";
 
       const parsed = {
-        characterResponses,
+        characterResponses: mergedCharacterResponses,
         hint
       };
 
