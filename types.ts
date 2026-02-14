@@ -34,11 +34,13 @@ export interface VoiceResponse {
   userText: string;
   modelText: string | string[]; // Support array for multi-character
   hint?: string; // Optional hint for what the user could say next (in roleplay mode)
-  characters?: Array<{ // NEW: Character info for multi-character responses
+  voiceName?: string; // Voice used for single-character response (for retry)
+  audioGenerationFailed?: boolean; // Track if TTS failed for single-character response
+  characters?: Array<{ // Character info for multi-character responses
     characterId: string;
     characterName: string;
     voiceName: string;
-    audioGenerationFailed?: boolean; // NEW: Track if TTS failed for this character
+    audioGenerationFailed?: boolean; // Track if TTS failed for this character
   }>;
 }
 

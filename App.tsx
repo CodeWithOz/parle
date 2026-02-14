@@ -310,7 +310,7 @@ const App: React.FC = () => {
         setAutoPlayMessageId(timestamp + 1);
       } else {
         // Single-character response (original behavior)
-        const { audioUrl, userText, modelText, hint } = response;
+        const { audioUrl, userText, modelText, hint, voiceName, audioGenerationFailed } = response;
 
         // Add messages to history (append for chronological order - newest last)
         const timestamp = Date.now();
@@ -318,7 +318,15 @@ const App: React.FC = () => {
         setMessages(prev => [
           ...prev,
           { role: 'user', text: userText, timestamp },
-          { role: 'model', text: modelText as string, timestamp: modelTimestamp, audioUrl: audioUrl as string, hint },
+          {
+            role: 'model',
+            text: modelText as string,
+            timestamp: modelTimestamp,
+            audioUrl: audioUrl as string,
+            hint,
+            voiceName,
+            audioGenerationFailed
+          },
         ]);
 
         // Update current hint (only in scenario mode)
