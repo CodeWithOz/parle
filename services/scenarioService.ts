@@ -221,6 +221,27 @@ export const parseHintFromResponse = (response: string): { text: string; hint: s
 };
 
 /**
+ * Parse French and English from a free conversation response
+ * Format: "French text ... English translation"
+ * Returns separated French and English text
+ */
+export const parseFrenchEnglish = (response: string): { french: string; english: string; combined: string } => {
+  // Look for patterns like "... " or " ... " that separate French from English
+  // The AI is instructed to put French first, then English translation
+  const separatorMatch = response.match(/^([\s\S]*?)\s*\.{2,}\s*([\s\S]*)$/);
+
+  if (separatorMatch) {
+    const french = separatorMatch[1].trim();
+    const english = separatorMatch[2].trim();
+    return { french, english, combined: response };
+  }
+
+  // If no clear separator found, treat entire response as French
+  // (fallback for cases where AI doesn't follow format)
+  return { french: response, english: '', combined: response };
+};
+
+/**
  * Parse a multi-character response from the AI
  * Format: [CHARACTER_NAME]: text... [CHARACTER_NAME]: text...
  * Returns array of character responses and extracted hint

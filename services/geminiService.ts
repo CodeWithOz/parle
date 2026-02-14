@@ -3,7 +3,7 @@ import { z } from "zod";
 import { base64ToBytes, pcmToWav } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
-import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse, parseMultiCharacterResponse } from "./scenarioService";
+import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse, parseMultiCharacterResponse, parseFrenchEnglish } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
 
 // Gemini TTS output format constants
@@ -673,21 +673,25 @@ export const sendVoiceMessage = async (
           }]
         };
       } else {
-        // No scenario - free conversation mode (no JSON, no separation needed)
+        // No scenario - free conversation mode
         // Parse hint from response (shouldn't have hints in free mode)
-        const { text: modelText, hint } = parseHintFromResponse(rawModelText);
+        const { text: responseText, hint } = parseHintFromResponse(rawModelText);
+
+        // Parse French and English from the response
+        // Format: "French text ... English translation"
+        const { french, english, combined } = parseFrenchEnglish(responseText);
 
         // Check if operation was cancelled before generating audio
         if (signal?.aborted) {
           throw new DOMException('Request aborted', 'AbortError');
         }
 
-        // Step 3: Send Text Response to TTS Model to get Audio
+        // Step 3: Send ONLY French text to TTS (not the English translation)
         const voiceName = "aoede";
 
         let audioUrl = '';
         try {
-          audioUrl = await abortablePromise(generateCharacterSpeech(modelText, voiceName));
+          audioUrl = await abortablePromise(generateCharacterSpeech(french, voiceName));
         } catch (ttsError) {
           // Re-throw aborts - user cancelled the operation
           if (ttsError instanceof DOMException && ttsError.name === 'AbortError') {
@@ -709,16 +713,23 @@ export const sendVoiceMessage = async (
         // This ensures aborted operations don't pollute history,
         // but TTS failures still show text with retry button
         addToHistory("user", userText);
-        addToHistory("assistant", modelText);
+        addToHistory("assistant", combined);
         syncedMessageCount += 2;
 
         return {
           audioUrl,
           userText,
-          modelText,
+          modelText: combined,
           hint: hint || undefined,
           voiceName,
-          audioGenerationFailed: !audioUrl // Empty audioUrl means TTS failed
+          audioGenerationFailed: !audioUrl, // Empty audioUrl means TTS failed
+          characters: [{
+            characterId: '',
+            characterName: '',
+            voiceName,
+            audioGenerationFailed: !audioUrl,
+            frenchText: french // Include French text for TTS retry
+          }]
         };
       }
     }
