@@ -660,7 +660,9 @@ export const sendVoiceMessage = async (
           audioUrl,
           userText,
           modelText,
-          hint: validated.hint
+          hint: validated.hint,
+          voiceName,
+          audioGenerationFailed: !audioUrl // Empty audioUrl means TTS failed
         };
       } else {
         // No scenario - free conversation mode (no JSON, no separation needed)
@@ -706,7 +708,9 @@ export const sendVoiceMessage = async (
           audioUrl,
           userText,
           modelText,
-          hint: hint || undefined
+          hint: hint || undefined,
+          voiceName,
+          audioGenerationFailed: !audioUrl // Empty audioUrl means TTS failed
         };
       }
     }
