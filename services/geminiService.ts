@@ -594,7 +594,8 @@ export const sendVoiceMessage = async (
           characterId: ca.characterId,
           characterName: ca.characterName,
           voiceName: ca.voiceName,
-          audioGenerationFailed: ca.audioGenerationFailed
+          audioGenerationFailed: ca.audioGenerationFailed,
+          frenchText: ca.french // Include French text for TTS retry
         }))
       };
     } else {
@@ -662,7 +663,14 @@ export const sendVoiceMessage = async (
           modelText,
           hint: validated.hint,
           voiceName,
-          audioGenerationFailed: !audioUrl // Empty audioUrl means TTS failed
+          audioGenerationFailed: !audioUrl, // Empty audioUrl means TTS failed
+          characters: [{
+            characterId: activeScenario?.characters?.[0]?.id || '',
+            characterName: activeScenario?.characters?.[0]?.name || '',
+            voiceName,
+            audioGenerationFailed: !audioUrl,
+            frenchText: validated.french // Include French text for TTS retry
+          }]
         };
       } else {
         // No scenario - free conversation mode (no JSON, no separation needed)
