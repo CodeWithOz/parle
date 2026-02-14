@@ -296,7 +296,8 @@ const App: React.FC = () => {
           characterName: char.characterName,
           voiceName: char.voiceName,
           hint: idx === characters.length - 1 ? response.hint : undefined,
-          audioGenerationFailed: char.audioGenerationFailed || false
+          audioGenerationFailed: char.audioGenerationFailed || false,
+          frenchText: char.frenchText // Store French text for TTS retry
         }));
 
         setMessages(prev => [...prev, userMessage, ...modelMessages]);
@@ -310,7 +311,7 @@ const App: React.FC = () => {
         setAutoPlayMessageId(timestamp + 1);
       } else {
         // Single-character response (original behavior)
-        const { audioUrl, userText, modelText, hint, voiceName, audioGenerationFailed } = response;
+        const { audioUrl, userText, modelText, hint, voiceName, audioGenerationFailed, characters } = response;
 
         // Add messages to history (append for chronological order - newest last)
         const timestamp = Date.now();
@@ -325,7 +326,8 @@ const App: React.FC = () => {
             audioUrl: audioUrl as string,
             hint,
             voiceName,
-            audioGenerationFailed
+            audioGenerationFailed,
+            frenchText: characters?.[0]?.frenchText // Store French text for TTS retry
           },
         ]);
 
@@ -419,7 +421,9 @@ const App: React.FC = () => {
     setRetryingMessageTimestamps(prev => new Set(prev).add(messageTimestamp));
 
     try {
-      const audioUrl = await generateCharacterSpeech(message.text, message.voiceName);
+      // Use French-only text for TTS retry (falls back to full text if frenchText not available)
+      const textForTTS = message.frenchText || message.text;
+      const audioUrl = await generateCharacterSpeech(textForTTS, message.voiceName);
 
       // Update message with new audio
       setMessages(prev => prev.map(m =>

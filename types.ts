@@ -27,6 +27,7 @@ export interface Message {
   characterName?: string; // NEW: Name of the character who spoke
   voiceName?: string; // NEW: Voice used for this message
   audioGenerationFailed?: boolean; // NEW: Track if audio TTS failed
+  frenchText?: string; // French-only text for TTS retry (in bilingual scenarios)
 }
 
 export interface VoiceResponse {
@@ -41,6 +42,7 @@ export interface VoiceResponse {
     characterName: string;
     voiceName: string;
     audioGenerationFailed?: boolean; // Track if TTS failed for this character
+    frenchText?: string; // French-only text for TTS retry
   }>;
 }
 
