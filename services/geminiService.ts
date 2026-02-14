@@ -3,7 +3,7 @@ import { z } from "zod";
 import { base64ToBytes, pcmToWav } from "./audioUtils";
 import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
-import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse, parseMultiCharacterResponse, parseFrenchEnglish } from "./scenarioService";
+import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse, parseMultiCharacterResponse } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
 
 // Gemini TTS output format constants
@@ -12,20 +12,30 @@ const DEFAULT_PCM_CHANNELS = 1; // Mono audio
 
 // Define the system instruction to enforce the language constraint
 const SYSTEM_INSTRUCTION = `
-You are a friendly and patient French language tutor. 
+You are a friendly and patient French language tutor.
 Your goal is to help the user practice speaking French.
 
-RULES:
-1. Understand what the user says, but don't repeat it verbatim. Briefly acknowledge understanding when needed, but focus on responding naturally without restating everything the user said.
-2. If the user makes a mistake, gently correct them in your response, but keep the conversation flowing naturally.
-3. For EVERY response, you MUST follow this structure:
-   - First, respond naturally in FRENCH.
-   - Then, immediately provide the ENGLISH translation of what you just said.
-   - Do not say "Here is the translation" or explain the format. Just French content, then English content.
+RESPONSE FORMAT (CRITICAL):
+You MUST respond with structured JSON in this exact format:
+{
+  "french": "Your complete French response here",
+  "english": "The English translation here"
+}
 
-Example interaction:
-User: "Bonjour, je suis fatigue." (User means "I am tired" but mispronounced)
-You: "Bonjour! Oh, tu es fatigué ? Pourquoi es-tu fatigué aujourd'hui ? ... Hello! Oh, you are tired? Why are you tired today?"
+Example:
+User says: "Bonjour, je suis fatigue." (User means "I am tired" but made a mistake)
+You respond with JSON:
+{
+  "french": "Bonjour! Oh, tu es fatigué ? Pourquoi es-tu fatigué aujourd'hui ?",
+  "english": "Hello! Oh, you are tired? Why are you tired today?"
+}
+
+GUIDELINES:
+1. Understand what the user says, but don't repeat it verbatim. Briefly acknowledge understanding when needed, but focus on responding naturally.
+2. If the user makes a mistake, gently correct them in your French response, but keep the conversation flowing naturally.
+3. Put your COMPLETE French response in the "french" field
+4. Put the COMPLETE ENGLISH translation in the "english" field
+5. Keep French and English SEPARATE - do NOT combine them in one field
 `;
 
 let ai: GoogleGenAI | null = null;
@@ -51,9 +61,6 @@ function createChatSession(): void {
     ? generateScenarioSystemInstruction(activeScenario)
     : SYSTEM_INSTRUCTION;
 
-  // Check if scenario mode (single or multi-character) for JSON response
-  const isScenarioMode = activeScenario !== null;
-
   // Convert history to SDK format if provided
   const historyMessages = pendingHistory ? pendingHistory.map(msg => ({
     role: msg.role === 'user' ? 'user' : 'model',
@@ -64,9 +71,8 @@ function createChatSession(): void {
     model: 'gemini-2.0-flash-lite',
     config: {
       systemInstruction: systemInstruction,
-      ...(isScenarioMode && {
-        responseMimeType: 'application/json'
-      })
+      // Always use JSON response format for structured French/English separation
+      responseMimeType: 'application/json'
     },
     ...(historyMessages && { history: historyMessages }),
   });
@@ -336,6 +342,15 @@ const SingleCharacterSchema = z.object({
   french: z.string().describe("The complete response in French only"),
   english: z.string().describe("The English translation of the French response"),
   hint: z.string().describe("Hint for what the user should say or ask next - brief description in English")
+});
+
+/**
+ * Zod schema for free conversation mode response.
+ * Separates French and English for TTS control, with optional hint.
+ */
+const FreeConversationSchema = z.object({
+  french: z.string().describe("The complete response in French only"),
+  english: z.string().describe("The English translation of the French response")
 });
 
 /**
@@ -673,25 +688,38 @@ export const sendVoiceMessage = async (
           }]
         };
       } else {
-        // No scenario - free conversation mode
-        // Parse hint from response (shouldn't have hints in free mode)
-        const { text: responseText, hint } = parseHintFromResponse(rawModelText);
+        // No scenario - free conversation mode with JSON response
+        // Parse and validate JSON response with Zod
+        let jsonResponse;
+        try {
+          jsonResponse = JSON.parse(rawModelText);
+        } catch (parseError) {
+          const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+          throw new Error(`Failed to parse free conversation response as JSON: ${errorMessage}. Raw response: ${rawModelText}`);
+        }
 
-        // Parse French and English from the response
-        // Format: "French text ... English translation"
-        const { french, english, combined } = parseFrenchEnglish(responseText);
+        // Use safeParse for better error handling
+        const validationResult = FreeConversationSchema.safeParse(jsonResponse);
+        if (!validationResult.success) {
+          throw new Error(`Failed to validate free conversation response: ${validationResult.error.message}. Raw response: ${rawModelText}`);
+        }
+
+        const validated = validationResult.data;
 
         // Check if operation was cancelled before generating audio
         if (signal?.aborted) {
           throw new DOMException('Request aborted', 'AbortError');
         }
 
+        // Combine French and English for display and history
+        const modelText = `${validated.french} ${validated.english}`;
+
         // Step 3: Send ONLY French text to TTS (not the English translation)
         const voiceName = "aoede";
 
         let audioUrl = '';
         try {
-          audioUrl = await abortablePromise(generateCharacterSpeech(french, voiceName));
+          audioUrl = await abortablePromise(generateCharacterSpeech(validated.french, voiceName));
         } catch (ttsError) {
           // Re-throw aborts - user cancelled the operation
           if (ttsError instanceof DOMException && ttsError.name === 'AbortError') {
@@ -713,14 +741,14 @@ export const sendVoiceMessage = async (
         // This ensures aborted operations don't pollute history,
         // but TTS failures still show text with retry button
         addToHistory("user", userText);
-        addToHistory("assistant", combined);
+        addToHistory("assistant", modelText);
         syncedMessageCount += 2;
 
         return {
           audioUrl,
           userText,
-          modelText: combined,
-          hint: hint || undefined,
+          modelText,
+          hint: undefined, // No hints in free conversation mode
           voiceName,
           audioGenerationFailed: !audioUrl, // Empty audioUrl means TTS failed
           characters: [{
@@ -728,7 +756,7 @@ export const sendVoiceMessage = async (
             characterName: '',
             voiceName,
             audioGenerationFailed: !audioUrl,
-            frenchText: french // Include French text for TTS retry
+            frenchText: validated.french // Include French text for TTS retry
           }]
         };
       }
