@@ -49,6 +49,54 @@ let pendingScenario: Scenario | null = null;
 let pendingHistory: Array<{ role: string; content: string }> | null = null;
 
 /**
+ * Gemini-format response schemas for structured output enforcement.
+ * These are passed as responseSchema to the chat session config, which prevents
+ * the model from returning an unexpected JSON shape (e.g. an array of turns).
+ */
+const SINGLE_CHARACTER_RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    french: { type: Type.STRING, description: "The complete response in French only" },
+    english: { type: Type.STRING, description: "The English translation of the French response" },
+    hint: { type: Type.STRING, description: "Hint for what the user should say or ask next - brief description in English" },
+  },
+  required: ['french', 'english', 'hint'],
+};
+
+const FREE_CONVERSATION_RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    french: { type: Type.STRING, description: "The complete response in French only" },
+    english: { type: Type.STRING, description: "The English translation of the French response" },
+  },
+  required: ['french', 'english'],
+};
+
+const createGeminiMultiCharacterSchema = (scenario: Scenario) => ({
+  type: Type.OBJECT,
+  properties: {
+    characterResponses: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          characterName: {
+            type: Type.STRING,
+            description: `Must be one of: ${scenario.characters!.slice(0, MAX_CHARACTERS).map((_, i) => `Character ${i + 1}`).join(', ')}`,
+          },
+          french: { type: Type.STRING, description: "The character's complete response in French only" },
+          english: { type: Type.STRING, description: "The English translation of the French response" },
+          hint: { type: Type.STRING, description: "Optional per-character hint" },
+        },
+        required: ['characterName', 'french', 'english'],
+      },
+    },
+    hint: { type: Type.STRING, description: "Hint for what the user should say or ask next - brief description in English" },
+  },
+  required: ['characterResponses'],
+});
+
+/**
  * Helper function to create the chat session with current state.
  * Only call when ai is initialized.
  */
@@ -67,12 +115,22 @@ function createChatSession(): void {
     parts: [{ text: msg.content }]
   })) : undefined;
 
+  // Pick the response schema that matches the scenario type.
+  // This enforces the JSON shape at the API level, preventing the model from
+  // returning an array of turns instead of a single response object.
+  const responseSchema = activeScenario && activeScenario.characters && activeScenario.characters.length > 1
+    ? createGeminiMultiCharacterSchema(activeScenario)
+    : activeScenario
+      ? SINGLE_CHARACTER_RESPONSE_SCHEMA
+      : FREE_CONVERSATION_RESPONSE_SCHEMA;
+
   chatSession = ai.chats.create({
     model: 'gemini-2.0-flash-lite',
     config: {
       systemInstruction: systemInstruction,
       // Always use JSON response format for structured French/English separation
-      responseMimeType: 'application/json'
+      responseMimeType: 'application/json',
+      responseSchema,
     },
     ...(historyMessages && { history: historyMessages }),
   });
