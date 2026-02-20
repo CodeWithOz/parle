@@ -49,6 +49,98 @@ let pendingScenario: Scenario | null = null;
 let pendingHistory: Array<{ role: string; content: string }> | null = null;
 
 /**
+ * Max number of characters supported in multi-character scenarios
+ */
+const MAX_CHARACTERS = 5;
+
+/**
+ * Zod schema for single-character response.
+ * Separates French and English for TTS control.
+ */
+const SingleCharacterSchema = z.object({
+  french: z.string().describe("The complete response in French only"),
+  english: z.string().describe("The English translation of the French response"),
+  hint: z.string().describe("Hint for what the user should say or ask next - brief description in English")
+});
+
+/**
+ * Zod schema for free conversation mode response.
+ * Separates French and English for TTS control, with optional hint.
+ */
+const FreeConversationSchema = z.object({
+  french: z.string().describe("The complete response in French only"),
+  english: z.string().describe("The English translation of the French response")
+});
+
+/**
+ * Create Zod schema for multi-character response.
+ * Uses fixed labels ("Character 1", "Character 2", etc.) instead of actual names
+ * because LLMs don't reliably use exact character names in structured output.
+ * The processing code maps these labels back to actual characters by index.
+ */
+const createMultiCharacterSchema = (scenario: Scenario) => {
+  const count = Math.min(scenario.characters!.length, MAX_CHARACTERS);
+  const labels = Array.from({ length: count }, (_, i) => `Character ${i + 1}`);
+
+  // Allow hint at top level OR inside each character response (LLMs place it inconsistently)
+  return z.object({
+    characterResponses: z.array(
+      z.object({
+        characterName: z.string().describe(`Must be one of: ${labels.join(', ')}`),
+        french: z.string().describe("The character's complete response in French only"),
+        english: z.string().describe("The English translation of the French response"),
+        hint: z.string().optional().describe("Optional per-character hint")
+      })
+    ),
+    hint: z.string().optional().describe("Hint for what the user should say or ask next - brief description in English")
+  });
+};
+
+/**
+ * Convert a standard JSON Schema object (as produced by z.toJSONSchema) to the
+ * uppercase-typed format required by the Gemini SDK's responseSchema field.
+ * Gemini expects "OBJECT", "STRING", "ARRAY" etc.; z.toJSONSchema produces lowercase.
+ * Only passes through fields that the Gemini Schema type supports.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toGeminiSchema(jsonSchema: Record<string, any>): Record<string, any> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result: Record<string, any> = {};
+  if (jsonSchema.type) result.type = (jsonSchema.type as string).toUpperCase();
+  if (jsonSchema.description) result.description = jsonSchema.description;
+  if (jsonSchema.properties) {
+    result.properties = Object.fromEntries(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      Object.entries(jsonSchema.properties as Record<string, Record<string, any>>).map(
+        ([k, v]) => [k, toGeminiSchema(v)]
+      )
+    );
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (jsonSchema.items) result.items = toGeminiSchema(jsonSchema.items as Record<string, any>);
+  if (jsonSchema.required) result.required = jsonSchema.required;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (jsonSchema.anyOf) result.anyOf = (jsonSchema.anyOf as Record<string, any>[]).map(toGeminiSchema);
+  if (jsonSchema.enum) result.enum = jsonSchema.enum;
+  if (jsonSchema.nullable !== undefined) result.nullable = jsonSchema.nullable;
+  return result;
+}
+
+/**
+ * Gemini-format response schemas derived from the Zod schemas above.
+ * These are passed as responseSchema to the chat session config, which prevents
+ * the model from returning an unexpected JSON shape (e.g. an array of turns).
+ * Derived via toGeminiSchema so the shape stays in sync with the Zod definitions.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const SINGLE_CHARACTER_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(SingleCharacterSchema) as Record<string, any>);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const FREE_CONVERSATION_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(FreeConversationSchema) as Record<string, any>);
+const createGeminiMultiCharacterSchema = (scenario: Scenario) =>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  toGeminiSchema(z.toJSONSchema(createMultiCharacterSchema(scenario)) as Record<string, any>);
+
+/**
  * Helper function to create the chat session with current state.
  * Only call when ai is initialized.
  */
@@ -67,12 +159,22 @@ function createChatSession(): void {
     parts: [{ text: msg.content }]
   })) : undefined;
 
+  // Pick the response schema that matches the scenario type.
+  // This enforces the JSON shape at the API level, preventing the model from
+  // returning an array of turns instead of a single response object.
+  const responseSchema = activeScenario && activeScenario.characters && activeScenario.characters.length > 1
+    ? createGeminiMultiCharacterSchema(activeScenario)
+    : activeScenario
+      ? SINGLE_CHARACTER_RESPONSE_SCHEMA
+      : FREE_CONVERSATION_RESPONSE_SCHEMA;
+
   chatSession = ai.chats.create({
     model: 'gemini-2.0-flash-lite',
     config: {
       systemInstruction: systemInstruction,
       // Always use JSON response format for structured French/English separation
-      responseMimeType: 'application/json'
+      responseMimeType: 'application/json',
+      responseSchema,
     },
     ...(historyMessages && { history: historyMessages }),
   });
@@ -327,54 +429,6 @@ export const generateCharacterSpeech = async (
   const audioUrl = URL.createObjectURL(audioBlob);
 
   return audioUrl;
-};
-
-/**
- * Max number of characters supported in multi-character scenarios
- */
-const MAX_CHARACTERS = 5;
-
-/**
- * Zod schema for single-character response.
- * Separates French and English for TTS control.
- */
-const SingleCharacterSchema = z.object({
-  french: z.string().describe("The complete response in French only"),
-  english: z.string().describe("The English translation of the French response"),
-  hint: z.string().describe("Hint for what the user should say or ask next - brief description in English")
-});
-
-/**
- * Zod schema for free conversation mode response.
- * Separates French and English for TTS control, with optional hint.
- */
-const FreeConversationSchema = z.object({
-  french: z.string().describe("The complete response in French only"),
-  english: z.string().describe("The English translation of the French response")
-});
-
-/**
- * Create Zod schema for multi-character response.
- * Uses fixed labels ("Character 1", "Character 2", etc.) instead of actual names
- * because LLMs don't reliably use exact character names in structured output.
- * The processing code maps these labels back to actual characters by index.
- */
-const createMultiCharacterSchema = (scenario: Scenario) => {
-  const count = Math.min(scenario.characters!.length, MAX_CHARACTERS);
-  const labels = Array.from({ length: count }, (_, i) => `Character ${i + 1}`);
-
-  // Allow hint at top level OR inside each character response (LLMs place it inconsistently)
-  return z.object({
-    characterResponses: z.array(
-      z.object({
-        characterName: z.string().describe(`Must be one of: ${labels.join(', ')}`),
-        french: z.string().describe("The character's complete response in French only"),
-        english: z.string().describe("The English translation of the French response"),
-        hint: z.string().optional().describe("Optional per-character hint")
-      })
-    ),
-    hint: z.string().optional().describe("Hint for what the user should say or ask next - brief description in English")
-  });
 };
 
 /**
