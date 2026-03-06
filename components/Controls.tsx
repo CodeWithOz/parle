@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppState, ScenarioMode, Scenario } from '../types';
+import { AppState, ScenarioMode, Scenario, TefAdMode } from '../types';
 
 interface ControlsProps {
   appState: AppState;
@@ -11,6 +11,10 @@ interface ControlsProps {
   onOpenScenarioSetup: () => void;
   onExitScenario: () => void;
   compact?: boolean;
+  // TEF Ad props
+  tefAdMode?: TefAdMode;
+  onOpenTefAdSetup?: () => void;
+  onExitTefAd?: () => void;
 }
 
 export const Controls: React.FC<ControlsProps> = ({
@@ -23,15 +27,32 @@ export const Controls: React.FC<ControlsProps> = ({
   onOpenScenarioSetup,
   onExitScenario,
   compact = false,
+  tefAdMode = 'none',
+  onOpenTefAdSetup,
+  onExitTefAd,
 }) => {
   const isRecording = appState === AppState.RECORDING;
   const isInPracticeMode = scenarioMode === 'practice' && activeScenario;
+  const isInTefAdPractice = tefAdMode === 'practice';
 
   if (compact) {
     return (
       <div className="flex flex-col gap-2 w-full">
-        {/* Compact scenario indicator or scenario button */}
-        {isInPracticeMode ? (
+        {/* Compact scenario/tef-ad indicator or buttons */}
+        {isInTefAdPractice ? (
+          <div className="flex items-center justify-between bg-green-900/30 px-3 py-2 rounded-xl border border-green-700/50">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0"></div>
+              <span className="text-green-300 text-xs font-medium truncate">Ad Persuasion Practice</span>
+            </div>
+            <button
+              onClick={onExitTefAd}
+              className="text-xs text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded border border-slate-600 hover:border-slate-500 transition-colors flex-shrink-0 ml-2"
+            >
+              Exit
+            </button>
+          </div>
+        ) : isInPracticeMode ? (
           <div className="flex items-center justify-between bg-green-900/30 px-3 py-2 rounded-xl border border-green-700/50">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0"></div>
@@ -45,15 +66,28 @@ export const Controls: React.FC<ControlsProps> = ({
             </button>
           </div>
         ) : !isRecording && (
-          <button
-            onClick={onOpenScenarioSetup}
-            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2H4a1 1 0 110-2V4zm3 1h6v4H7V5zm6 6H7v2h6v-2z" clipRule="evenodd" />
-            </svg>
-            <span>Role Play</span>
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onOpenScenarioSetup}
+              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2H4a1 1 0 110-2V4zm3 1h6v4H7V5zm6 6H7v2h6v-2z" clipRule="evenodd" />
+              </svg>
+              <span>Role Play</span>
+            </button>
+            {onOpenTefAdSetup && (
+              <button
+                onClick={onOpenTefAdSetup}
+                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+                </svg>
+                <span>Ad Persuasion</span>
+              </button>
+            )}
+          </div>
         )}
 
         {/* Compact speed + cancel row */}
@@ -115,8 +149,26 @@ export const Controls: React.FC<ControlsProps> = ({
         </div>
       </div>
 
-      {/* Scenario Mode Indicator / Toggle */}
-      {isInPracticeMode ? (
+      {/* Scenario / TEF Ad Mode Indicator or Toggle */}
+      {isInTefAdPractice ? (
+        <div className="w-full bg-green-900/30 p-4 rounded-2xl border border-green-700/50 backdrop-blur-sm">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <span className="text-green-300 text-sm font-medium">Ad Persuasion Practice</span>
+            </div>
+            <button
+              onClick={onExitTefAd}
+              className="text-xs text-slate-400 hover:text-slate-200 px-3 py-1 rounded border border-slate-600 hover:border-slate-500 transition-colors"
+            >
+              Exit
+            </button>
+          </div>
+          <p className="text-slate-500 text-xs mt-2">
+            Convince your French friend about the advertisement!
+          </p>
+        </div>
+      ) : isInPracticeMode ? (
         <div className="w-full bg-green-900/30 p-4 rounded-2xl border border-green-700/50 backdrop-blur-sm">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
@@ -138,15 +190,29 @@ export const Controls: React.FC<ControlsProps> = ({
           </p>
         </div>
       ) : (
-        <button
-          onClick={onOpenScenarioSetup}
-          className="w-full py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 hover:border-slate-600 rounded-2xl transition-colors flex items-center justify-center gap-2"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
-            <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2H4a1 1 0 110-2V4zm3 1h6v4H7V5zm6 6H7v2h6v-2z" clipRule="evenodd" />
-          </svg>
-          <span className="text-slate-300 text-sm font-medium">Practice Role Play</span>
-        </button>
+        <div className="w-full flex flex-col gap-3">
+          <button
+            onClick={onOpenScenarioSetup}
+            className="w-full py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 hover:border-slate-600 rounded-2xl transition-colors flex items-center justify-center gap-2"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2H4a1 1 0 110-2V4zm3 1h6v4H7V5zm6 6H7v2h6v-2z" clipRule="evenodd" />
+            </svg>
+            <span className="text-slate-300 text-sm font-medium">Practice Role Play</span>
+          </button>
+
+          {onOpenTefAdSetup && (
+            <button
+              onClick={onOpenTefAdSetup}
+              className="w-full py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 hover:border-slate-600 rounded-2xl transition-colors flex items-center justify-center gap-2"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+              </svg>
+              <span className="text-slate-300 text-sm font-medium">Practice Ad Persuasion</span>
+            </button>
+          )}
+        </div>
       )}
 
     </div>

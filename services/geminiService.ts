@@ -239,6 +239,63 @@ function ensureAiInitialized(): void {
 }
 
 /**
+ * Analyzes an advertisement image and returns a summary and role confirmation.
+ * One-shot call (not a chat session) with inline image data.
+ */
+export const confirmTefAdImage = async (
+  imageBase64: string,
+  mimeType: string
+): Promise<{ summary: string; roleSummary: string }> => {
+  ensureAiInitialized();
+
+  const response = await ai!.models.generateContent({
+    model: 'gemini-2.0-flash-lite',
+    contents: [{
+      parts: [
+        {
+          text: `Look at this advertisement image. Please respond with a JSON object containing:
+1. "summary": A concise 2-3 sentence description of what the advertisement is for, what product or service it promotes, and its key selling points or tagline if visible.
+2. "roleSummary": A brief confirmation (1-2 sentences) that you understand the ad and are ready to play the role of a skeptical French-speaking friend that the user must persuade about this product/service.
+
+Respond ONLY with valid JSON in this format:
+{
+  "summary": "...",
+  "roleSummary": "..."
+}`
+        },
+        {
+          inlineData: {
+            data: imageBase64,
+            mimeType: mimeType,
+          },
+        },
+      ],
+    }],
+    config: {
+      responseMimeType: 'application/json',
+    },
+  });
+
+  const text = response.text || '';
+  if (!text.trim()) {
+    throw new Error('No response received from image analysis');
+  }
+
+  let parsed: { summary: string; roleSummary: string };
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse image analysis response: ${errorMessage}. Raw: ${text}`);
+  }
+
+  return {
+    summary: parsed.summary || 'Advertisement analyzed.',
+    roleSummary: parsed.roleSummary || 'I understand the ad and will play your skeptical friend.',
+  };
+};
+
+/**
  * Gets AI's understanding/summary of a scenario description.
  */
 export const processScenarioDescription = async (description: string): Promise<string> => {
