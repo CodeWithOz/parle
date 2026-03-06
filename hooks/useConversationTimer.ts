@@ -20,9 +20,6 @@ export const useConversationTimer = (
   const onTimeUpRef = useRef(onTimeUp);
   onTimeUpRef.current = onTimeUp;
 
-  const isTimedOutRef = useRef(isTimedOut);
-  isTimedOutRef.current = isTimedOut;
-
   useEffect(() => {
     // Don't tick if not active, already timed out, or processing
     if (!isActive || isTimedOut || appState === AppState.PROCESSING) {

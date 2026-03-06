@@ -246,6 +246,11 @@ export const confirmTefAdImage = async (
   imageBase64: string,
   mimeType: string
 ): Promise<{ summary: string; roleSummary: string }> => {
+  const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+  if (!SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
+    throw new Error(`Unsupported image type "${mimeType}". Please use JPEG, PNG, or WEBP.`);
+  }
+
   ensureAiInitialized();
 
   const response = await ai!.models.generateContent({

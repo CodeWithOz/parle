@@ -61,7 +61,7 @@ const App: React.FC = () => {
   const [tefTimedUp, setTefTimedUp] = useState(false);
 
   // TEF Ad conversation timer
-  const { elapsed: tefElapsed, isTimedOut: tefIsTimedOut } = useConversationTimer(
+  const { elapsed: tefElapsed } = useConversationTimer(
     appState,
     tefAdMode === 'practice',
     () => setTefTimedUp(true)
@@ -323,7 +323,7 @@ const App: React.FC = () => {
         setMessages(prev => [...prev, userMessage, ...modelMessages]);
 
         // Update current hint (only in scenario mode, from last character)
-        if (scenarioMode === 'practice' && response.hint) {
+        if ((scenarioMode === 'practice' || tefAdMode === 'practice') && response.hint) {
           setCurrentHint(response.hint);
         }
 
@@ -352,7 +352,7 @@ const App: React.FC = () => {
         ]);
 
         // Update current hint (only in scenario mode)
-        if (scenarioMode === 'practice' && hint) {
+        if ((scenarioMode === 'practice' || tefAdMode === 'practice') && hint) {
           setCurrentHint(hint);
         }
 

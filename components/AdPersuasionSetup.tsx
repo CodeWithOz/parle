@@ -31,6 +31,12 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
       return;
     }
 
+    const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+    if (!SUPPORTED_IMAGE_TYPES.includes(file.type)) {
+      setError('Unsupported file type. Please use JPEG, PNG, WEBP, HEIC, or HEIF.');
+      return;
+    }
+
     setError(null);
 
     // Convert file to base64
@@ -55,6 +61,11 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
         setError('Failed to analyze the advertisement. Please try again.');
         setStep('upload');
       }
+    };
+
+    reader.onerror = () => {
+      setError('Failed to read the image file. Please try again.');
+      setStep('upload');
     };
 
     reader.readAsDataURL(file);
