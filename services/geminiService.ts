@@ -248,7 +248,8 @@ export const confirmTefAdImage = async (
 ): Promise<{ summary: string; roleSummary: string }> => {
   const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
   if (!SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
-    throw new Error(`Unsupported image type "${mimeType}". Please use JPEG, PNG, or WEBP.`);
+    const typeLabels = SUPPORTED_IMAGE_TYPES.map(t => t.replace('image/', '').toUpperCase()).join(', ');
+    throw new Error(`Unsupported image type "${mimeType}". Please use ${typeLabels}.`);
   }
 
   ensureAiInitialized();

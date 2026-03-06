@@ -46,7 +46,7 @@ export const Controls: React.FC<ControlsProps> = ({
               <span className="text-green-300 text-xs font-medium truncate">Ad Persuasion Practice</span>
             </div>
             <button
-              onClick={onExitTefAd}
+              onClick={() => onExitTefAd?.()}
               className="text-xs text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded border border-slate-600 hover:border-slate-500 transition-colors flex-shrink-0 ml-2"
             >
               Exit
@@ -158,7 +158,7 @@ export const Controls: React.FC<ControlsProps> = ({
               <span className="text-green-300 text-sm font-medium">Ad Persuasion Practice</span>
             </div>
             <button
-              onClick={onExitTefAd}
+              onClick={() => onExitTefAd?.()}
               className="text-xs text-slate-400 hover:text-slate-200 px-3 py-1 rounded border border-slate-600 hover:border-slate-500 transition-colors"
             >
               Exit

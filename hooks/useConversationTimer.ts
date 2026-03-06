@@ -28,6 +28,9 @@ export const useConversationTimer = (
 
     const intervalId = setInterval(() => {
       setElapsed(prev => {
+        if (prev >= MAX_ELAPSED_SECONDS) {
+          return prev; // already timed out, don't fire again
+        }
         const next = prev + 1;
         if (next >= MAX_ELAPSED_SECONDS) {
           setIsTimedOut(true);

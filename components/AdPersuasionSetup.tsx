@@ -42,7 +42,12 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
     // Convert file to base64
     const reader = new FileReader();
     reader.onload = async (e) => {
-      const dataUrl = e.target?.result as string;
+      const dataUrl = e.target?.result;
+      if (typeof dataUrl !== 'string') {
+        setError('Failed to read the image file. Please try again.');
+        setStep('upload');
+        return;
+      }
       // Extract base64 from data URL (remove "data:image/xxx;base64," prefix)
       const base64 = dataUrl.split(',')[1];
       const mimeType = file.type;
@@ -165,7 +170,7 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
                 <p className="text-slate-300 font-medium mb-1">Click or drag an image here</p>
-                <p className="text-slate-500 text-sm">PNG, JPG, WEBP supported</p>
+                <p className="text-slate-500 text-sm">PNG, JPG, WEBP, HEIC, HEIF supported</p>
               </div>
 
               <input

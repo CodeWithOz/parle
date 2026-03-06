@@ -860,6 +860,9 @@ const App: React.FC = () => {
     // Reset timer state
     setTefTimedUp(false);
 
+    // Ensure mutual exclusivity with scenario mode
+    setScenarioMode('none');
+
     // Switch to practice mode
     setTefAdMode('practice');
   };

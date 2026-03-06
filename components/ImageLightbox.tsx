@@ -121,8 +121,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({ imageDataUrl, onCl
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
             <path fillRule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clipRule="evenodd" />
-            <path d="M8 5a1 1 0 011 1v1.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3A1 1 0 015.707 6.293L7 7.586V6a1 1 0 011-1z" />
-            <path d="M5 8a1 1 0 011-1h4a1 1 0 010 2H6a1 1 0 01-1-1z" />
+            <path d="M8 6a1 1 0 011 1v1h1a1 1 0 110 2H9v1a1 1 0 11-2 0v-1H6a1 1 0 110-2h1V7a1 1 0 011-1z" />
           </svg>
         </button>
       </div>
