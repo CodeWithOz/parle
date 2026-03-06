@@ -27,24 +27,20 @@ export const useConversationTimer = (
     }
 
     const intervalId = setInterval(() => {
-      setElapsed(prev => {
-        if (prev >= MAX_ELAPSED_SECONDS) {
-          return prev; // already timed out, don't fire again
-        }
-        const next = prev + 1;
-        if (next >= MAX_ELAPSED_SECONDS) {
-          setIsTimedOut(true);
-          onTimeUpRef.current();
-          return MAX_ELAPSED_SECONDS;
-        }
-        return next;
-      });
+      setElapsed(prev => Math.min(prev + 1, MAX_ELAPSED_SECONDS));
     }, 1000);
 
     return () => {
       clearInterval(intervalId);
     };
   }, [isActive, isTimedOut, appState]);
+
+  useEffect(() => {
+    if (elapsed >= MAX_ELAPSED_SECONDS && !isTimedOut) {
+      setIsTimedOut(true);
+      onTimeUpRef.current();
+    }
+  }, [elapsed, isTimedOut]);
 
   return { elapsed, isTimedOut };
 };
