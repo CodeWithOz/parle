@@ -74,6 +74,9 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({ imageDataUrl, onCl
 
   return (
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Image lightbox"
       className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center"
       onClick={handleBackdropClick}
       onMouseMove={handleMouseMove}
