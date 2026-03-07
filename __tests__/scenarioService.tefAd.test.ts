@@ -51,4 +51,19 @@ describe('generateTefAdSystemInstruction', () => {
     // The instruction should tell the AI to ground objections in the ad's own content
     expect(result).toMatch(/(?:ad|image|advertisement).*(?:claim|content|detail)/i);
   });
+
+  it('instructs AI not to make the user\'s arguments or do the persuading itself', () => {
+    const result = generateTefAdSystemInstruction(adSummary, roleConfirmation);
+    const lower = result.toLowerCase();
+    expect(lower).toMatch(/never make the user'?s arguments|do not do the user'?s job|only object.*react|user must do the persuading/);
+  });
+
+  it('instructs AI not to jump into ad substance; pose objections and let user respond', () => {
+    const result = generateTefAdSystemInstruction(adSummary, roleConfirmation);
+    const lower = result.toLowerCase();
+    const userIntroduces = lower.includes("user's job to introduce") || lower.includes('user to introduce the topic');
+    const friendWaits = lower.includes('wait for the user to introduce') || lower.includes('only after the user has introduced');
+    const noMentionAdFirst = lower.includes('do not mention the ad') || lower.includes("don't mention the ad");
+    expect(userIntroduces || (friendWaits && noMentionAdFirst)).toBe(true);
+  });
 });
