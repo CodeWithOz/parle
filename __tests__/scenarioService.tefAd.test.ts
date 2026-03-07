@@ -39,4 +39,16 @@ describe('generateTefAdSystemInstruction', () => {
     // Should instruct the AI to be a friend raising objections / being persuaded
     expect(lower).toMatch(/friend|objection|skeptic|persuad/);
   });
+
+  it('mentions requiring 5 distinct objection directions', () => {
+    const result = generateTefAdSystemInstruction(adSummary, roleConfirmation);
+    // The instruction should specify exactly 5 objection directions/categories
+    expect(result).toMatch(/5.*(?:objection|direction|categor)/i);
+  });
+
+  it('instructs AI to reference ad/image claims in objections', () => {
+    const result = generateTefAdSystemInstruction(adSummary, roleConfirmation);
+    // The instruction should tell the AI to ground objections in the ad's own content
+    expect(result).toMatch(/(?:ad|image|advertisement).*(?:claim|content|detail)/i);
+  });
 });
