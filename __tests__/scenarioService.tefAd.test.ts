@@ -66,4 +66,11 @@ describe('generateTefAdSystemInstruction', () => {
     const noMentionAdFirst = lower.includes('do not mention the ad') || lower.includes("don't mention the ad");
     expect(userIntroduces || (friendWaits && noMentionAdFirst)).toBe(true);
   });
+
+  it('requires at least 3 rounds of pushback per objection direction (about 15 total)', () => {
+    const result = generateTefAdSystemInstruction(adSummary, roleConfirmation);
+    const lower = result.toLowerCase();
+    expect(lower).toMatch(/3 rounds of pushback|at least 3 rounds/);
+    expect(lower).toMatch(/15.*pushback|pushback.*15/);
+  });
 });
