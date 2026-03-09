@@ -61,7 +61,7 @@ const App: React.FC = () => {
   const [tefTimedUp, setTefTimedUp] = useState(false);
 
   // TEF Ad conversation timer
-  const { elapsed: tefElapsed } = useConversationTimer(
+  const { elapsed: tefElapsed, reset: resetTefTimer } = useConversationTimer(
     appState,
     tefAdMode === 'practice',
     () => setTefTimedUp(true)
@@ -816,15 +816,15 @@ const App: React.FC = () => {
     confirmation: { summary: string; roleSummary: string }
   ) => {
     // Revoke existing audio URLs
-    messages.forEach(msg => {
+    for (const msg of messages) {
       if (msg.audioUrl) {
         if (Array.isArray(msg.audioUrl)) {
-          msg.audioUrl.forEach(url => URL.revokeObjectURL(url));
+          for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
         } else {
           URL.revokeObjectURL(msg.audioUrl);
         }
       }
-    });
+    }
 
     // Clear conversation
     clearHistory();
@@ -869,15 +869,15 @@ const App: React.FC = () => {
 
   const handleExitTefAd = async () => {
     // Revoke audio URLs
-    messages.forEach(msg => {
+    for (const msg of messages) {
       if (msg.audioUrl) {
         if (Array.isArray(msg.audioUrl)) {
-          msg.audioUrl.forEach(url => URL.revokeObjectURL(url));
+          for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
         } else {
           URL.revokeObjectURL(msg.audioUrl);
         }
       }
-    });
+    }
 
     // Clear scenario and conversation
     setActiveScenario(null);
@@ -1134,7 +1134,7 @@ const App: React.FC = () => {
             </p>
             <div className="flex flex-col gap-3">
               <button
-                onClick={() => setTefTimedUp(false)}
+                onClick={() => { setTefTimedUp(false); resetTefTimer(); }}
                 className="w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-medium transition-colors"
               >
                 Continue Anyway
