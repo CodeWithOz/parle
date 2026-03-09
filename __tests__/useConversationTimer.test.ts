@@ -81,7 +81,6 @@ describe('useConversationTimer', () => {
 
   it('resumes incrementing after transitioning from PROCESSING back to IDLE', () => {
     const onTimeUp = vi.fn();
-    let appState = AppState.IDLE;
 
     const { result, rerender } = renderHook(
       ({ state }: { state: AppState }) =>
@@ -156,5 +155,108 @@ describe('useConversationTimer', () => {
     expect(result.current).toHaveProperty('isTimedOut');
     expect(typeof result.current.elapsed).toBe('number');
     expect(typeof result.current.isTimedOut).toBe('boolean');
+  });
+
+  // --- New tests for planned bugfixes ---
+
+  it('resets elapsed to 0 when isActive transitions from false to true (new session)', () => {
+    const onTimeUp = vi.fn();
+
+    const { result, rerender } = renderHook(
+      ({ active }: { active: boolean }) =>
+        useConversationTimer(AppState.IDLE, active, onTimeUp),
+      { initialProps: { active: true } }
+    );
+
+    // Advance 5 seconds while active
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(result.current.elapsed).toBe(5);
+
+    // Deactivate the timer
+    rerender({ active: false });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(result.current.elapsed).toBe(5);
+
+    // Re-activate — rising edge should reset elapsed to 0
+    rerender({ active: true });
+    expect(result.current.elapsed).toBe(0);
+  });
+
+  it('does not increment elapsed when isActive is true and appState is ERROR', () => {
+    const onTimeUp = vi.fn();
+    const { result } = renderHook(() =>
+      useConversationTimer(AppState.ERROR, true, onTimeUp)
+    );
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+
+    expect(result.current.elapsed).toBe(0);
+    expect(onTimeUp).not.toHaveBeenCalled();
+  });
+
+  it('resumes incrementing after transitioning from ERROR back to IDLE', () => {
+    const onTimeUp = vi.fn();
+
+    const { result, rerender } = renderHook(
+      ({ state }: { state: AppState }) =>
+        useConversationTimer(state, true, onTimeUp),
+      { initialProps: { state: AppState.IDLE } }
+    );
+
+    // Run for 3 seconds in IDLE — elapsed should reach 3
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(result.current.elapsed).toBe(3);
+
+    // Switch to ERROR — timer should pause
+    rerender({ state: AppState.ERROR });
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(result.current.elapsed).toBe(3);
+
+    // Switch back to IDLE — timer should resume from where it paused
+    rerender({ state: AppState.IDLE });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(result.current.elapsed).toBe(5);
+  });
+
+  it('exposes a reset() function that resets elapsed and isTimedOut, and allows ticking again', () => {
+    const onTimeUp = vi.fn();
+    const { result } = renderHook(() =>
+      useConversationTimer(AppState.IDLE, true, onTimeUp)
+    );
+
+    // Advance timer all the way to timeout
+    act(() => {
+      vi.advanceTimersByTime(600000);
+    });
+    expect(result.current.elapsed).toBe(600);
+    expect(result.current.isTimedOut).toBe(true);
+
+    // reset() should be exposed on the returned object
+    expect(typeof result.current.reset).toBe('function');
+
+    // Calling reset() should clear elapsed and isTimedOut
+    act(() => {
+      result.current.reset();
+    });
+    expect(result.current.elapsed).toBe(0);
+    expect(result.current.isTimedOut).toBe(false);
+
+    // Timer should be able to tick again after reset
+    act(() => {
+      vi.advanceTimersByTime(3000);
+    });
+    expect(result.current.elapsed).toBe(3);
   });
 });
