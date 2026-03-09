@@ -944,7 +944,7 @@ const App: React.FC = () => {
             <>
               <PersuasionTimer
                 elapsed={tefElapsed}
-                isPaused={appState === AppState.PROCESSING}
+                isPaused={appState === AppState.PROCESSING || appState === AppState.ERROR}
               />
               <AdThumbnail
                 imageDataUrl={tefAdImage}
