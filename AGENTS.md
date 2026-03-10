@@ -184,6 +184,47 @@ Previously, single-character scenarios used free-form text with inline translati
 
 ---
 
+## Missing AI Credentials Handling
+
+**Location:** `App.tsx` handlers, `components/ScenarioSetup.tsx`, `components/AdPersuasionSetup.tsx`
+
+### Principle
+When AI functionality requires API credentials, the app handles missing credentials in two complementary ways:
+
+1. **Warning banners**: Setup forms (ScenarioSetup, AdPersuasionSetup) display a yellow warning banner when required API keys are not configured. This gives users a passive, non-blocking notification about what's needed.
+
+2. **Modal trigger on action**: When users attempt an action that depends on AI credentials (clicking record, uploading an image, starting a conversation), the app intercepts the action, opens the API key configuration modal, and returns early without performing the action. Once the user configures their keys, the action can proceed normally.
+
+### When Adding New AI-Dependent Features
+
+Any new feature that depends on AI API credentials MUST implement both of these patterns:
+
+1. **Add a warning banner** in the relevant setup/configuration UI when the required key(s) are missing. Use the yellow warning style (`bg-yellow-900/30 border border-yellow-600/50`) consistent with existing banners.
+
+2. **Gate user actions** that trigger AI calls with a credential check at the top of the handler:
+   ```typescript
+   if (!hasApiKeyOrEnv('provider')) {
+     setShowApiKeyModal(true);
+     return;
+   }
+   ```
+
+### Which Keys Each Feature Requires
+
+| Feature | Gemini | OpenAI | Why |
+|---------|--------|--------|-----|
+| Free conversation (main mic) | Required | — | Gemini handles transcription + conversation |
+| Scenario creation (describe) | Required | Required | Gemini for transcription, OpenAI for scenario planning |
+| Scenario practice (mic) | Required | — | Gemini handles conversation |
+| Ad Persuasion (TEF Ad) | Required | — | Gemini for image analysis + conversation |
+
+### Related Files
+- `services/apiKeyService.ts` — `hasApiKeyOrEnv()` function for checking key availability
+- `components/ApiKeySetup.tsx` — Modal component for entering API keys
+- `App.tsx` — Handler functions with credential gates (`handleStartRecording`, `handleStartRecordingDescription`, `handleOpenTefAdSetup`, etc.)
+
+---
+
 ## Notes for Code Review Agents
 
 When reviewing this codebase:

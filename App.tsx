@@ -800,6 +800,10 @@ const App: React.FC = () => {
 
   // TEF Ad handlers
   const handleOpenTefAdSetup = () => {
+    if (!hasApiKeyOrEnv('gemini')) {
+      setShowApiKeyModal(true);
+      return;
+    }
     setTefAdMode('setup');
   };
 
@@ -815,6 +819,11 @@ const App: React.FC = () => {
     mimeType: string,
     confirmation: { summary: string; roleSummary: string }
   ) => {
+    if (!hasApiKeyOrEnv('gemini')) {
+      setShowApiKeyModal(true);
+      return;
+    }
+
     // Revoke existing audio URLs
     for (const msg of messages) {
       if (msg.audioUrl) {
@@ -1134,6 +1143,8 @@ const App: React.FC = () => {
         <AdPersuasionSetup
           onStartConversation={handleStartTefConversation}
           onClose={handleCloseTefAdSetup}
+          geminiKeyMissing={apiKeyCheckDone && !hasApiKeyOrEnv('gemini')}
+          onOpenApiKeyModal={() => setShowApiKeyModal(true)}
         />
       )}
 
