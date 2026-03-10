@@ -1143,8 +1143,7 @@ const App: React.FC = () => {
         <AdPersuasionSetup
           onStartConversation={handleStartTefConversation}
           onClose={handleCloseTefAdSetup}
-          geminiKeyMissing={apiKeyCheckDone && !hasApiKeyOrEnv('gemini')}
-          onOpenApiKeyModal={() => setShowApiKeyModal(true)}
+          geminiKeyMissing={geminiKeyMissing}
         />
       )}
 
