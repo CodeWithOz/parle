@@ -48,6 +48,16 @@ export interface VoiceResponse {
 
 export type ScenarioMode = 'none' | 'setup' | 'practice';
 
+export type TefAdMode = 'none' | 'setup' | 'practice';
+
+export interface TefAdState {
+  image: string | null;         // base64 data URL for preview
+  imageMimeType: string | null;
+  confirmation: { summary: string; roleSummary: string } | null;
+  isActive: boolean;            // TEF practice is running
+  isTimedUp: boolean;           // timer reached 600s
+}
+
 export interface Scenario {
   id: string;
   name: string;

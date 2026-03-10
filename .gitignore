@@ -24,3 +24,7 @@ dist-ssr
 *.sw?
 
 cc_worktrees/
+
+# Playwright
+.playwright-browsers/
+test-results/

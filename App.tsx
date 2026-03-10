@@ -1,17 +1,22 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AppState, Message, ScenarioMode, Scenario, AudioData, Character } from './types';
+import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdMode } from './types';
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
+import { useConversationTimer } from './hooks/useConversationTimer';
 import { initializeSession, sendVoiceMessage, resetSession, setScenario, transcribeAndCleanupAudio, generateCharacterSpeech } from './services/geminiService';
 import { processScenarioDescriptionOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
 import { hasApiKeyOrEnv } from './services/apiKeyService';
 import { assignVoicesToCharacters } from './services/voiceService';
-import { generateId } from './services/scenarioService';
+import { generateId, generateTefAdSystemInstruction } from './services/scenarioService';
 import { Orb } from './components/Orb';
 import { Controls } from './components/Controls';
 import { ConversationHistory } from './components/ConversationHistory';
 import { ScenarioSetup } from './components/ScenarioSetup';
+import { AdPersuasionSetup } from './components/AdPersuasionSetup';
+import { PersuasionTimer } from './components/PersuasionTimer';
+import { AdThumbnail } from './components/AdThumbnail';
+import { ImageLightbox } from './components/ImageLightbox';
 import { ApiKeySetup } from './components/ApiKeySetup';
 import { GearIcon } from './components/icons/GearIcon';
 import { ConversationHint } from './components/ConversationHint';
@@ -46,6 +51,21 @@ const App: React.FC = () => {
   const [rawTranscript, setRawTranscript] = useState<string | null>(null);
   const [cleanedTranscript, setCleanedTranscript] = useState<string | null>(null);
   const [scenarioCharacters, setScenarioCharacters] = useState<Character[]>([]); // NEW: Characters for scenario
+
+  // TEF Ad state
+  const [tefAdMode, setTefAdMode] = useState<TefAdMode>('none');
+  const [tefAdImage, setTefAdImage] = useState<string | null>(null);
+  const [tefAdMimeType, setTefAdMimeType] = useState<string | null>(null);
+  const [tefAdConfirmation, setTefAdConfirmation] = useState<{ summary: string; roleSummary: string } | null>(null);
+  const [showLightbox, setShowLightbox] = useState(false);
+  const [tefTimedUp, setTefTimedUp] = useState(false);
+
+  // TEF Ad conversation timer
+  const { elapsed: tefElapsed, reset: resetTefTimer } = useConversationTimer(
+    appState,
+    tefAdMode === 'practice',
+    () => setTefTimedUp(true)
+  );
 
   // Audio retry state - stores last recorded audio for retry on failure
   const [lastChatAudio, setLastChatAudio] = useState<AudioData | null>(null);
@@ -303,7 +323,7 @@ const App: React.FC = () => {
         setMessages(prev => [...prev, userMessage, ...modelMessages]);
 
         // Update current hint (only in scenario mode, from last character)
-        if (scenarioMode === 'practice' && response.hint) {
+        if ((scenarioMode === 'practice' || tefAdMode === 'practice') && response.hint) {
           setCurrentHint(response.hint);
         }
 
@@ -332,7 +352,7 @@ const App: React.FC = () => {
         ]);
 
         // Update current hint (only in scenario mode)
-        if (scenarioMode === 'practice' && hint) {
+        if ((scenarioMode === 'practice' || tefAdMode === 'practice') && hint) {
           setCurrentHint(hint);
         }
 
@@ -778,6 +798,122 @@ const App: React.FC = () => {
     setCurrentHint(null);
   };
 
+  // TEF Ad handlers
+  const handleOpenTefAdSetup = () => {
+    setTefAdMode('setup');
+  };
+
+  const handleCloseTefAdSetup = () => {
+    setTefAdMode('none');
+    setTefAdImage(null);
+    setTefAdMimeType(null);
+    setTefAdConfirmation(null);
+  };
+
+  const handleStartTefConversation = async (
+    image: string,
+    mimeType: string,
+    confirmation: { summary: string; roleSummary: string }
+  ) => {
+    // Revoke existing audio URLs
+    for (const msg of messages) {
+      if (msg.audioUrl) {
+        if (Array.isArray(msg.audioUrl)) {
+          for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
+        } else {
+          URL.revokeObjectURL(msg.audioUrl);
+        }
+      }
+    }
+
+    // Clear conversation
+    clearHistory();
+    setMessages([]);
+    setAutoPlayMessageId(null);
+    setCurrentHint(null);
+
+    // Build a Scenario from the TEF Ad confirmation
+    const tefScenario: Scenario = {
+      id: generateId(),
+      name: 'TEF Ad Persuasion',
+      description: generateTefAdSystemInstruction(confirmation.summary, confirmation.roleSummary),
+      aiSummary: confirmation.summary,
+      createdAt: Date.now(),
+      isActive: true,
+      characters: [{
+        id: `${generateId()}_friend`,
+        name: 'Friend',
+        role: 'skeptical French-speaking friend',
+        voiceName: 'aoede',
+      }],
+    };
+
+    // Configure Gemini service with the TEF scenario
+    setScenario(tefScenario);
+    setActiveScenario(tefScenario);
+
+    // Store image and confirmation
+    setTefAdImage(image);
+    setTefAdMimeType(mimeType);
+    setTefAdConfirmation(confirmation);
+
+    // Reset timer state
+    setTefTimedUp(false);
+
+    // Ensure mutual exclusivity with scenario mode
+    setScenarioMode('none');
+
+    // Switch to practice mode
+    setTefAdMode('practice');
+  };
+
+  const handleExitTefAd = async () => {
+    // Abort any in-flight processing or recording
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (appState === AppState.RECORDING) {
+      cancelRecording();
+    }
+
+    // Clear retry state
+    setLastChatAudio(null);
+    setCanRetryChatAudio(false);
+    setLastDescriptionAudio(null);
+    setCanRetryDescriptionAudio(false);
+
+    // Revoke audio URLs
+    for (const msg of messages) {
+      if (msg.audioUrl) {
+        if (Array.isArray(msg.audioUrl)) {
+          for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
+        } else {
+          URL.revokeObjectURL(msg.audioUrl);
+        }
+      }
+    }
+
+    // Clear scenario and conversation
+    setActiveScenario(null);
+    setScenario(null);
+    clearHistory();
+    setMessages([]);
+    setAutoPlayMessageId(null);
+    setCurrentHint(null);
+
+    // Reset all TEF state
+    setTefAdMode('none');
+    setTefAdImage(null);
+    setTefAdMimeType(null);
+    setTefAdConfirmation(null);
+    setShowLightbox(false);
+    setTefTimedUp(false);
+
+    // Force back to idle so landing page is clean
+    setAppState(AppState.IDLE);
+  };
+
   // Status text for the landing view
   const getStatusText = () => {
     if (errorFlashVisible) {
@@ -821,6 +957,20 @@ const App: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2">
+          {/* TEF Ad practice header items */}
+          {tefAdMode === 'practice' && tefAdImage && (
+            <>
+              <PersuasionTimer
+                elapsed={tefElapsed}
+                isPaused={appState === AppState.PROCESSING || appState === AppState.ERROR}
+              />
+              <AdThumbnail
+                imageDataUrl={tefAdImage}
+                onOpenLightbox={() => setShowLightbox(true)}
+              />
+            </>
+          )}
+
           <button
             onClick={() => setShowApiKeyModal(true)}
             className="p-2 text-slate-400 hover:text-white transition-colors bg-slate-800/50 rounded-full border border-slate-700/50"
@@ -850,6 +1000,9 @@ const App: React.FC = () => {
             activeScenario={activeScenario}
             onOpenScenarioSetup={handleOpenScenarioSetup}
             onExitScenario={handleExitScenario}
+            tefAdMode={tefAdMode}
+            onOpenTefAdSetup={handleOpenTefAdSetup}
+            onExitTefAd={handleExitTefAd}
           />
 
           {/* Orb-Mic — at the bottom, closest to thumb */}
@@ -914,7 +1067,7 @@ const App: React.FC = () => {
             <div className="flex-shrink-0">
               <ConversationHint
                 hint={currentHint}
-                isVisible={scenarioMode === 'practice' && (appState === AppState.IDLE || appState === AppState.RECORDING)}
+                isVisible={(scenarioMode === 'practice' || tefAdMode === 'practice') && (appState === AppState.IDLE || appState === AppState.RECORDING)}
               />
             </div>
           </main>
@@ -955,6 +1108,9 @@ const App: React.FC = () => {
                   activeScenario={activeScenario}
                   onOpenScenarioSetup={handleOpenScenarioSetup}
                   onExitScenario={handleExitScenario}
+                  tefAdMode={tefAdMode}
+                  onOpenTefAdSetup={handleOpenTefAdSetup}
+                  onExitTefAd={handleExitTefAd}
                   compact
                 />
               </div>
@@ -971,6 +1127,53 @@ const App: React.FC = () => {
             </div>
           </div>
         </>
+      )}
+
+      {/* TEF Ad Setup Modal */}
+      {tefAdMode === 'setup' && (
+        <AdPersuasionSetup
+          onStartConversation={handleStartTefConversation}
+          onClose={handleCloseTefAdSetup}
+        />
+      )}
+
+      {/* TEF Ad Time's Up Overlay */}
+      {tefTimedUp && tefAdMode === 'practice' && (
+        <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-sm w-full p-8 text-center">
+            <div className="w-16 h-16 bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-700/50">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-bold text-slate-100 mb-2">Time's Up!</h2>
+            <p className="text-slate-400 text-sm mb-6">
+              Your 10-minute practice session has ended. Great work!
+            </p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => { setTefTimedUp(false); resetTefTimer(); }}
+                className="w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-medium transition-colors"
+              >
+                Continue Anyway
+              </button>
+              <button
+                onClick={handleExitTefAd}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors"
+              >
+                End Session
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Lightbox */}
+      {showLightbox && tefAdImage && (
+        <ImageLightbox
+          imageDataUrl={tefAdImage}
+          onClose={() => setShowLightbox(false)}
+        />
       )}
 
       {/* Scenario Setup Modal */}
