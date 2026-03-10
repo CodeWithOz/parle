@@ -84,6 +84,6 @@ process.stdin.on("end", () => {
   } catch (err) {
     // Non-blocking error — don't interfere with the user's prompt
     process.stderr.write(`Workflow hook error: ${err.message}`);
-    process.exit(1);
+    process.exit(0);
   }
 });

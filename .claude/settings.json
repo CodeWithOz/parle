@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node .claude/hooks/detect-workflow.js"
+            "command": "node .claude/hooks/detect-workflow.cjs"
           }
         ]
       }
