@@ -868,6 +868,21 @@ const App: React.FC = () => {
   };
 
   const handleExitTefAd = async () => {
+    // Abort any in-flight processing or recording
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (appState === AppState.RECORDING) {
+      cancelRecording();
+    }
+
+    // Clear retry state
+    setLastChatAudio(null);
+    setCanRetryChatAudio(false);
+    setLastDescriptionAudio(null);
+    setCanRetryDescriptionAudio(false);
+
     // Revoke audio URLs
     for (const msg of messages) {
       if (msg.audioUrl) {
@@ -894,6 +909,9 @@ const App: React.FC = () => {
     setTefAdConfirmation(null);
     setShowLightbox(false);
     setTefTimedUp(false);
+
+    // Force back to idle so landing page is clean
+    setAppState(AppState.IDLE);
   };
 
   // Status text for the landing view
