@@ -225,6 +225,66 @@ Any new feature that depends on AI API credentials MUST implement both of these 
 
 ---
 
+## Deterministic Objection Tracking with Per-Turn Context Injection (TEF Ad Mode)
+
+**Location:** `utils/tefObjectionState.ts`, `services/geminiService.ts` - `sendVoiceMessage()`, `App.tsx`
+
+### Pattern
+
+The TEF Ad Persuasion mode tracks objection progress entirely on the client side using a pure state machine. The LLM is **not** responsible for counting objections or deciding when to move to the next direction — that is driven deterministically by the app and communicated to the LLM as a text part injected alongside the user's audio on every turn.
+
+```typescript
+// App.tsx: build per-turn context from current state, inject into sendVoiceMessage
+const contextText = buildTefAdContextText(tefObjectionState);
+const response = await sendVoiceMessage(audioBase64, mimeType, signal, contextText);
+
+// After each response, advance the state machine
+setTefObjectionState(prev => advanceTefObjectionState(prev));
+```
+
+```typescript
+// geminiService.ts: contextText is prepended as a text part before the audio part
+const messageParts = [];
+if (contextText) {
+  messageParts.push({ text: contextText });
+}
+messageParts.push({ inlineData: { data: audioBase64, mimeType: mimeType } });
+```
+
+The state machine (`utils/tefObjectionState.ts`) is a pure function with no side effects: `advanceTefObjectionState(state) => nextState`. It tracks 5 objection directions × 3 rounds each, then sets `isConvinced = true`.
+
+### Why This Is Intentional
+
+**Objection sequencing must be deterministic and auditable for exam practice.** Leaving it to the LLM introduces two problems:
+
+1. **Unpredictable pacing**: The LLM may dwell on one objection too long or skip directions, making practice sessions inconsistent.
+2. **Untestable logic**: Client-side state can be unit-tested exhaustively; LLM counting behavior cannot.
+
+The TEF system prompt is therefore intentionally thin about objection logistics — it defers to the per-turn context injection rather than carrying its own counting logic. Reviewers should **not** flag the simplified system prompt as missing objection-sequencing instructions; those are injected per-turn.
+
+### Why There Is a Text Part Alongside Audio
+
+The `contextText` parameter to `sendVoiceMessage` adds a `{ text: ... }` part to the message before the audio blob. This is the mechanism for injecting the current objection direction and round number. It is intentional and required — without it the LLM has no reliable signal for which direction to raise or when to express being convinced.
+
+### What "Simplified System Prompt" Means
+
+The TEF Ad system prompt in `services/scenarioService.ts` (`generateTefAdSystemInstruction`) deliberately omits any hardcoded round-counting or direction-sequencing logic. The prompt instructs the LLM to:
+- Follow the per-turn context for direction and round number
+- Express conviction only when the per-turn context says all directions are done
+
+This is intentional. Adding counting logic back into the system prompt would conflict with the client-side state machine.
+
+### Related Files
+
+- `utils/tefObjectionState.ts` — Pure state machine: `createInitialTefObjectionState`, `advanceTefObjectionState`
+- `types.ts` — `TefObjectionState` interface
+- `services/geminiService.ts` — `generateTefAdObjections()` (pre-generates 5 directions at setup), `sendVoiceMessage()` (accepts `contextText?`)
+- `services/scenarioService.ts` — `generateTefAdSystemInstruction()` (simplified system prompt)
+- `components/PersuasionTimer.tsx` — Progress indicator ("Objection X/5 · Round Y/3") driven by the same state
+- `App.tsx` — Wires generation at setup, context injection per turn, state advancement after each response
+
+---
+
 ## Notes for Code Review Agents
 
 When reviewing this codebase:
@@ -233,6 +293,8 @@ When reviewing this codebase:
 2. **Don't flag successive message merging as data loss** - This is intentional rate-limit optimization
 3. **Don't flag lowercase voice name conversion** - This is required by the Gemini API
 4. **Don't suggest removing JSON response mode for single-character** - This enables French/English separation
+5. **Don't flag the TEF Ad system prompt as missing objection-counting logic** - Objection sequencing is deterministic and injected per-turn (see "Deterministic Objection Tracking" section above)
+6. **Don't flag the `contextText` text part alongside audio as an API misuse** - It is the intentional mechanism for delivering per-turn objection context to the LLM
 
 If you believe you've found a genuine bug in one of these areas, please:
 - Reference this document in your review
@@ -244,4 +306,5 @@ If you believe you've found a genuine bug in one of these areas, please:
 ## Version History
 
 - 2025-01-XX: Initial documentation of TTS/history pattern and successive message merging
+- 2026-03-11: Added deterministic objection tracking pattern (TEF Ad mode)
 - See git history for detailed implementation timeline
