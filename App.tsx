@@ -815,6 +815,11 @@ const App: React.FC = () => {
     mimeType: string,
     confirmation: { summary: string; roleSummary: string }
   ) => {
+    if (!hasApiKeyOrEnv('gemini')) {
+      setShowApiKeyModal(true);
+      return;
+    }
+
     // Revoke existing audio URLs
     for (const msg of messages) {
       if (msg.audioUrl) {
@@ -1134,6 +1139,8 @@ const App: React.FC = () => {
         <AdPersuasionSetup
           onStartConversation={handleStartTefConversation}
           onClose={handleCloseTefAdSetup}
+          geminiKeyMissing={geminiKeyMissing}
+          onOpenApiKeyModal={() => setShowApiKeyModal(true)}
         />
       )}
 
