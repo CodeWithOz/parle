@@ -29,3 +29,6 @@ cc_worktrees/
 .playwright-browsers/
 playwright-report/
 test-results/
+
+# Generated workflow artifacts
+workflow-report.md
