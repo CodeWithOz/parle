@@ -45,6 +45,8 @@ const FAKE_TRANSCRIPTION = 'Bonjour mon ami.';
  * Build a mock GoogleGenAI instance that:
  * - models.generateContent: handles transcription (returns FAKE_TRANSCRIPTION) and TTS
  * - chats.create: returns a mock chat session whose sendMessage returns FAKE_MODEL_RESPONSE
+ *
+ * Returns the mockSendMessage spy so callers can assert against it.
  */
 function buildMockAi() {
   const mockSendMessage = vi.fn().mockResolvedValue({ text: FAKE_MODEL_RESPONSE });
@@ -82,7 +84,7 @@ function buildMockAi() {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  localStorage.setItem('apiKey_gemini', 'test-key-send-voice-context');
+  localStorage.setItem('parle_api_key_gemini', 'test-key-send-voice-context');
 });
 
 afterEach(() => {
@@ -115,57 +117,41 @@ describe('sendVoiceMessage · contextText parameter — existence', () => {
 
 describe('sendVoiceMessage · contextText provided', () => {
   it('includes a text part with the contextText in the sendMessage call', async () => {
-    buildMockAi();
+    const { mockSendMessage } = buildMockAi();
     const { sendVoiceMessage, initializeSession } = await import('../services/geminiService');
 
-    // We need to initialise so chatSession is ready
     await initializeSession();
-
-    // Spy on the chat session's sendMessage after session is created
-    const { mockSendMessage } = buildMockAi(); // rebuild to get fresh spy refs after module load
 
     const contextText = '[Turn context: Direction 1/5 · Round 1/3. Raise objection about price.]';
 
-    try {
-      await sendVoiceMessage(FAKE_AUDIO_BASE64, FAKE_MIME_TYPE, undefined, contextText);
-    } catch {
-      // TTS or audio generation may fail in test environment — we only care about
-      // whether sendMessage received the right args.
-    }
+    await sendVoiceMessage(FAKE_AUDIO_BASE64, FAKE_MIME_TYPE, undefined, contextText);
 
-    if (mockSendMessage.mock.calls.length > 0) {
-      const callArg = mockSendMessage.mock.calls[0][0];
-      const parts = callArg?.message ?? [];
-      const textParts = parts.filter((p: Record<string, unknown>) => typeof p.text === 'string');
-      const hasContextText = textParts.some(
-        (p: { text: string }) => p.text.includes(contextText) || p.text === contextText
-      );
-      expect(hasContextText).toBe(true);
-    }
+    expect(mockSendMessage.mock.calls.length).toBeGreaterThan(0);
+    const callArg = mockSendMessage.mock.calls[0][0];
+    const parts = callArg?.message ?? [];
+    const textParts = parts.filter((p: Record<string, unknown>) => typeof p.text === 'string');
+    const hasContextText = textParts.some(
+      (p: { text: string }) => p.text.includes(contextText) || p.text === contextText
+    );
+    expect(hasContextText).toBe(true);
   });
 
   it('sends the audio inlineData part alongside the contextText part', async () => {
-    buildMockAi();
+    const { mockSendMessage } = buildMockAi();
     const { sendVoiceMessage, initializeSession } = await import('../services/geminiService');
     await initializeSession();
 
-    const { mockSendMessage } = buildMockAi();
     const contextText = '[Turn context: Direction 2/5 · Round 3/3.]';
 
-    try {
-      await sendVoiceMessage(FAKE_AUDIO_BASE64, FAKE_MIME_TYPE, undefined, contextText);
-    } catch {
-      // Ignore audio/TTS failures
-    }
+    await sendVoiceMessage(FAKE_AUDIO_BASE64, FAKE_MIME_TYPE, undefined, contextText);
 
-    if (mockSendMessage.mock.calls.length > 0) {
-      const callArg = mockSendMessage.mock.calls[0][0];
-      const parts = callArg?.message ?? [];
-      const hasInlineData = parts.some(
-        (p: Record<string, unknown>) => p.inlineData !== undefined
-      );
-      expect(hasInlineData).toBe(true);
-    }
+    expect(mockSendMessage.mock.calls.length).toBeGreaterThan(0);
+    const callArg = mockSendMessage.mock.calls[0][0];
+    const parts = callArg?.message ?? [];
+    const hasInlineData = parts.some(
+      (p: Record<string, unknown>) => p.inlineData !== undefined
+    );
+    expect(hasInlineData).toBe(true);
   });
 });
 
@@ -175,49 +161,35 @@ describe('sendVoiceMessage · contextText provided', () => {
 
 describe('sendVoiceMessage · contextText omitted', () => {
   it('does NOT add a text part when contextText is undefined', async () => {
-    buildMockAi();
+    const { mockSendMessage } = buildMockAi();
     const { sendVoiceMessage, initializeSession } = await import('../services/geminiService');
     await initializeSession();
 
-    const { mockSendMessage } = buildMockAi();
+    // Call without the 4th argument
+    await sendVoiceMessage(FAKE_AUDIO_BASE64, FAKE_MIME_TYPE, undefined, undefined);
 
-    try {
-      // Call without the 4th argument
-      await sendVoiceMessage(FAKE_AUDIO_BASE64, FAKE_MIME_TYPE, undefined, undefined);
-    } catch {
-      // Ignore audio/TTS failures
-    }
-
-    if (mockSendMessage.mock.calls.length > 0) {
-      const callArg = mockSendMessage.mock.calls[0][0];
-      const parts = callArg?.message ?? [];
-      const textParts = parts.filter((p: Record<string, unknown>) => typeof p.text === 'string');
-      // No text part should be present when contextText is omitted
-      expect(textParts).toHaveLength(0);
-    }
+    expect(mockSendMessage.mock.calls.length).toBeGreaterThan(0);
+    const callArg = mockSendMessage.mock.calls[0][0];
+    const parts = callArg?.message ?? [];
+    const textParts = parts.filter((p: Record<string, unknown>) => typeof p.text === 'string');
+    // No text part should be present when contextText is omitted
+    expect(textParts).toHaveLength(0);
   });
 
   it('does NOT add a text part when contextText is an empty string', async () => {
-    buildMockAi();
+    const { mockSendMessage } = buildMockAi();
     const { sendVoiceMessage, initializeSession } = await import('../services/geminiService');
     await initializeSession();
 
-    const { mockSendMessage } = buildMockAi();
+    await sendVoiceMessage(FAKE_AUDIO_BASE64, FAKE_MIME_TYPE, undefined, '');
 
-    try {
-      await sendVoiceMessage(FAKE_AUDIO_BASE64, FAKE_MIME_TYPE, undefined, '');
-    } catch {
-      // Ignore audio/TTS failures
-    }
-
-    if (mockSendMessage.mock.calls.length > 0) {
-      const callArg = mockSendMessage.mock.calls[0][0];
-      const parts = callArg?.message ?? [];
-      const textParts = parts.filter(
-        (p: Record<string, unknown>) => typeof p.text === 'string' && (p.text as string).length > 0
-      );
-      expect(textParts).toHaveLength(0);
-    }
+    expect(mockSendMessage.mock.calls.length).toBeGreaterThan(0);
+    const callArg = mockSendMessage.mock.calls[0][0];
+    const parts = callArg?.message ?? [];
+    const textParts = parts.filter(
+      (p: Record<string, unknown>) => typeof p.text === 'string' && (p.text as string).length > 0
+    );
+    expect(textParts).toHaveLength(0);
   });
 });
 

@@ -1,7 +1,6 @@
 import { TefObjectionState } from '../types';
 
 const TOTAL_ROUNDS_PER_DIRECTION = 3;
-const TOTAL_DIRECTIONS = 5;
 
 /**
  * Creates the initial TefObjectionState from an array of direction strings.
@@ -19,7 +18,7 @@ export function createInitialTefObjectionState(directions: string[]): TefObjecti
  * Pure state machine: advances the objection state by one round.
  * - Increments currentRound
  * - If currentRound reaches TOTAL_ROUNDS_PER_DIRECTION, resets to 0 and increments currentDirection
- * - If currentDirection reaches TOTAL_DIRECTIONS, sets isConvinced = true
+ * - If currentDirection reaches state.directions.length, sets isConvinced = true
  * - If already convinced, returns unchanged
  */
 export function advanceTefObjectionState(state: TefObjectionState): TefObjectionState {
@@ -33,7 +32,7 @@ export function advanceTefObjectionState(state: TefObjectionState): TefObjection
     // Round wraps: move to next direction
     const nextDirection = state.currentDirection + 1;
 
-    if (nextDirection >= TOTAL_DIRECTIONS) {
+    if (nextDirection >= state.directions.length) {
       // All directions exhausted
       return {
         ...state,

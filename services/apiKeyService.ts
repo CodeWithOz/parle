@@ -8,16 +8,12 @@ const STORAGE_KEY_PREFIX = 'parle_api_key_';
 
 /**
  * Get an API key from localStorage for a specific provider.
- * Checks both the canonical prefixed key (parle_api_key_<provider>) and
- * the legacy short key (apiKey_<provider>) for backwards compatibility.
+ * Uses the canonical prefixed key format: parle_api_key_<provider>.
  */
 export const getApiKey = (provider: 'gemini' | 'openai'): string | null => {
   try {
     const key = localStorage.getItem(`${STORAGE_KEY_PREFIX}${provider}`);
-    if (key) return key;
-    // Fallback: legacy key format used in some test environments
-    const legacyKey = localStorage.getItem(`apiKey_${provider}`);
-    return legacyKey || null;
+    return key || null;
   } catch (error) {
     console.error(`Error reading ${provider} API key from localStorage:`, error);
     return null;

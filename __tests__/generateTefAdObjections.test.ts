@@ -68,7 +68,7 @@ function buildMockAi(responsePayload: unknown) {
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  localStorage.setItem('apiKey_gemini', 'test-key-for-objection-tests');
+  localStorage.setItem('parle_api_key_gemini', 'test-key-for-objection-tests');
 });
 
 afterEach(() => {
@@ -130,8 +130,9 @@ describe('generateTefAdObjections · happy path', () => {
     const { mockGenerateContent } = buildMockAi({ directions: FIVE_DIRECTIONS });
     await generateTefAdObjections(SAMPLE_AD_SUMMARY);
     const callArg = mockGenerateContent.mock.calls[0][0];
-    const stringified = JSON.stringify(callArg);
-    expect(stringified).toContain(SAMPLE_AD_SUMMARY);
+    // Check the raw prompt text directly (JSON.stringify escapes quotes, breaking .includes)
+    const promptText = callArg.contents[0].parts[0].text;
+    expect(promptText).toContain(SAMPLE_AD_SUMMARY);
   });
 
   it('requests application/json response mime type', async () => {
