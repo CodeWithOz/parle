@@ -1,14 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdMode } from './types';
+import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdMode, TefObjectionState } from './types';
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
 import { useConversationTimer } from './hooks/useConversationTimer';
-import { initializeSession, sendVoiceMessage, resetSession, setScenario, transcribeAndCleanupAudio, generateCharacterSpeech } from './services/geminiService';
+import { initializeSession, sendVoiceMessage, resetSession, setScenario, transcribeAndCleanupAudio, generateCharacterSpeech, generateTefAdObjections } from './services/geminiService';
 import { processScenarioDescriptionOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
 import { hasApiKeyOrEnv } from './services/apiKeyService';
 import { assignVoicesToCharacters } from './services/voiceService';
 import { generateId, generateTefAdSystemInstruction } from './services/scenarioService';
+import { createInitialTefObjectionState, advanceTefObjectionState } from './utils/tefObjectionState';
 import { Orb } from './components/Orb';
 import { Controls } from './components/Controls';
 import { ConversationHistory } from './components/ConversationHistory';
@@ -59,6 +60,7 @@ const App: React.FC = () => {
   const [tefAdConfirmation, setTefAdConfirmation] = useState<{ summary: string; roleSummary: string } | null>(null);
   const [showLightbox, setShowLightbox] = useState(false);
   const [tefTimedUp, setTefTimedUp] = useState(false);
+  const [tefObjectionState, setTefObjectionState] = useState<TefObjectionState | null>(null);
 
   // TEF Ad conversation timer
   const { elapsed: tefElapsed, reset: resetTefTimer } = useConversationTimer(
@@ -249,11 +251,23 @@ const App: React.FC = () => {
     try {
       const { base64, mimeType } = audioData;
 
+      // Build per-turn objection context for TEF Ad practice
+      let objectionContextText: string | undefined;
+      if (tefAdMode === 'practice' && tefObjectionState) {
+        if (tefObjectionState.isConvinced) {
+          objectionContextText = '[Per-turn context: All objection directions have been fully explored. You may now express that you are convinced.]';
+        } else {
+          const directionTopic = tefObjectionState.directions[tefObjectionState.currentDirection];
+          objectionContextText = `[Per-turn context: Objection direction ${tefObjectionState.currentDirection + 1} of ${tefObjectionState.directions.length} — topic: "${directionTopic}". Round ${tefObjectionState.currentRound + 1} of 3. Raise or continue this objection.]`;
+        }
+      }
+
       // Use Gemini for speaking practice
       const response = await sendVoiceMessage(
         base64,
         mimeType,
-        abortControllerRef.current.signal
+        abortControllerRef.current.signal,
+        objectionContextText
       );
 
       // Check if user aborted or a newer request has started (stale response)
@@ -364,6 +378,11 @@ const App: React.FC = () => {
       setCanRetryChatAudio(false);
       setLastChatAudio(null);
       setAppState(AppState.IDLE);
+
+      // Advance TEF objection state machine after each successful user turn
+      if (tefAdMode === 'practice' && tefObjectionState && !tefObjectionState.isConvinced) {
+        setTefObjectionState(prev => prev ? advanceTefObjectionState(prev) : null);
+      }
 
     } catch (error) {
       // If aborted or superseded by a newer request, don't show error
@@ -870,6 +889,16 @@ const App: React.FC = () => {
 
     // Switch to practice mode
     setTefAdMode('practice');
+
+    // Generate objection directions for deterministic tracking
+    // (the first AI greeting is automatic and has no user message — objection context injection starts when user first speaks)
+    try {
+      const objectionResult = await generateTefAdObjections(confirmation.summary);
+      setTefObjectionState(createInitialTefObjectionState(objectionResult.directions));
+    } catch (error) {
+      console.error('Failed to generate objection directions:', error);
+      // Non-fatal: practice continues without per-turn objection context
+    }
   };
 
   const handleExitTefAd = async () => {
@@ -914,6 +943,7 @@ const App: React.FC = () => {
     setTefAdConfirmation(null);
     setShowLightbox(false);
     setTefTimedUp(false);
+    setTefObjectionState(null);
 
     // Force back to idle so landing page is clean
     setAppState(AppState.IDLE);
@@ -968,6 +998,15 @@ const App: React.FC = () => {
               <PersuasionTimer
                 elapsed={tefElapsed}
                 isPaused={appState === AppState.PROCESSING || appState === AppState.ERROR}
+                {...(tefObjectionState ? {
+                  objectionProgress: {
+                    currentDirection: tefObjectionState.currentDirection,
+                    totalDirections: tefObjectionState.directions.length,
+                    currentRound: tefObjectionState.currentRound,
+                    totalRounds: 3,
+                    isConvinced: tefObjectionState.isConvinced,
+                  }
+                } : {})}
               />
               <AdThumbnail
                 imageDataUrl={tefAdImage}

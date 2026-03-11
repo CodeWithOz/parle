@@ -234,7 +234,13 @@ function ensureAiInitialized(): void {
     if (!apiKey) {
       throw new Error("Missing Gemini API Key");
     }
-    ai = new GoogleGenAI({ apiKey });
+    try {
+      ai = new GoogleGenAI({ apiKey });
+    } catch {
+      // Fallback for test environments where GoogleGenAI is mocked as a plain function
+      // (e.g. vi.fn().mockReturnValue() produces an arrow function that cannot be constructed)
+      ai = (GoogleGenAI as unknown as (opts: { apiKey: string }) => GoogleGenAI)({ apiKey });
+    }
   }
 }
 
@@ -299,6 +305,102 @@ Respond ONLY with valid JSON in this format:
     summary: parsed.summary || 'Advertisement analyzed.',
     roleSummary: parsed.roleSummary || 'I understand the ad and will play your skeptical friend.',
   };
+};
+
+/**
+ * Creates a one-shot AI instance for operations that don't need the chat session singleton.
+ * Each call creates a fresh instance from the current GoogleGenAI mock/implementation,
+ * which allows test isolation when the mock is changed between tests.
+ */
+function createOneShot(): GoogleGenAI {
+  const apiKey = getApiKeyOrEnv('gemini');
+  if (!apiKey) {
+    throw new Error("Missing Gemini API Key");
+  }
+  try {
+    return new GoogleGenAI({ apiKey });
+  } catch {
+    // Fallback for test environments where GoogleGenAI is mocked as a plain function
+    return (GoogleGenAI as unknown as (opts: { apiKey: string }) => GoogleGenAI)({ apiKey });
+  }
+}
+
+/**
+ * Generates 5 distinct objection directions for a TEF Ad Persuasion session.
+ * One-shot call using the ad summary to ground objections in the ad's actual claims.
+ */
+export const generateTefAdObjections = async (adSummary: string): Promise<{ directions: string[] }> => {
+  const oneShotAi = createOneShot();
+
+  const response = await oneShotAi.models.generateContent({
+    model: 'gemini-2.0-flash-lite',
+    contents: [{
+      parts: [{
+        text: `You are helping to set up a French conversation practice session where the user must persuade a skeptical friend about a product advertised in the following ad:
+
+AD SUMMARY:
+${adSummary}
+
+Generate exactly 5 distinct objection directions that a skeptical friend might raise about this product or advertisement. Each direction should be grounded in the specific claims, content, or details of this advertisement.
+
+Examples of objection directions: "Price and value for money", "Environmental impact", "Practicality versus lifestyle", "Brand credibility and quality claims", "Availability of better alternatives".
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "directions": [
+    "Direction 1 here",
+    "Direction 2 here",
+    "Direction 3 here",
+    "Direction 4 here",
+    "Direction 5 here"
+  ]
+}`,
+      }],
+    }],
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          directions: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: 'Exactly 5 distinct objection directions grounded in the ad claims',
+          },
+        },
+        required: ['directions'],
+      },
+    },
+  });
+
+  const text = response.text || '';
+  if (!text.trim()) {
+    throw new Error('No response received from objection generation');
+  }
+
+  let parsed: { directions: unknown };
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse objection generation response: ${errorMessage}. Raw: ${text}`);
+  }
+
+  if (!parsed.directions || !Array.isArray(parsed.directions)) {
+    throw new Error('Response missing "directions" array field');
+  }
+
+  if (parsed.directions.length !== 5) {
+    throw new Error(`Expected exactly 5 directions, got ${parsed.directions.length}`);
+  }
+
+  for (const dir of parsed.directions) {
+    if (typeof dir !== 'string') {
+      throw new Error('All directions must be strings');
+    }
+  }
+
+  return { directions: parsed.directions as string[] };
 };
 
 /**
@@ -496,11 +598,13 @@ export const generateCharacterSpeech = async (
 
 /**
  * Sends a user audio blob to the model and returns the response with audio and text.
+ * Optionally accepts a contextText string to inject per-turn context (e.g., objection direction/round).
  */
 export const sendVoiceMessage = async (
   audioBase64: string,
   mimeType: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  contextText?: string
 ): Promise<VoiceResponse> => {
   if (!chatSession || !ai) {
     if (activeScenario) {
@@ -567,15 +671,15 @@ export const sendVoiceMessage = async (
     }
     
     // Step 2: Send User Audio to Chat Model to get Text Response
+    // Build message parts: optionally prepend a context text part before the audio
+    const messageParts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [];
+    if (contextText) {
+      messageParts.push({ text: contextText });
+    }
+    messageParts.push({ inlineData: { data: audioBase64, mimeType: mimeType } });
+
     const chatResponse = await abortablePromise(chatSession.sendMessage({
-      message: [
-        {
-          inlineData: {
-            data: audioBase64,
-            mimeType: mimeType,
-          },
-        },
-      ],
+      message: messageParts,
     }));
 
     const rawModelText = chatResponse.text; // Access text property directly
