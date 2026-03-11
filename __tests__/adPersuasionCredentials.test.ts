@@ -1,68 +1,51 @@
 /**
  * TDD tests for TEF Ad Persuasion missing-credentials handling.
  *
- * These tests specify the EXPECTED behavior after the feature is implemented.
- * Tests in sections 1-3 pass immediately because they verify already-correct
- * service behavior or test the behavioral contract via local model functions.
- *
- * Tests in sections 4-5 are the failing TDD specs:
- *  - Section 4: AdPersuasionSetup must accept a `geminiKeyMissing` prop
- *               (verified by checking the component's prop interface)
- *  - Section 5: App.tsx handlers must guard with hasApiKeyOrEnv('gemini')
- *               (verified by inspecting the actual handler source text)
- *
- * Behavior to implement:
- *  1. AdPersuasionSetup should accept a `geminiKeyMissing` prop and display a
- *     yellow warning banner when it is true (mirrors ScenarioSetup pattern).
- *  2. handleOpenTefAdSetup (App.tsx) should call setShowApiKeyModal(true) and
- *     return early when the Gemini key is missing (mirrors handleStartRecording).
- *  3. handleStartTefConversation (App.tsx) should call setShowApiKeyModal(true)
- *     and return early when the Gemini key is missing.
- *  4. When the Gemini key IS present, neither handler should open the modal.
- *
- * The TEF Ad mode uses ONLY Gemini — not OpenAI — because Gemini handles both
- * image analysis (confirmTefAdImage) and the conversation itself.
+ * Sections 1–4 cover the service, component, and contract behaviour by
+ * exercising real production code and rendering the actual UI.
+ * Section 5 contains source-text specs that verify the implementation.
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import * as React from 'react';
+import * as apiKeyService from '../services/apiKeyService';
+import * as geminiService from '../services/geminiService';
+import { AdPersuasionSetup } from '../components/AdPersuasionSetup';
 
 // ---------------------------------------------------------------------------
-// Helpers: isolated re-implementation of the credential-check logic
-// These model what the App.tsx handlers SHOULD look like after implementation.
+// Shared helpers
 // ---------------------------------------------------------------------------
 
-function buildTefAdSetupHandler(
-  hasGeminiKey: boolean,
-  setShowApiKeyModal: (v: boolean) => void,
-  setTefAdMode: (mode: string) => void,
-) {
-  return function handleOpenTefAdSetup() {
-    // EXPECTED implementation (to be added in App.tsx):
-    if (!hasGeminiKey) {
-      setShowApiKeyModal(true);
-      return;
-    }
-    setTefAdMode('setup');
-  };
+const noop = () => {};
+const sampleConfirmation = { summary: 'A luxury car ad.', roleSummary: 'I will be a skeptical friend.' };
+
+/**
+ * Renders AdPersuasionSetup with sensible defaults.  Individual tests
+ * override only the props they care about.
+ */
+function renderSetup(overrides: Partial<React.ComponentProps<typeof AdPersuasionSetup>> = {}) {
+  const onStartConversation = vi.fn();
+  const onClose = vi.fn();
+  const onOpenApiKeyModal = vi.fn();
+  const result = render(
+    React.createElement(AdPersuasionSetup, {
+      onStartConversation,
+      onClose,
+      geminiKeyMissing: false,
+      onOpenApiKeyModal,
+      ...overrides,
+    })
+  );
+  return { ...result, onStartConversation, onClose, onOpenApiKeyModal };
 }
 
-function buildTefConversationHandler(
-  hasGeminiKey: boolean,
-  setShowApiKeyModal: (v: boolean) => void,
-  setTefAdMode: (mode: string) => void,
-) {
-  return async function handleStartTefConversation(
-    _image: string,
-    _mimeType: string,
-    _confirmation: { summary: string; roleSummary: string },
-  ) {
-    // EXPECTED implementation (to be added in App.tsx):
-    if (!hasGeminiKey) {
-      setShowApiKeyModal(true);
-      return;
-    }
-    setTefAdMode('practice');
-  };
+/**
+ * Simulates selecting a file on the hidden file input.
+ */
+function selectFile(file: File) {
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+  fireEvent.change(input, { target: { files: [file] } });
 }
 
 // ---------------------------------------------------------------------------
@@ -77,6 +60,7 @@ describe('apiKeyService · hasApiKeyOrEnv', () => {
   afterEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
+    delete process.env.GEMINI_API_KEY;
   });
 
   it('is importable from the apiKeyService module', async () => {
@@ -123,107 +107,132 @@ describe('apiKeyService · hasApiKeyOrEnv', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. handleOpenTefAdSetup — credential gate (behavioral contract)
+// 2. AdPersuasionSetup — renders unconditionally, shows credential warning
 // ---------------------------------------------------------------------------
 
-describe('handleOpenTefAdSetup · credential gate', () => {
-  it('opens the API key modal and does NOT enter setup mode when Gemini key is missing', () => {
-    const setShowApiKeyModal = vi.fn();
-    const setTefAdMode = vi.fn();
-
-    const handler = buildTefAdSetupHandler(
-      /* hasGeminiKey */ false,
-      setShowApiKeyModal,
-      setTefAdMode,
-    );
-
-    handler();
-
-    expect(setShowApiKeyModal).toHaveBeenCalledOnce();
-    expect(setShowApiKeyModal).toHaveBeenCalledWith(true);
-    // Must NOT advance to setup mode
-    expect(setTefAdMode).not.toHaveBeenCalled();
+describe('AdPersuasionSetup · renders unconditionally and shows credential warning', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it('enters setup mode and does NOT open the modal when Gemini key is present', () => {
-    const setShowApiKeyModal = vi.fn();
-    const setTefAdMode = vi.fn();
-
-    const handler = buildTefAdSetupHandler(
-      /* hasGeminiKey */ true,
-      setShowApiKeyModal,
-      setTefAdMode,
-    );
-
-    handler();
-
-    expect(setShowApiKeyModal).not.toHaveBeenCalled();
-    expect(setTefAdMode).toHaveBeenCalledOnce();
-    expect(setTefAdMode).toHaveBeenCalledWith('setup');
+  it('renders the setup modal when geminiKeyMissing is false', () => {
+    renderSetup({ geminiKeyMissing: false });
+    expect(screen.getByText('Practice Ad Persuasion')).toBeInTheDocument();
   });
 
-  it('returns without advancing mode if called multiple times with no key', () => {
-    const setShowApiKeyModal = vi.fn();
-    const setTefAdMode = vi.fn();
+  it('renders the setup modal even when geminiKeyMissing is true', () => {
+    renderSetup({ geminiKeyMissing: true });
+    expect(screen.getByText('Practice Ad Persuasion')).toBeInTheDocument();
+  });
 
-    const handler = buildTefAdSetupHandler(false, setShowApiKeyModal, setTefAdMode);
-    handler();
-    handler();
+  it('shows the warning banner when geminiKeyMissing is true', () => {
+    renderSetup({ geminiKeyMissing: true });
+    expect(screen.getByText('API Key Required')).toBeInTheDocument();
+  });
 
-    expect(setShowApiKeyModal).toHaveBeenCalledTimes(2);
-    expect(setTefAdMode).not.toHaveBeenCalled();
+  it('does NOT show the warning banner when geminiKeyMissing is false', () => {
+    renderSetup({ geminiKeyMissing: false });
+    expect(screen.queryByText('API Key Required')).not.toBeInTheDocument();
   });
 });
 
 // ---------------------------------------------------------------------------
-// 3. handleStartTefConversation — credential gate (behavioral contract)
+// 2b. processFile · credential gate (rendered AdPersuasionSetup)
 // ---------------------------------------------------------------------------
 
-describe('handleStartTefConversation · credential gate', () => {
-  const sampleImage = 'data:image/png;base64,abc123';
-  const sampleMimeType = 'image/png';
-  const sampleConfirmation = {
-    summary: 'A luxury car ad.',
-    roleSummary: 'I will be a skeptical friend.',
-  };
+describe('processFile · credential gate', () => {
+  const pngFile = new File(['fake-image-data'], 'ad.png', { type: 'image/png' });
 
-  it('opens the API key modal and does NOT start practice mode when Gemini key is missing', async () => {
-    const setShowApiKeyModal = vi.fn();
-    const setTefAdMode = vi.fn();
-
-    const handler = buildTefConversationHandler(false, setShowApiKeyModal, setTefAdMode);
-
-    await handler(sampleImage, sampleMimeType, sampleConfirmation);
-
-    expect(setShowApiKeyModal).toHaveBeenCalledOnce();
-    expect(setShowApiKeyModal).toHaveBeenCalledWith(true);
-    expect(setTefAdMode).not.toHaveBeenCalled();
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it('starts practice mode and does NOT open modal when Gemini key is present', async () => {
-    const setShowApiKeyModal = vi.fn();
-    const setTefAdMode = vi.fn();
+  it('calls onOpenApiKeyModal and does NOT call confirmTefAdImage when key is missing', () => {
+    vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(false);
+    const confirmSpy = vi.spyOn(geminiService, 'confirmTefAdImage');
 
-    const handler = buildTefConversationHandler(true, setShowApiKeyModal, setTefAdMode);
+    const { onOpenApiKeyModal } = renderSetup();
+    selectFile(pngFile);
 
-    await handler(sampleImage, sampleMimeType, sampleConfirmation);
-
-    expect(setShowApiKeyModal).not.toHaveBeenCalled();
-    expect(setTefAdMode).toHaveBeenCalledWith('practice');
+    expect(onOpenApiKeyModal).toHaveBeenCalledOnce();
+    expect(confirmSpy).not.toHaveBeenCalled();
   });
 
-  it('is a no-op for setTefAdMode regardless of other arguments when key is absent', async () => {
-    const setShowApiKeyModal = vi.fn();
-    const setTefAdMode = vi.fn();
+  it('does NOT call onOpenApiKeyModal when key is present', async () => {
+    vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
+    const confirmSpy = vi.spyOn(geminiService, 'confirmTefAdImage').mockResolvedValue(sampleConfirmation);
 
-    const handler = buildTefConversationHandler(false, setShowApiKeyModal, setTefAdMode);
+    const { onOpenApiKeyModal } = renderSetup();
+    selectFile(pngFile);
 
-    await handler('data:image/jpeg;base64,xyz', 'image/jpeg', {
-      summary: 'Another ad.',
-      roleSummary: 'Another role.',
+    // Wait for the full async flow to complete before asserting and cleanup
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalled();
+    });
+    expect(onOpenApiKeyModal).not.toHaveBeenCalled();
+  });
+
+  it('calls confirmTefAdImage with the base64 data and mimeType when key is present', async () => {
+    vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
+    const confirmSpy = vi
+      .spyOn(geminiService, 'confirmTefAdImage')
+      .mockResolvedValue(sampleConfirmation);
+
+    renderSetup();
+    selectFile(pngFile);
+
+    await waitFor(() => {
+      expect(confirmSpy).toHaveBeenCalledOnce();
+    });
+    const [base64Arg, mimeTypeArg] = confirmSpy.mock.calls[0];
+    expect(typeof base64Arg).toBe('string');
+    expect(base64Arg.length).toBeGreaterThan(0);
+    expect(mimeTypeArg).toBe('image/png');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 3. handleStartTefConversation — App passes credential gate; component wires
+//    onStartConversation correctly once in the confirm step
+// ---------------------------------------------------------------------------
+
+describe('AdPersuasionSetup · confirm step fires onStartConversation', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  async function reachConfirmStep() {
+    vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
+    vi.spyOn(geminiService, 'confirmTefAdImage').mockResolvedValue(sampleConfirmation);
+
+    const props = renderSetup();
+    selectFile(new File(['img'], 'ad.png', { type: 'image/png' }));
+
+    // Wait for the component to reach the confirm step
+    await waitFor(() => {
+      expect(screen.getByText('Start Conversation')).toBeInTheDocument();
     });
 
-    expect(setTefAdMode).not.toHaveBeenCalled();
+    return props;
+  }
+
+  it('shows the analyzed ad summary in the confirm step', async () => {
+    await reachConfirmStep();
+    expect(screen.getByText(sampleConfirmation.summary)).toBeInTheDocument();
+    expect(screen.getByText(sampleConfirmation.roleSummary)).toBeInTheDocument();
+  });
+
+  it('calls onStartConversation when the Start Conversation button is clicked', async () => {
+    const { onStartConversation } = await reachConfirmStep();
+    fireEvent.click(screen.getByText('Start Conversation'));
+    expect(onStartConversation).toHaveBeenCalledOnce();
+  });
+
+  it('does NOT call onStartConversation until Start Conversation is clicked', async () => {
+    const { onStartConversation } = await reachConfirmStep();
+    // Confirm step is shown but button not yet clicked
+    expect(screen.getByText('Start Conversation')).toBeInTheDocument();
+    expect(onStartConversation).not.toHaveBeenCalled();
   });
 });
 
@@ -243,96 +252,83 @@ describe('TEF Ad Persuasion · provider requirements', () => {
     // openaiKeyMissing because it uses Gemini for transcription and OpenAI
     // for planning.  TEF Ad Persuasion only calls Gemini (image analysis +
     // conversation), so the check must be gemini-only.
-    const setShowApiKeyModal = vi.fn();
-    const setTefAdMode = vi.fn();
-
-    // Simulate: Gemini present, OpenAI absent
-    const geminiOnly = buildTefAdSetupHandler(
-      /* hasGeminiKey */ true,
-      setShowApiKeyModal,
-      setTefAdMode,
-    );
-    geminiOnly();
-
-    // Should NOT block — TEF Ad doesn't need OpenAI
-    expect(setShowApiKeyModal).not.toHaveBeenCalled();
-    expect(setTefAdMode).toHaveBeenCalledWith('setup');
+    // The warning banner in AdPersuasionSetup only references Gemini.
+    renderSetup({ geminiKeyMissing: true });
+    const banner = screen.getByText('API Key Required');
+    expect(banner).toBeInTheDocument();
+    // No OpenAI mention in the banner
+    expect(screen.queryByText(/openai/i)).not.toBeInTheDocument();
   });
 });
 
 // ---------------------------------------------------------------------------
-// 5. TDD FAILING SPECS — these must fail until the implementation is added
+// 5. TDD FAILING SPECS — these must fail until the implementation is updated
 // ---------------------------------------------------------------------------
 
-describe('AdPersuasionSetup · geminiKeyMissing prop (TDD — must fail before implementation)', () => {
+describe('AdPersuasionSetup · credential gate moved to processFile (TDD — must fail before implementation)', () => {
   /**
    * These tests inspect the actual source text of AdPersuasionSetup.tsx and
-   * App.tsx to verify the implementation has been added.  They FAIL before
-   * the builder adds the credential-check code and PASS once it is in place.
+   * App.tsx to verify the code-review fix has been applied.  They FAIL before
+   * the builder makes the changes and PASS once they are in place.
    */
 
   it('AdPersuasionSetup props interface includes geminiKeyMissing', async () => {
-    // Read the component source and assert the prop is declared.
-    // Before implementation: AdPersuasionSetupProps has no geminiKeyMissing field → FAILS.
-    // After implementation: the interface includes `geminiKeyMissing?: boolean` → PASSES.
+    // Already implemented — should PASS.
     const src = await import('../components/AdPersuasionSetup?raw');
     expect(src.default).toMatch(/geminiKeyMissing/);
   });
 
   it('AdPersuasionSetup renders a yellow warning banner when geminiKeyMissing is true', async () => {
-    // The JSX must contain the yellow styling classes used in ScenarioSetup.
-    // Before implementation: no yellow banner → FAILS.
-    // After implementation: banner with bg-yellow-* and border-yellow-* → PASSES.
+    // Already implemented — should PASS.
     const src = await import('../components/AdPersuasionSetup?raw');
     expect(src.default).toMatch(/bg-yellow-/);
     expect(src.default).toMatch(/border-yellow-/);
   });
 
   it('AdPersuasionSetup warning banner mentions Gemini (inside the warning element, not just imports)', async () => {
-    // The banner copy must be Gemini-specific and appear inside a JSX block
-    // that also carries the yellow styling.  A plain import line is not enough.
-    //
-    // We look for the word "Gemini" within 500 characters of a yellow-* class,
-    // which only matches once a yellow warning banner with Gemini text exists.
-    //
-    // Before implementation: no yellow banner → FAILS (yellow classes absent so
-    // the proximity match has nothing to anchor on).
-    // After implementation: banner contains both → PASSES.
+    // Already implemented — should PASS.
     const src = await import('../components/AdPersuasionSetup?raw');
-    // The banner block must carry yellow classes (asserted in the preceding test)
-    // AND the source must contain "Gemini" inside a string literal or JSX text
-    // node (i.e., not just as an import path token).
     expect(src.default).toMatch(/['">][^'"<>]*[Gg]emini[^'"<>]*['"<]/);
   });
 
-  it('handleOpenTefAdSetup in App.tsx guards with hasApiKeyOrEnv("gemini")', async () => {
-    // Inspect the actual handler in App.tsx for the credential guard.
-    // Before implementation: handler has no hasApiKeyOrEnv check → FAILS.
-    // After implementation: handler checks !hasApiKeyOrEnv('gemini') → PASSES.
+  it('handleOpenTefAdSetup in App.tsx does NOT contain a hasApiKeyOrEnv credential guard', async () => {
+    // After the fix: the guard is removed from handleOpenTefAdSetup, so the
+    // regex match FAILS (i.e., not.toMatch should PASS once guard is removed).
+    //
+    // Before implementation: handler still has the guard → this test FAILS.
+    // After implementation: guard is gone → this test PASSES.
     const src = await import('../App?raw');
-    // Match: the handler body must contain the guard before setTefAdMode('setup')
-    expect(src.default).toMatch(
+    expect(src.default).not.toMatch(
       /handleOpenTefAdSetup[\s\S]{0,300}hasApiKeyOrEnv\(['"]gemini['"]\)/
     );
   });
 
+  it('AdPersuasionSetup source contains hasApiKeyOrEnv("gemini") — the new gate location', async () => {
+    // After the fix: processFile in AdPersuasionSetup.tsx checks the key.
+    //
+    // Before implementation: no such check → FAILS.
+    // After implementation: check is present → PASSES.
+    const src = await import('../components/AdPersuasionSetup?raw');
+    expect(src.default).toMatch(/hasApiKeyOrEnv\(['"]gemini['"]\)/);
+  });
+
   it('handleStartTefConversation in App.tsx guards with hasApiKeyOrEnv("gemini")', async () => {
-    // Inspect the actual handler in App.tsx for the credential guard.
-    // Before implementation: handler has no hasApiKeyOrEnv check → FAILS.
-    // After implementation: handler checks !hasApiKeyOrEnv('gemini') → PASSES.
+    // Already implemented — should PASS.
     const src = await import('../App?raw');
     expect(src.default).toMatch(
       /handleStartTefConversation[\s\S]{0,400}hasApiKeyOrEnv\(['"]gemini['"]\)/
     );
   });
 
-  it('App.tsx passes geminiKeyMissing prop to AdPersuasionSetup', async () => {
-    // The JSX call-site for <AdPersuasionSetup> must pass the geminiKeyMissing prop.
+  it('App.tsx passes onOpenApiKeyModal prop to AdPersuasionSetup', async () => {
+    // After the fix: App.tsx must wire up the callback so the component can
+    // open the API key modal when processFile detects a missing key.
+    //
     // Before implementation: prop is absent → FAILS.
     // After implementation: prop is present → PASSES.
     const src = await import('../App?raw');
     expect(src.default).toMatch(
-      /<AdPersuasionSetup[\s\S]{0,300}geminiKeyMissing=/
+      /<AdPersuasionSetup[\s\S]{0,400}onOpenApiKeyModal=/
     );
   });
 });

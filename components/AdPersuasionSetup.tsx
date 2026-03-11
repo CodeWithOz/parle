@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { confirmTefAdImage } from '../services/geminiService';
+import { hasApiKeyOrEnv } from '../services/apiKeyService';
 
 interface AdPersuasionSetupProps {
   onStartConversation: (
@@ -9,6 +10,7 @@ interface AdPersuasionSetupProps {
   ) => void;
   onClose: () => void;
   geminiKeyMissing?: boolean;
+  onOpenApiKeyModal?: () => void;
 }
 
 type SetupStep = 'upload' | 'processing' | 'confirm';
@@ -17,6 +19,7 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
   onStartConversation,
   onClose,
   geminiKeyMissing = false,
+  onOpenApiKeyModal,
 }) => {
   const [step, setStep] = useState<SetupStep>('upload');
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
@@ -36,6 +39,12 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
     const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
     if (!SUPPORTED_IMAGE_TYPES.includes(file.type)) {
       setError('Unsupported file type. Please use JPEG, PNG, WEBP, HEIC, or HEIF.');
+      return;
+    }
+
+    // Credential gate: must check BEFORE reading file or mutating state
+    if (!hasApiKeyOrEnv('gemini')) {
+      onOpenApiKeyModal?.();
       return;
     }
 
@@ -76,7 +85,7 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
     };
 
     reader.readAsDataURL(file);
-  }, []);
+  }, [onOpenApiKeyModal]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

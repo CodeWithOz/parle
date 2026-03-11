@@ -800,10 +800,6 @@ const App: React.FC = () => {
 
   // TEF Ad handlers
   const handleOpenTefAdSetup = () => {
-    if (!hasApiKeyOrEnv('gemini')) {
-      setShowApiKeyModal(true);
-      return;
-    }
     setTefAdMode('setup');
   };
 
@@ -1144,6 +1140,7 @@ const App: React.FC = () => {
           onStartConversation={handleStartTefConversation}
           onClose={handleCloseTefAdSetup}
           geminiKeyMissing={geminiKeyMissing}
+          onOpenApiKeyModal={() => setShowApiKeyModal(true)}
         />
       )}
 
