@@ -1,7 +1,7 @@
 ---
 name: workflow-reviewer
 description: Performs code review using CodeRabbit (with self-review fallback). Used by the development workflow supervisor.
-model: opus
+model: sonnet
 permissionMode: bypassPermissions
 tools:
   - Bash
