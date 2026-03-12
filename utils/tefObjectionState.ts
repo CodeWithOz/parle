@@ -1,6 +1,6 @@
 import { TefObjectionState } from '../types';
 
-const TOTAL_ROUNDS_PER_DIRECTION = 3;
+export const TOTAL_ROUNDS_PER_DIRECTION = 3;
 
 /**
  * Creates the initial TefObjectionState from an array of direction strings.

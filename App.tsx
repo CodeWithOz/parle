@@ -9,7 +9,7 @@ import { clearHistory } from './services/conversationHistory';
 import { hasApiKeyOrEnv } from './services/apiKeyService';
 import { assignVoicesToCharacters } from './services/voiceService';
 import { generateId, generateTefAdSystemInstruction } from './services/scenarioService';
-import { createInitialTefObjectionState, advanceTefObjectionState } from './utils/tefObjectionState';
+import { createInitialTefObjectionState, advanceTefObjectionState, TOTAL_ROUNDS_PER_DIRECTION } from './utils/tefObjectionState';
 import { Orb } from './components/Orb';
 import { Controls } from './components/Controls';
 import { ConversationHistory } from './components/ConversationHistory';
@@ -258,7 +258,7 @@ const App: React.FC = () => {
           objectionContextText = '[Per-turn context: All objection directions have been fully explored. You may now express that you are convinced.]';
         } else {
           const directionTopic = tefObjectionState.directions[tefObjectionState.currentDirection];
-          objectionContextText = `[Per-turn context: Objection direction ${tefObjectionState.currentDirection + 1} of ${tefObjectionState.directions.length} — topic: "${directionTopic}". Round ${tefObjectionState.currentRound + 1} of 3. Raise or continue this objection.]`;
+          objectionContextText = `[Per-turn context: Objection direction ${tefObjectionState.currentDirection + 1} of ${tefObjectionState.directions.length} — topic: "${directionTopic}". Round ${tefObjectionState.currentRound + 1} of ${TOTAL_ROUNDS_PER_DIRECTION}. Raise or continue this objection.]`;
         }
       }
 
@@ -1003,7 +1003,7 @@ const App: React.FC = () => {
                     currentDirection: tefObjectionState.currentDirection,
                     totalDirections: tefObjectionState.directions.length,
                     currentRound: tefObjectionState.currentRound,
-                    totalRounds: 3,
+                    totalRounds: TOTAL_ROUNDS_PER_DIRECTION,
                     isConvinced: tefObjectionState.isConvinced,
                   }
                 } : {})}
