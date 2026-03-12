@@ -8,6 +8,7 @@ const STORAGE_KEY_PREFIX = 'parle_api_key_';
 
 /**
  * Get an API key from localStorage for a specific provider.
+ * Uses the canonical prefixed key format: parle_api_key_<provider>.
  */
 export const getApiKey = (provider: 'gemini' | 'openai'): string | null => {
   try {

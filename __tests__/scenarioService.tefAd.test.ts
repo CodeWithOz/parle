@@ -40,10 +40,11 @@ describe('generateTefAdSystemInstruction', () => {
     expect(lower).toMatch(/friend|objection|skeptic|persuad/);
   });
 
-  it('mentions requiring 5 distinct objection directions', () => {
+  it('does NOT contain hardcoded "5 distinct objection directions" language (counting moved to client)', () => {
     const result = generateTefAdSystemInstruction(adSummary, roleConfirmation);
-    // The instruction should specify exactly 5 objection directions/categories
-    expect(result).toMatch(/5.*(?:objection|direction|categor)/i);
+    // The prompt is now simplified — the 5-direction counting is done deterministically on the
+    // client, so the system prompt must NOT embed these exact numbers.
+    expect(result).not.toMatch(/5\s+distinct\s+objection\s+directions/i);
   });
 
   it('instructs AI to reference ad/image claims in objections', () => {
@@ -67,10 +68,25 @@ describe('generateTefAdSystemInstruction', () => {
     expect(userIntroduces || (friendWaits && noMentionAdFirst)).toBe(true);
   });
 
-  it('requires at least 3 rounds of pushback per objection direction (about 15 total)', () => {
+  it('does NOT contain hardcoded round/total counts ("3 rounds", "15 total") — tracking moved to client', () => {
     const result = generateTefAdSystemInstruction(adSummary, roleConfirmation);
     const lower = result.toLowerCase();
-    expect(lower).toMatch(/3 rounds of pushback|at least 3 rounds/);
-    expect(lower).toMatch(/15.*pushback|pushback.*15/);
+    // Round counting is now done deterministically on the client side and injected
+    // as per-turn context. The system prompt should not duplicate these numbers.
+    expect(lower).not.toMatch(/3 rounds of pushback|at least 3 rounds/);
+    expect(lower).not.toMatch(/15.*pushback|pushback.*15/);
+  });
+
+  it('references per-turn context for objection tracking', () => {
+    const result = generateTefAdSystemInstruction(adSummary, roleConfirmation);
+    const lower = result.toLowerCase();
+    // The simplified system prompt must tell the AI to follow the per-turn context
+    // that will be injected at runtime instead of hardcoded counting rules.
+    expect(lower).toMatch(/per.?turn context/);
+  });
+
+  it('does NOT contain "5 directions" as a hardcoded count', () => {
+    const result = generateTefAdSystemInstruction(adSummary, roleConfirmation);
+    expect(result).not.toMatch(/\b5\b.*directions|directions.*\b5\b/i);
   });
 });
