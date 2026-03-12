@@ -887,11 +887,8 @@ const App: React.FC = () => {
     // Ensure mutual exclusivity with scenario mode
     setScenarioMode('none');
 
-    // Switch to practice mode
-    setTefAdMode('practice');
-
-    // Generate objection directions for deterministic tracking
-    // (the first AI greeting is automatic and has no user message — objection context injection starts when user first speaks)
+    // Generate objection directions before entering practice mode so tefObjectionState
+    // is ready when the user's first turn fires (no null window)
     try {
       const objectionResult = await generateTefAdObjections(confirmation.summary);
       setTefObjectionState(createInitialTefObjectionState(objectionResult.directions));
@@ -899,6 +896,9 @@ const App: React.FC = () => {
       console.error('Failed to generate objection directions:', error);
       // Non-fatal: practice continues without per-turn objection context
     }
+
+    // Switch to practice mode only after objection seeding is complete
+    setTefAdMode('practice');
   };
 
   const handleExitTefAd = async () => {
@@ -1198,7 +1198,7 @@ const App: React.FC = () => {
             </p>
             <div className="flex flex-col gap-3">
               <button
-                onClick={() => { setTefTimedUp(false); resetTefTimer(); }}
+                onClick={() => { setTefTimedUp(false); }}
                 className="w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-medium transition-colors"
               >
                 Continue Anyway
