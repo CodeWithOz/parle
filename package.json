@@ -19,6 +19,7 @@
     "langchain": "^1.2.24",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
+    "vaul": "^1.1.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {
