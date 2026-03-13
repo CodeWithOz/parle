@@ -15,7 +15,6 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import * as React from 'react';
 import { PracticeModeSheet } from '../components/PracticeModeSheet';
 
 // ---------------------------------------------------------------------------
@@ -28,7 +27,7 @@ function renderSheet(
   onSelectMode = vi.fn()
 ) {
   return render(
-    React.createElement(PracticeModeSheet, { open, onOpenChange, onSelectMode })
+    <PracticeModeSheet open={open} onOpenChange={onOpenChange} onSelectMode={onSelectMode} />
   );
 }
 
