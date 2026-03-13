@@ -15,8 +15,8 @@ export const PracticeModeSheet: React.FC<PracticeModeSheetProps> = ({
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-50 bg-black/60" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-2xl bg-slate-900 border-t border-slate-700/50 focus:outline-none">
+        <Drawer.Overlay className="fixed inset-0 z-50 bg-black/80" />
+        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-w-lg flex-col rounded-t-2xl bg-slate-900 border-t border-slate-700/50 focus:outline-none">
           {/* Drag handle */}
           <div className="mx-auto mt-3 mb-1 h-1.5 w-12 rounded-full bg-slate-600" />
 
