@@ -105,6 +105,18 @@ describe('PracticeModeSheet · onSelectMode callback', () => {
 
     expect(onSelectMode).not.toHaveBeenCalled();
   });
+
+  it('does not call onOpenChange when a mode option is clicked', () => {
+    const onOpenChange = vi.fn();
+    const onSelectMode = vi.fn();
+    renderSheet(true, onOpenChange, onSelectMode);
+
+    fireEvent.click(screen.getByRole('button', { name: /ad persuasion/i }));
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /role play/i }));
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------
