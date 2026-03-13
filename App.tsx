@@ -21,6 +21,7 @@ import { ImageLightbox } from './components/ImageLightbox';
 import { ApiKeySetup } from './components/ApiKeySetup';
 import { GearIcon } from './components/icons/GearIcon';
 import { ConversationHint } from './components/ConversationHint';
+import { PracticeModeSheet } from './components/PracticeModeSheet';
 
 const App: React.FC = () => {
   // SEO metadata - similar to Next.js metadata export
@@ -75,6 +76,9 @@ const App: React.FC = () => {
   const [canRetryChatAudio, setCanRetryChatAudio] = useState(false);
   const [canRetryDescriptionAudio, setCanRetryDescriptionAudio] = useState(false);
   const [retryingMessageTimestamps, setRetryingMessageTimestamps] = useState<Set<number>>(new Set());
+
+  // Practice mode sheet state
+  const [showModeSheet, setShowModeSheet] = useState(false);
 
   // API Key management state
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
@@ -822,6 +826,16 @@ const App: React.FC = () => {
     setTefAdMode('setup');
   };
 
+  // Mode sheet handler — routes mode selection to the appropriate setup flow
+  const handleSelectMode = (modeId: 'ad-persuasion' | 'role-play') => {
+    setShowModeSheet(false);
+    if (modeId === 'ad-persuasion') {
+      handleOpenTefAdSetup();
+    } else if (modeId === 'role-play') {
+      handleOpenScenarioSetup();
+    }
+  };
+
   const handleCloseTefAdSetup = () => {
     setTefAdMode('none');
     setTefAdImage(null);
@@ -1042,10 +1056,9 @@ const App: React.FC = () => {
             onCancelRecording={handleCancelRecording}
             scenarioMode={scenarioMode}
             activeScenario={activeScenario}
-            onOpenScenarioSetup={handleOpenScenarioSetup}
+            onOpenModeSheet={() => setShowModeSheet(true)}
             onExitScenario={handleExitScenario}
             tefAdMode={tefAdMode}
-            onOpenTefAdSetup={handleOpenTefAdSetup}
             onExitTefAd={handleExitTefAd}
           />
 
@@ -1150,10 +1163,9 @@ const App: React.FC = () => {
                   onCancelRecording={handleCancelRecording}
                   scenarioMode={scenarioMode}
                   activeScenario={activeScenario}
-                  onOpenScenarioSetup={handleOpenScenarioSetup}
+                  onOpenModeSheet={() => setShowModeSheet(true)}
                   onExitScenario={handleExitScenario}
                   tefAdMode={tefAdMode}
-                  onOpenTefAdSetup={handleOpenTefAdSetup}
                   onExitTefAd={handleExitTefAd}
                   compact
                 />
@@ -1260,6 +1272,13 @@ const App: React.FC = () => {
           onSave={handleApiKeySave}
         />
       )}
+
+      {/* Practice Mode Sheet */}
+      <PracticeModeSheet
+        open={showModeSheet}
+        onOpenChange={setShowModeSheet}
+        onSelectMode={handleSelectMode}
+      />
     </div>
   );
 };

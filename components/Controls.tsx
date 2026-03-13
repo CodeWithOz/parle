@@ -8,12 +8,11 @@ interface ControlsProps {
   onCancelRecording: () => void;
   scenarioMode: ScenarioMode;
   activeScenario: Scenario | null;
-  onOpenScenarioSetup: () => void;
+  onOpenModeSheet: () => void;
   onExitScenario: () => void;
   compact?: boolean;
   // TEF Ad props
   tefAdMode?: TefAdMode;
-  onOpenTefAdSetup?: () => void;
   onExitTefAd?: () => void;
 }
 
@@ -24,11 +23,10 @@ export const Controls: React.FC<ControlsProps> = ({
   onCancelRecording,
   scenarioMode,
   activeScenario,
-  onOpenScenarioSetup,
+  onOpenModeSheet,
   onExitScenario,
   compact = false,
   tefAdMode = 'none',
-  onOpenTefAdSetup,
   onExitTefAd,
 }) => {
   const isRecording = appState === AppState.RECORDING;
@@ -66,28 +64,15 @@ export const Controls: React.FC<ControlsProps> = ({
             </button>
           </div>
         ) : !isRecording && (
-          <div className="flex items-center gap-3">
-            <button
-              onClick={onOpenScenarioSetup}
-              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2H4a1 1 0 110-2V4zm3 1h6v4H7V5zm6 6H7v2h6v-2z" clipRule="evenodd" />
-              </svg>
-              <span>Role Play</span>
-            </button>
-            {onOpenTefAdSetup && (
-              <button
-                onClick={onOpenTefAdSetup}
-                className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
-                </svg>
-                <span>Ad Persuasion</span>
-              </button>
-            )}
-          </div>
+          <button
+            onClick={onOpenModeSheet}
+            className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+            </svg>
+            <span>Start Practice</span>
+          </button>
         )}
 
         {/* Compact speed + cancel row */}
@@ -190,29 +175,15 @@ export const Controls: React.FC<ControlsProps> = ({
           </p>
         </div>
       ) : (
-        <div className="w-full flex flex-col gap-3">
-          <button
-            onClick={onOpenScenarioSetup}
-            className="w-full py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 hover:border-slate-600 rounded-2xl transition-colors flex items-center justify-center gap-2"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 110 2H4a1 1 0 110-2V4zm3 1h6v4H7V5zm6 6H7v2h6v-2z" clipRule="evenodd" />
-            </svg>
-            <span className="text-slate-300 text-sm font-medium">Practice Role Play</span>
-          </button>
-
-          {onOpenTefAdSetup && (
-            <button
-              onClick={onOpenTefAdSetup}
-              className="w-full py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 hover:border-slate-600 rounded-2xl transition-colors flex items-center justify-center gap-2"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
-              </svg>
-              <span className="text-slate-300 text-sm font-medium">Practice Ad Persuasion</span>
-            </button>
-          )}
-        </div>
+        <button
+          onClick={onOpenModeSheet}
+          className="w-full py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-slate-700/50 hover:border-slate-600 rounded-2xl transition-colors flex items-center justify-center gap-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+          </svg>
+          <span className="text-slate-300 text-sm font-medium">Start Practice</span>
+        </button>
       )}
 
     </div>
