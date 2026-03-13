@@ -37,6 +37,7 @@ export interface VoiceResponse {
   hint?: string; // Optional hint for what the user could say next (in roleplay mode)
   voiceName?: string; // Voice used for single-character response (for retry)
   audioGenerationFailed?: boolean; // Track if TTS failed for single-character response
+  isRepeat?: boolean; // TEF Questioning: true if the user asked a repeated question
   characters?: Array<{ // Character info for multi-character responses
     characterId: string;
     characterName: string;
@@ -49,6 +50,8 @@ export interface VoiceResponse {
 export type ScenarioMode = 'none' | 'setup' | 'practice';
 
 export type TefAdMode = 'none' | 'setup' | 'practice';
+
+export type TefQuestioningMode = 'none' | 'setup' | 'practice';
 
 export interface TefAdState {
   image: string | null;         // base64 data URL for preview
@@ -66,6 +69,7 @@ export interface Scenario {
   createdAt: number;
   isActive: boolean;
   characters?: Character[]; // NEW: Characters in this scenario
+  isTefQuestioning?: boolean; // TEF Questioning: use the questioning-specific response schema
 }
 
 /**
