@@ -183,13 +183,20 @@ function createChatSession(): void {
   // Pick the response schema that matches the scenario type.
   // This enforces the JSON shape at the API level, preventing the model from
   // returning an array of turns instead of a single response object.
-  const responseSchema = activeScenario && activeScenario.characters && activeScenario.characters.length > 1
-    ? createGeminiMultiCharacterSchema(activeScenario)
-    : activeScenario?.isTefQuestioning
-      ? TEF_QUESTIONING_RESPONSE_SCHEMA
-      : activeScenario
-        ? SINGLE_CHARACTER_RESPONSE_SCHEMA
-        : FREE_CONVERSATION_RESPONSE_SCHEMA;
+  // isTefQuestioning is a sub-case of having a single-character activeScenario,
+  // so it is only evaluated once we know activeScenario is non-null.
+  const responseSchema = (() => {
+    if (activeScenario && activeScenario.characters && activeScenario.characters.length > 1) {
+      return createGeminiMultiCharacterSchema(activeScenario);
+    }
+    if (!activeScenario) {
+      return FREE_CONVERSATION_RESPONSE_SCHEMA;
+    }
+    if (activeScenario.isTefQuestioning) {
+      return TEF_QUESTIONING_RESPONSE_SCHEMA;
+    }
+    return SINGLE_CHARACTER_RESPONSE_SCHEMA;
+  })();
 
   chatSession = ai.chats.create({
     model: 'gemini-2.0-flash-lite',
@@ -350,9 +357,9 @@ export const confirmTefAdImageForQuestioning = async (
     throw new Error(`Unsupported image type "${mimeType}". Please use ${typeLabels}.`);
   }
 
-  const oneShotAi = createOneShot();
+  ensureAiInitialized();
 
-  const response = await oneShotAi.models.generateContent({
+  const response = await ai!.models.generateContent({
     model: 'gemini-2.0-flash-lite',
     contents: [{
       parts: [
@@ -405,31 +412,13 @@ Respond ONLY with valid JSON in this format:
 };
 
 /**
- * Creates a one-shot AI instance for operations that don't need the chat session singleton.
- * Each call creates a fresh instance from the current GoogleGenAI mock/implementation,
- * which allows test isolation when the mock is changed between tests.
- */
-function createOneShot(): GoogleGenAI {
-  const apiKey = getApiKeyOrEnv('gemini');
-  if (!apiKey) {
-    throw new Error("Missing Gemini API Key");
-  }
-  try {
-    return new GoogleGenAI({ apiKey });
-  } catch {
-    // Fallback for test environments where GoogleGenAI is mocked as a plain function
-    return (GoogleGenAI as unknown as (opts: { apiKey: string }) => GoogleGenAI)({ apiKey });
-  }
-}
-
-/**
  * Generates 5 distinct objection directions for a TEF Ad Persuasion session.
  * One-shot call using the ad summary to ground objections in the ad's actual claims.
  */
 export const generateTefAdObjections = async (adSummary: string): Promise<{ directions: string[] }> => {
-  const oneShotAi = createOneShot();
+  ensureAiInitialized();
 
-  const response = await oneShotAi.models.generateContent({
+  const response = await ai!.models.generateContent({
     model: 'gemini-2.0-flash-lite',
     contents: [{
       parts: [{

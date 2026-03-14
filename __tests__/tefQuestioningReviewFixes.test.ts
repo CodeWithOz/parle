@@ -32,18 +32,23 @@ import { GoogleGenAI } from '@google/genai';
 import { confirmTefAdImageForQuestioning } from '../services/geminiService';
 
 // ---------------------------------------------------------------------------
-// Shared helper: build a GoogleGenAI mock that returns a specific payload
+// Shared mock for B4 — a single ai singleton is created per module lifecycle,
+// so all B4 tests share the same mockAi object and configure its generateContent
+// spy via the module-level variable below.
 // ---------------------------------------------------------------------------
 
-function buildMockAi(textPayload: string) {
-  const mockGenerateContent = vi.fn().mockResolvedValue({ text: textPayload });
-  const mockAi = {
-    models: { generateContent: mockGenerateContent },
-    chats: { create: vi.fn() },
-  };
-  vi.mocked(GoogleGenAI).mockReturnValue(mockAi as unknown as GoogleGenAI);
-  return { mockAi, mockGenerateContent };
-}
+let b4MockGenerateContent = vi.fn();
+
+const b4MockAi = {
+  models: {
+    get generateContent() {
+      return b4MockGenerateContent;
+    },
+  },
+  chats: { create: vi.fn() },
+};
+
+vi.mocked(GoogleGenAI).mockReturnValue(b4MockAi as unknown as GoogleGenAI);
 
 // ---------------------------------------------------------------------------
 // B1 — Hint not set in questioning mode
@@ -148,6 +153,8 @@ describe('B3 · abort in-flight requests on exit and timer expiry (App.tsx sourc
 describe('B4 · confirmTefAdImageForQuestioning throws on invalid summary field', () => {
   beforeEach(() => {
     localStorage.setItem('parle_api_key_gemini', 'test-key-b4');
+    // Reset the shared spy to a default (overridden per test as needed)
+    b4MockGenerateContent = vi.fn().mockResolvedValue({ text: '' });
   });
 
   afterEach(() => {
@@ -156,7 +163,9 @@ describe('B4 · confirmTefAdImageForQuestioning throws on invalid summary field'
   });
 
   it('throws when the API returns a response with summary missing entirely', async () => {
-    buildMockAi(JSON.stringify({ roleSummary: 'I am ready.' }));
+    b4MockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify({ roleSummary: 'I am ready.' }),
+    });
 
     await expect(
       confirmTefAdImageForQuestioning('base64data', 'image/jpeg')
@@ -164,7 +173,9 @@ describe('B4 · confirmTefAdImageForQuestioning throws on invalid summary field'
   });
 
   it('throws when the API returns a response with a non-string summary (number)', async () => {
-    buildMockAi(JSON.stringify({ summary: 42, roleSummary: 'I am ready.' }));
+    b4MockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify({ summary: 42, roleSummary: 'I am ready.' }),
+    });
 
     await expect(
       confirmTefAdImageForQuestioning('base64data', 'image/jpeg')
@@ -172,7 +183,9 @@ describe('B4 · confirmTefAdImageForQuestioning throws on invalid summary field'
   });
 
   it('throws when the API returns a response with an empty-string summary', async () => {
-    buildMockAi(JSON.stringify({ summary: '', roleSummary: 'I am ready.' }));
+    b4MockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify({ summary: '', roleSummary: 'I am ready.' }),
+    });
 
     await expect(
       confirmTefAdImageForQuestioning('base64data', 'image/jpeg')
@@ -180,7 +193,9 @@ describe('B4 · confirmTefAdImageForQuestioning throws on invalid summary field'
   });
 
   it('throws when the API returns a response with roleSummary missing entirely', async () => {
-    buildMockAi(JSON.stringify({ summary: 'A car ad.' }));
+    b4MockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify({ summary: 'A car ad.' }),
+    });
 
     await expect(
       confirmTefAdImageForQuestioning('base64data', 'image/jpeg')
@@ -188,10 +203,12 @@ describe('B4 · confirmTefAdImageForQuestioning throws on invalid summary field'
   });
 
   it('returns normally when both summary and roleSummary are valid non-empty strings', async () => {
-    buildMockAi(JSON.stringify({
-      summary: 'A car advertisement.',
-      roleSummary: 'I understand the ad.',
-    }));
+    b4MockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify({
+        summary: 'A car advertisement.',
+        roleSummary: 'I understand the ad.',
+      }),
+    });
 
     const result = await confirmTefAdImageForQuestioning('base64data', 'image/jpeg');
     expect(result.summary).toBe('A car advertisement.');
