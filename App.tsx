@@ -1230,6 +1230,8 @@ const App: React.FC = () => {
             onExitScenario={handleExitScenario}
             tefAdMode={tefAdMode}
             onExitTefAd={handleExitTefAd}
+            tefQuestioningMode={tefQuestioningMode}
+            onExitTefQuestioning={handleExitTefQuestioning}
           />
 
           {/* Orb-Mic — at the bottom, closest to thumb */}
@@ -1294,7 +1296,7 @@ const App: React.FC = () => {
             <div className="flex-shrink-0">
               <ConversationHint
                 hint={currentHint}
-                isVisible={(scenarioMode === 'practice' || tefAdMode === 'practice') && (appState === AppState.IDLE || appState === AppState.RECORDING)}
+                isVisible={(scenarioMode === 'practice' || tefAdMode === 'practice' || tefQuestioningMode === 'practice') && (appState === AppState.IDLE || appState === AppState.RECORDING)}
               />
             </div>
           </main>
@@ -1337,6 +1339,8 @@ const App: React.FC = () => {
                   onExitScenario={handleExitScenario}
                   tefAdMode={tefAdMode}
                   onExitTefAd={handleExitTefAd}
+                  tefQuestioningMode={tefQuestioningMode}
+                  onExitTefQuestioning={handleExitTefQuestioning}
                   compact
                 />
               </div>
@@ -1418,9 +1422,9 @@ const App: React.FC = () => {
       )}
 
       {/* Image Lightbox */}
-      {showLightbox && tefAdImage && (
+      {showLightbox && (tefAdImage || tefQuestioningImage) && (
         <ImageLightbox
-          imageDataUrl={tefAdImage}
+          imageDataUrl={(tefAdImage || tefQuestioningImage)!}
           onClose={() => setShowLightbox(false)}
         />
       )}

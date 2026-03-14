@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppState, ScenarioMode, Scenario, TefAdMode } from '../types';
+import { AppState, ScenarioMode, Scenario, TefAdMode, TefQuestioningMode } from '../types';
 
 interface ControlsProps {
   appState: AppState;
@@ -14,6 +14,9 @@ interface ControlsProps {
   // TEF Ad props
   tefAdMode?: TefAdMode;
   onExitTefAd?: () => void;
+  // TEF Questioning props
+  tefQuestioningMode?: TefQuestioningMode;
+  onExitTefQuestioning?: () => void;
 }
 
 export const Controls: React.FC<ControlsProps> = ({
@@ -28,16 +31,32 @@ export const Controls: React.FC<ControlsProps> = ({
   compact = false,
   tefAdMode = 'none',
   onExitTefAd,
+  tefQuestioningMode = 'none',
+  onExitTefQuestioning,
 }) => {
   const isRecording = appState === AppState.RECORDING;
   const isInPracticeMode = scenarioMode === 'practice' && activeScenario;
   const isInTefAdPractice = tefAdMode === 'practice';
+  const isInTefQuestioningPractice = tefQuestioningMode === 'practice';
 
   if (compact) {
     return (
       <div className="flex flex-col gap-2 w-full">
-        {/* Compact scenario/tef-ad indicator or buttons */}
-        {isInTefAdPractice ? (
+        {/* Compact scenario/tef-ad/tef-questioning indicator or buttons */}
+        {isInTefQuestioningPractice ? (
+          <div className="flex items-center justify-between bg-green-900/30 px-3 py-2 rounded-xl border border-green-700/50">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0"></div>
+              <span className="text-green-300 text-xs font-medium truncate">Ad Questioning Practice</span>
+            </div>
+            <button
+              onClick={() => onExitTefQuestioning?.()}
+              className="text-xs text-slate-400 hover:text-slate-200 px-2 py-0.5 rounded border border-slate-600 hover:border-slate-500 transition-colors flex-shrink-0 ml-2"
+            >
+              Exit
+            </button>
+          </div>
+        ) : isInTefAdPractice ? (
           <div className="flex items-center justify-between bg-green-900/30 px-3 py-2 rounded-xl border border-green-700/50">
             <div className="flex items-center gap-2 min-w-0">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse flex-shrink-0"></div>
@@ -135,8 +154,26 @@ export const Controls: React.FC<ControlsProps> = ({
         </div>
       </div>
 
-      {/* Scenario / TEF Ad Mode Indicator or Toggle */}
-      {isInTefAdPractice ? (
+      {/* Scenario / TEF Ad / TEF Questioning Mode Indicator or Toggle */}
+      {isInTefQuestioningPractice ? (
+        <div className="w-full bg-green-900/30 p-4 rounded-2xl border border-green-700/50 backdrop-blur-sm">
+          <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <span className="text-green-300 text-sm font-medium">Ad Questioning Practice</span>
+            </div>
+            <button
+              onClick={() => onExitTefQuestioning?.()}
+              className="text-xs text-slate-400 hover:text-slate-200 px-3 py-1 rounded border border-slate-600 hover:border-slate-500 transition-colors"
+            >
+              Exit
+            </button>
+          </div>
+          <p className="text-slate-500 text-xs mt-2">
+            Ask as many questions as you can about the advertisement!
+          </p>
+        </div>
+      ) : isInTefAdPractice ? (
         <div className="w-full bg-green-900/30 p-4 rounded-2xl border border-green-700/50 backdrop-blur-sm">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
