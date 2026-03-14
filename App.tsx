@@ -84,7 +84,7 @@ const App: React.FC = () => {
   // TEF Questioning conversation timer (5-minute limit)
   const { elapsed: tefQuestioningElapsed } = useConversationTimer(
     appState,
-    tefQuestioningMode === 'practice',
+    tefQuestioningMode === 'practice' && !showTefQuestioningSummary,
     () => { setTefQuestioningTimedUp(true); setShowTefQuestioningSummary(true); },
     300
   );
