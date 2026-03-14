@@ -60,8 +60,6 @@ const App: React.FC = () => {
   // TEF Ad state
   const [tefAdMode, setTefAdMode] = useState<TefAdMode>('none');
   const [tefAdImage, setTefAdImage] = useState<string | null>(null);
-  const [tefAdMimeType, setTefAdMimeType] = useState<string | null>(null);
-  const [tefAdConfirmation, setTefAdConfirmation] = useState<{ summary: string; roleSummary: string } | null>(null);
   const [showLightbox, setShowLightbox] = useState(false);
   const [tefTimedUp, setTefTimedUp] = useState(false);
   const [tefObjectionState, setTefObjectionState] = useState<TefObjectionState | null>(null);
@@ -77,8 +75,6 @@ const App: React.FC = () => {
   // TEF Questioning state
   const [tefQuestioningMode, setTefQuestioningMode] = useState<TefQuestioningMode>('none');
   const [tefQuestioningImage, setTefQuestioningImage] = useState<string | null>(null);
-  const [tefQuestioningMimeType, setTefQuestioningMimeType] = useState<string | null>(null);
-  const [tefQuestioningConfirmation, setTefQuestioningConfirmation] = useState<{ summary: string; roleSummary: string } | null>(null);
   const [tefQuestioningTimedUp, setTefQuestioningTimedUp] = useState(false);
   const [tefQuestioningQuestionCount, setTefQuestioningQuestionCount] = useState(0);
   const [tefQuestioningRepeatCount, setTefQuestioningRepeatCount] = useState(0);
@@ -424,7 +420,7 @@ const App: React.FC = () => {
       if (tefQuestioningMode === 'practice') {
         if (tefQuestioningIsFirstMessage) {
           setTefQuestioningIsFirstMessage(false);
-        } else if (!tefQuestioningIsFirstMessage) {
+        } else {
           setTefQuestioningQuestionCount(c => c + 1);
           if (response.isRepeat === true) {
             setTefQuestioningRepeatCount(r => r + 1);
@@ -885,8 +881,6 @@ const App: React.FC = () => {
   const handleCloseTefAdSetup = () => {
     setTefAdMode('none');
     setTefAdImage(null);
-    setTefAdMimeType(null);
-    setTefAdConfirmation(null);
   };
 
   const handleStartTefConversation = async (
@@ -939,10 +933,8 @@ const App: React.FC = () => {
     setScenario(tefScenario);
     setActiveScenario(tefScenario);
 
-    // Store image and confirmation
+    // Store image
     setTefAdImage(image);
-    setTefAdMimeType(mimeType);
-    setTefAdConfirmation(confirmation);
 
     // Reset timer state
     setTefTimedUp(false);
@@ -1004,8 +996,6 @@ const App: React.FC = () => {
     // Reset all TEF state
     setTefAdMode('none');
     setTefAdImage(null);
-    setTefAdMimeType(null);
-    setTefAdConfirmation(null);
     setShowLightbox(false);
     setTefTimedUp(false);
     setTefObjectionState(null);
@@ -1071,10 +1061,8 @@ const App: React.FC = () => {
     setScenario(questioningScenario);
     setActiveScenario(questioningScenario);
 
-    // Store image and confirmation
+    // Store image
     setTefQuestioningImage(image);
-    setTefQuestioningMimeType(mimeType);
-    setTefQuestioningConfirmation(confirmation);
 
     // Ensure mutual exclusivity with other modes
     setScenarioMode('none');
@@ -1120,8 +1108,6 @@ const App: React.FC = () => {
     // Reset all questioning state
     setTefQuestioningMode('none');
     setTefQuestioningImage(null);
-    setTefQuestioningMimeType(null);
-    setTefQuestioningConfirmation(null);
     setTefQuestioningTimedUp(false);
     setTefQuestioningQuestionCount(0);
     setTefQuestioningRepeatCount(0);

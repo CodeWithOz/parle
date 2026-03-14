@@ -66,10 +66,11 @@ describe('tefQuestioningCounting · first-turn skip in processAudioMessage', () 
 
   it('does NOT increment tefQuestioningQuestionCount when tefQuestioningIsFirstMessage is true', async () => {
     const src = await import('../App?raw');
-    // The count increment must be guarded by !tefQuestioningIsFirstMessage
-    // (the count only increments when it is NOT the first message)
+    // The count increment must be inside the else branch of if (tefQuestioningIsFirstMessage).
+    // A plain `else` is correct here — `else if (!tefQuestioningIsFirstMessage)` is redundant
+    // dead code since the condition is always true in the else branch.
     expect(src.default).toMatch(
-      /!tefQuestioningIsFirstMessage[\s\S]{0,300}setTefQuestioningQuestionCount|setTefQuestioningQuestionCount[\s\S]{0,300}!tefQuestioningIsFirstMessage/
+      /if\s*\(\s*tefQuestioningIsFirstMessage\s*\)[\s\S]{0,300}else[\s\S]{0,300}setTefQuestioningQuestionCount/
     );
   });
 });
