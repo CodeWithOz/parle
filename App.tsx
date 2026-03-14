@@ -414,7 +414,7 @@ const App: React.FC = () => {
           setTefAdIsFirstMessage(false);
         } else {
           // Advance TEF objection state machine after each non-first successful user turn
-          if (!tefAdIsFirstMessage && tefObjectionState && !tefObjectionState.isConvinced) {
+          if (tefObjectionState && !tefObjectionState.isConvinced) {
             setTefObjectionState(prev => prev ? advanceTefObjectionState(prev) : null);
           }
         }
