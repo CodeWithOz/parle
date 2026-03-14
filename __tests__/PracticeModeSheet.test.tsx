@@ -1,14 +1,14 @@
 /**
  * TDD tests for the PracticeModeSheet component.
  *
- * PracticeModeSheet is a Vaul-based bottom drawer that presents the two
- * available practice modes — "Ad Persuasion" and "Role Play" — as selectable
- * cards.
+ * PracticeModeSheet is a Vaul-based bottom drawer that presents the three
+ * available practice modes — "Ad Persuasion", "Role Play", and "Ad Questioning"
+ * — as selectable cards.
  *
  * Props:
  *   open: boolean               — controls drawer visibility
  *   onOpenChange: (open: boolean) => void
- *   onSelectMode: (modeId: 'ad-persuasion' | 'role-play') => void
+ *   onSelectMode: (modeId: 'ad-persuasion' | 'role-play' | 'ad-questioning') => void
  *
  * Tests FAIL before the implementation exists.
  */
@@ -64,11 +64,22 @@ describe('PracticeModeSheet · practice mode options', () => {
     expect(screen.getByText(/role play/i)).toBeInTheDocument();
   });
 
-  it('renders exactly two selectable mode options', () => {
+  it('renders an "Ad Questioning" mode option when open is true', () => {
+    renderSheet(true);
+    expect(screen.getByText(/ad questioning/i)).toBeInTheDocument();
+  });
+
+  it('renders a description for "Ad Questioning" mentioning questions and TEF exam practice', () => {
+    renderSheet(true);
+    // The description should mention asking questions and TEF exam practice
+    expect(screen.getByText(/ask.*question|question.*ask/i)).toBeInTheDocument();
+  });
+
+  it('renders exactly three selectable mode options', () => {
     renderSheet(true);
     // Each mode card should be reachable via a button role named after the mode
-    const buttons = screen.getAllByRole('button', { name: /ad persuasion|role play/i });
-    expect(buttons).toHaveLength(2);
+    const buttons = screen.getAllByRole('button', { name: /ad persuasion|role play|ad questioning/i });
+    expect(buttons).toHaveLength(3);
   });
 });
 
@@ -106,6 +117,17 @@ describe('PracticeModeSheet · onSelectMode callback', () => {
     expect(onSelectMode).not.toHaveBeenCalled();
   });
 
+  it('calls onSelectMode with "ad-questioning" when the Ad Questioning option is clicked', () => {
+    const onSelectMode = vi.fn();
+    renderSheet(true, vi.fn(), onSelectMode);
+
+    const adQuestioningButton = screen.getByRole('button', { name: /ad questioning/i });
+    fireEvent.click(adQuestioningButton);
+
+    expect(onSelectMode).toHaveBeenCalledTimes(1);
+    expect(onSelectMode).toHaveBeenCalledWith('ad-questioning');
+  });
+
   it('does not call onOpenChange when a mode option is clicked', () => {
     const onOpenChange = vi.fn();
     const onSelectMode = vi.fn();
@@ -115,6 +137,9 @@ describe('PracticeModeSheet · onSelectMode callback', () => {
     expect(onOpenChange).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: /role play/i }));
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /ad questioning/i }));
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 });
@@ -132,5 +157,10 @@ describe('PracticeModeSheet · closed state', () => {
   it('does not render the "Role Play" option when open is false', () => {
     renderSheet(false);
     expect(screen.queryByText(/role play/i)).not.toBeInTheDocument();
+  });
+
+  it('does not render the "Ad Questioning" option when open is false', () => {
+    renderSheet(false);
+    expect(screen.queryByText(/ad questioning/i)).not.toBeInTheDocument();
   });
 });
