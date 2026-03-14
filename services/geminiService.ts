@@ -64,6 +64,17 @@ const SingleCharacterSchema = z.object({
 });
 
 /**
+ * Zod schema for TEF Questioning mode response.
+ * Adds optional isRepeat field to flag repeated questions.
+ */
+const TefQuestioningSchema = z.object({
+  french: z.string().describe("The complete response in French only"),
+  english: z.string().describe("The English translation of the French response"),
+  hint: z.string().describe("Suggestion of a question the user could ask next - brief description in English"),
+  isRepeat: z.boolean().optional().describe("true if the user asked a question that was already answered"),
+});
+
+/**
  * Zod schema for free conversation mode response.
  * Separates French and English for TTS control, with optional hint.
  */
@@ -136,6 +147,8 @@ function toGeminiSchema(jsonSchema: Record<string, any>): Record<string, any> {
 const SINGLE_CHARACTER_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(SingleCharacterSchema) as Record<string, any>);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const FREE_CONVERSATION_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(FreeConversationSchema) as Record<string, any>);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const TEF_QUESTIONING_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(TefQuestioningSchema) as Record<string, any>);
 const createGeminiMultiCharacterSchema = (scenario: Scenario) =>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   toGeminiSchema(z.toJSONSchema(createMultiCharacterSchema(scenario)) as Record<string, any>);
@@ -164,9 +177,11 @@ function createChatSession(): void {
   // returning an array of turns instead of a single response object.
   const responseSchema = activeScenario && activeScenario.characters && activeScenario.characters.length > 1
     ? createGeminiMultiCharacterSchema(activeScenario)
-    : activeScenario
-      ? SINGLE_CHARACTER_RESPONSE_SCHEMA
-      : FREE_CONVERSATION_RESPONSE_SCHEMA;
+    : activeScenario?.isTefQuestioning
+      ? TEF_QUESTIONING_RESPONSE_SCHEMA
+      : activeScenario
+        ? SINGLE_CHARACTER_RESPONSE_SCHEMA
+        : FREE_CONVERSATION_RESPONSE_SCHEMA;
 
   chatSession = ai.chats.create({
     model: 'gemini-2.0-flash-lite',
@@ -304,6 +319,70 @@ Respond ONLY with valid JSON in this format:
   return {
     summary: parsed.summary || 'Advertisement analyzed.',
     roleSummary: parsed.roleSummary || 'I understand the ad and will play your skeptical friend.',
+  };
+};
+
+/**
+ * Analyzes an advertisement image and returns a summary and role confirmation for questioning mode.
+ * One-shot call (not a chat session) with inline image data.
+ * Describes a customer service agent role (not skeptical friend).
+ */
+export const confirmTefAdImageForQuestioning = async (
+  imageBase64: string,
+  mimeType: string
+): Promise<{ summary: string; roleSummary: string }> => {
+  const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+  if (!SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
+    const typeLabels = SUPPORTED_IMAGE_TYPES.map(t => t.replace('image/', '').toUpperCase()).join(', ');
+    throw new Error(`Unsupported image type "${mimeType}". Please use ${typeLabels}.`);
+  }
+
+  ensureAiInitialized();
+
+  const response = await ai!.models.generateContent({
+    model: 'gemini-2.0-flash-lite',
+    contents: [{
+      parts: [
+        {
+          text: `Look at this advertisement image. Please respond with a JSON object containing:
+1. "summary": A concise 2-3 sentence description of what the advertisement is for, what product or service it promotes, and its key selling points or tagline if visible.
+2. "roleSummary": A brief confirmation (1-2 sentences) that you understand the ad and are ready to play the role of a customer service agent for the company in this ad — answering caller questions briefly and accurately without volunteering extra information.
+
+Respond ONLY with valid JSON in this format:
+{
+  "summary": "...",
+  "roleSummary": "..."
+}`
+        },
+        {
+          inlineData: {
+            data: imageBase64,
+            mimeType: mimeType,
+          },
+        },
+      ],
+    }],
+    config: {
+      responseMimeType: 'application/json',
+    },
+  });
+
+  const text = response.text || '';
+  if (!text.trim()) {
+    throw new Error('No response received from image analysis');
+  }
+
+  let parsed: { summary: string; roleSummary: string };
+  try {
+    parsed = JSON.parse(text);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse image analysis response: ${errorMessage}. Raw: ${text}`);
+  }
+
+  return {
+    summary: parsed.summary || 'Advertisement analyzed.',
+    roleSummary: parsed.roleSummary || 'I understand the ad and will act as a customer service agent.',
   };
 };
 
@@ -846,13 +925,17 @@ export const sendVoiceMessage = async (
           throw new Error(`Failed to parse single-character response as JSON: ${errorMessage}. Raw response: ${rawModelText}`);
         }
 
+        // Choose schema: TEF Questioning adds isRepeat field
+        const schemaToUse = activeScenario.isTefQuestioning ? TefQuestioningSchema : SingleCharacterSchema;
+
         // Use safeParse for better error handling
-        const validationResult = SingleCharacterSchema.safeParse(jsonResponse);
+        const validationResult = schemaToUse.safeParse(jsonResponse);
         if (!validationResult.success) {
           throw new Error(`Failed to validate single-character response: ${validationResult.error.message}. Raw response: ${rawModelText}`);
         }
 
         const validated = validationResult.data;
+        const isRepeat = activeScenario.isTefQuestioning && 'isRepeat' in validated ? (validated as { isRepeat?: boolean }).isRepeat : undefined;
 
         // Check if operation was cancelled before generating audio
         if (signal?.aborted) {
@@ -900,6 +983,7 @@ export const sendVoiceMessage = async (
           hint: validated.hint,
           voiceName,
           audioGenerationFailed: !audioUrl, // Empty audioUrl means TTS failed
+          ...(isRepeat !== undefined ? { isRepeat } : {}),
           characters: [{
             characterId: activeScenario?.characters?.[0]?.id || '',
             characterName: activeScenario?.characters?.[0]?.name || '',
