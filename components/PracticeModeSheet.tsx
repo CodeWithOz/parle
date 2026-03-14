@@ -73,7 +73,6 @@ export const PracticeModeSheet: React.FC<PracticeModeSheetProps> = ({
             {/* Ad Questioning */}
             <button
               onClick={() => onSelectMode('ad-questioning')}
-              aria-label="Ad Questioning"
               className="w-full flex items-center gap-4 p-4 rounded-2xl border border-slate-700/50 bg-slate-800/50 hover:bg-slate-800 hover:border-slate-600 transition-colors text-left"
             >
               <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">

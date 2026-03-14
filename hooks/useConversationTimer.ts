@@ -20,7 +20,9 @@ export const useConversationTimer = (
   onTimeUp: () => void,
   maxSeconds?: number
 ): { elapsed: number; isTimedOut: boolean; reset: () => void } => {
-  const limit = maxSeconds ?? DEFAULT_MAX_ELAPSED_SECONDS;
+  const limit = (maxSeconds !== undefined && Number.isFinite(maxSeconds) && maxSeconds > 0)
+    ? maxSeconds
+    : DEFAULT_MAX_ELAPSED_SECONDS;
 
   const [elapsed, setElapsed] = useState(0);
   const [isTimedOut, setIsTimedOut] = useState(false);

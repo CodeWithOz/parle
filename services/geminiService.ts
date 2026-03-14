@@ -84,6 +84,14 @@ const FreeConversationSchema = z.object({
 });
 
 /**
+ * Zod schema for image analysis responses (confirmTefAdImage / confirmTefAdImageForQuestioning).
+ */
+const ImageAnalysisSchema = z.object({
+  summary: z.string().min(1),
+  roleSummary: z.string().min(1),
+});
+
+/**
  * Create Zod schema for multi-character response.
  * Uses fixed labels ("Character 1", "Character 2", etc.) instead of actual names
  * because LLMs don't reliably use exact character names in structured output.
@@ -308,17 +316,22 @@ Respond ONLY with valid JSON in this format:
     throw new Error('No response received from image analysis');
   }
 
-  let parsed: { summary: string; roleSummary: string };
+  let parsedRaw: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsedRaw = JSON.parse(text);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to parse image analysis response: ${errorMessage}. Raw: ${text}`);
   }
 
+  const validation = ImageAnalysisSchema.safeParse(parsedRaw);
+  if (!validation.success) {
+    throw new Error(`Image analysis response validation failed: ${validation.error.message}`);
+  }
+
   return {
-    summary: parsed.summary || 'Advertisement analyzed.',
-    roleSummary: parsed.roleSummary || 'I understand the ad and will play your skeptical friend.',
+    summary: validation.data.summary,
+    roleSummary: validation.data.roleSummary,
   };
 };
 
@@ -337,9 +350,9 @@ export const confirmTefAdImageForQuestioning = async (
     throw new Error(`Unsupported image type "${mimeType}". Please use ${typeLabels}.`);
   }
 
-  ensureAiInitialized();
+  const oneShotAi = createOneShot();
 
-  const response = await ai!.models.generateContent({
+  const response = await oneShotAi.models.generateContent({
     model: 'gemini-2.0-flash-lite',
     contents: [{
       parts: [
@@ -372,17 +385,22 @@ Respond ONLY with valid JSON in this format:
     throw new Error('No response received from image analysis');
   }
 
-  let parsed: { summary: string; roleSummary: string };
+  let parsedRaw: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsedRaw = JSON.parse(text);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to parse image analysis response: ${errorMessage}. Raw: ${text}`);
   }
 
+  const validation = ImageAnalysisSchema.safeParse(parsedRaw);
+  if (!validation.success) {
+    throw new Error(`Image analysis response validation failed: ${validation.error.message}`);
+  }
+
   return {
-    summary: parsed.summary || 'Advertisement analyzed.',
-    roleSummary: parsed.roleSummary || 'I understand the ad and will act as a customer service agent.',
+    summary: validation.data.summary,
+    roleSummary: validation.data.roleSummary,
   };
 };
 

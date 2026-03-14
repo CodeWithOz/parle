@@ -81,11 +81,23 @@ const App: React.FC = () => {
   const [tefQuestioningIsFirstMessage, setTefQuestioningIsFirstMessage] = useState(true);
   const [showTefQuestioningSummary, setShowTefQuestioningSummary] = useState(false);
 
+  // AbortController for cancelling in-flight requests (declared here so timer callback can use it)
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // TEF Questioning conversation timer (5-minute limit)
+  const handleTefQuestioningTimeUp = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setTefQuestioningTimedUp(true);
+    setShowTefQuestioningSummary(true);
+  }, []);
+
   const { elapsed: tefQuestioningElapsed } = useConversationTimer(
     appState,
     tefQuestioningMode === 'practice' && !showTefQuestioningSummary,
-    () => { setTefQuestioningTimedUp(true); setShowTefQuestioningSummary(true); },
+    handleTefQuestioningTimeUp,
     300
   );
 
@@ -109,8 +121,6 @@ const App: React.FC = () => {
 
   // Ref to track if processing was aborted by the user
   const processingAbortedRef = useRef(false);
-  // AbortController for cancelling in-flight requests
-  const abortControllerRef = useRef<AbortController | null>(null);
   // Request ID counter to detect stale responses from previous requests
   const requestIdRef = useRef(0);
 
@@ -389,8 +399,11 @@ const App: React.FC = () => {
           },
         ]);
 
-        // Update current hint (only in scenario mode)
+        // Update current hint (only in scenario/ad/questioning practice mode)
         if ((scenarioMode === 'practice' || tefAdMode === 'practice') && hint) {
+          setCurrentHint(hint);
+        }
+        if (tefQuestioningMode === 'practice' && !tefQuestioningIsFirstMessage && hint) {
           setCurrentHint(hint);
         }
 
@@ -1073,6 +1086,11 @@ const App: React.FC = () => {
   };
 
   const handleExitTefQuestioning = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setShowLightbox(false);
     setShowTefQuestioningSummary(true);
   };
 
@@ -1082,6 +1100,7 @@ const App: React.FC = () => {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    setShowLightbox(false);
     if (appState === AppState.RECORDING) {
       cancelRecording();
     }
