@@ -15,7 +15,10 @@ import { Controls } from './components/Controls';
 import { ConversationHistory } from './components/ConversationHistory';
 import { ScenarioSetup } from './components/ScenarioSetup';
 import { AdPersuasionSetup } from './components/AdPersuasionSetup';
+import { AdQuestioningSetup } from './components/AdQuestioningSetup';
 import { PersuasionTimer } from './components/PersuasionTimer';
+import { QuestioningTimer } from './components/QuestioningTimer';
+import { TefQuestioningSummary } from './components/TefQuestioningSummary';
 import { AdThumbnail } from './components/AdThumbnail';
 import { ImageLightbox } from './components/ImageLightbox';
 import { ApiKeySetup } from './components/ApiKeySetup';
@@ -83,7 +86,7 @@ const App: React.FC = () => {
   const [showTefQuestioningSummary, setShowTefQuestioningSummary] = useState(false);
 
   // TEF Questioning conversation timer (5-minute limit)
-  useConversationTimer(
+  const { elapsed: tefQuestioningElapsed } = useConversationTimer(
     appState,
     tefQuestioningMode === 'practice',
     () => { setTefQuestioningTimedUp(true); setShowTefQuestioningSummary(true); },
@@ -423,9 +426,9 @@ const App: React.FC = () => {
           setTefQuestioningIsFirstMessage(false);
         } else if (!tefQuestioningIsFirstMessage) {
           setTefQuestioningQuestionCount(c => c + 1);
-        }
-        if (response.isRepeat === true) {
-          setTefQuestioningRepeatCount(r => r + 1);
+          if (response.isRepeat === true) {
+            setTefQuestioningRepeatCount(r => r + 1);
+          }
         }
       }
 
@@ -896,6 +899,9 @@ const App: React.FC = () => {
       return;
     }
 
+    // Reset first-message flag at the start of every new session
+    setTefAdIsFirstMessage(true);
+
     // Revoke existing audio URLs
     for (const msg of messages) {
       if (msg.audioUrl) {
@@ -1191,6 +1197,22 @@ const App: React.FC = () => {
             </>
           )}
 
+          {/* TEF Questioning practice header items */}
+          {tefQuestioningMode === 'practice' && tefQuestioningImage && (
+            <>
+              <QuestioningTimer
+                remainingSeconds={300 - tefQuestioningElapsed}
+                isPaused={appState === AppState.PROCESSING || appState === AppState.ERROR}
+                questionCount={tefQuestioningQuestionCount}
+                isTimedUp={tefQuestioningTimedUp}
+              />
+              <AdThumbnail
+                imageDataUrl={tefQuestioningImage}
+                onOpenLightbox={() => setShowLightbox(true)}
+              />
+            </>
+          )}
+
           <button
             onClick={() => setShowApiKeyModal(true)}
             className="p-2 text-slate-400 hover:text-white transition-colors bg-slate-800/50 rounded-full border border-slate-700/50"
@@ -1354,6 +1376,27 @@ const App: React.FC = () => {
           onClose={handleCloseTefAdSetup}
           geminiKeyMissing={geminiKeyMissing}
           onOpenApiKeyModal={() => setShowApiKeyModal(true)}
+        />
+      )}
+
+      {/* TEF Questioning Setup Modal */}
+      {tefQuestioningMode === 'setup' && (
+        <AdQuestioningSetup
+          onStartConversation={handleStartTefQuestioningConversation}
+          onClose={() => setTefQuestioningMode('none')}
+          geminiKeyMissing={geminiKeyMissing}
+          onOpenApiKeyModal={() => setShowApiKeyModal(true)}
+        />
+      )}
+
+      {/* TEF Questioning Summary Overlay */}
+      {showTefQuestioningSummary && (
+        <TefQuestioningSummary
+          questionCount={tefQuestioningQuestionCount}
+          repeatCount={tefQuestioningRepeatCount}
+          elapsedSeconds={tefQuestioningElapsed}
+          adImage={tefQuestioningImage}
+          onDismiss={handleDismissTefQuestioningSummary}
         />
       )}
 
