@@ -217,6 +217,7 @@ Any new feature that depends on AI API credentials MUST implement both of these 
 | Scenario creation (describe) | Required | Required | Gemini for transcription, OpenAI for scenario planning |
 | Scenario practice (mic) | Required | — | Gemini handles conversation |
 | Ad Persuasion (TEF Ad) | Required | — | Gemini for image analysis + conversation |
+| Ad Questioning (TEF Questioning) | Required | — | Gemini for image analysis + conversation |
 
 ### Related Files
 - `services/apiKeyService.ts` — `hasApiKeyOrEnv()` function for checking key availability
@@ -274,6 +275,26 @@ The TEF Ad system prompt in `services/scenarioService.ts` (`generateTefAdSystemI
 
 This is intentional. Adding counting logic back into the system prompt would conflict with the client-side state machine.
 
+### First-Message Skip in Persuasion Mode
+
+The first user turn in a TEF Ad Persuasion session is always a greeting (e.g., "Bonjour"). It must **not** receive any objection context injection and must **not** advance the objection state machine. The app tracks this with a `tefAdIsFirstMessage` boolean:
+
+```typescript
+// App.tsx: skip context injection on the first turn
+if (tefAdMode === 'practice' && tefObjectionState && !tefAdIsFirstMessage) {
+  objectionContextText = buildTefAdContextText(tefObjectionState);
+}
+
+// After the response:
+if (tefAdIsFirstMessage) {
+  setTefAdIsFirstMessage(false); // greeting done, no state advance
+} else {
+  setTefObjectionState(prev => advanceTefObjectionState(prev)); // normal advance
+}
+```
+
+Do **not** flag the missing `advanceTefObjectionState` call on the first turn as a bug — it is intentional. The objection state machine should start from Direction 1 / Round 1 on the second turn (the first real persuasion exchange), not consume a round on the greeting.
+
 ### Related Files
 
 - `utils/tefObjectionState.ts` — Pure state machine: `createInitialTefObjectionState`, `advanceTefObjectionState`
@@ -282,6 +303,73 @@ This is intentional. Adding counting logic back into the system prompt would con
 - `services/scenarioService.ts` — `generateTefAdSystemInstruction()` (simplified system prompt)
 - `components/PersuasionTimer.tsx` — Progress indicator ("Objection X/5 · Round Y/3") driven by the same state
 - `App.tsx` — Wires generation at setup, context injection per turn, state advancement after each response
+
+---
+
+## TEF Ad Questioning Mode: Schema Selection and `isRepeat` Flag
+
+**Location:** `services/geminiService.ts` - `TefQuestioningSchema`, `createChatSession()`, `sendVoiceMessage()`; `types.ts`; `App.tsx`
+
+### Pattern
+
+TEF Ad Questioning is a third synthetic-scenario practice mode (alongside Role Play and Ad Persuasion). It sets `isTefQuestioning: true` on the `Scenario` object. This flag drives two distinct behaviors in `geminiService.ts`:
+
+**1. Schema selection in `createChatSession()`**
+
+```typescript
+// isTefQuestioning selects the extended schema at session creation time
+const schemaToUse = activeScenario.isTefQuestioning
+  ? TefQuestioningSchema
+  : SingleCharacterSchema;
+```
+
+`TefQuestioningSchema` is a superset of `SingleCharacterSchema` — it adds one optional field:
+
+```typescript
+isRepeat: z.boolean().optional()
+  .describe("true if the user asked a question that was already answered")
+```
+
+Do **not** flag the two-schema branch as unnecessary complexity or suggest collapsing it into one schema. The schemas must remain separate so that `isRepeat` is never present in the standard single-character path and never absent in the questioning path.
+
+**2. `isRepeat` propagation in `sendVoiceMessage()`**
+
+After validating the JSON response, `isRepeat` is extracted and forwarded on the `VoiceResponse` object:
+
+```typescript
+const isRepeat = activeScenario.isTefQuestioning && 'isRepeat' in validated
+  ? (validated as { isRepeat?: boolean }).isRepeat
+  : undefined;
+```
+
+`App.tsx` reads `response.isRepeat` to increment a `tefQuestioningRepeatCount` displayed on the summary screen. Do **not** flag `isRepeat` on `VoiceResponse` as dead code — it is consumed by the repeat counter.
+
+### No Per-Turn Context Injection for Questioning Mode
+
+Unlike Ad Persuasion (which injects objection direction and round number on every turn), TEF Ad Questioning does **not** inject any per-turn context into `sendVoiceMessage`. The AI customer service agent's system prompt is self-sufficient — it needs no external sequencing signal. Adding context injection to the questioning path would be incorrect.
+
+### First-Message Skip in Questioning Mode
+
+Like persuasion mode, questioning mode tracks a `tefQuestioningIsFirstMessage` boolean. The first user turn (a greeting) does not increment `tefQuestioningQuestionCount`. This is intentional — only genuine questions should count toward the score shown in `TefQuestioningSummary`.
+
+```typescript
+if (tefQuestioningIsFirstMessage) {
+  setTefQuestioningIsFirstMessage(false); // greeting done, no count
+} else {
+  setTefQuestioningQuestionCount(c => c + 1);
+  if (response.isRepeat === true) setTefQuestioningRepeatCount(r => r + 1);
+}
+```
+
+### Related Files
+
+- `types.ts` — `isTefQuestioning?: boolean` on `Scenario`; `isRepeat?: boolean` on `VoiceResponse`
+- `services/geminiService.ts` — `TefQuestioningSchema`; schema selection in `createChatSession()`; `isRepeat` extraction in `sendVoiceMessage()`
+- `services/scenarioService.ts` — `generateTefQuestioningSystemInstruction()` (self-contained prompt, no per-turn injection)
+- `components/AdQuestioningSetup.tsx` — Setup UI for the questioning session
+- `components/QuestioningTimer.tsx` — In-session timer and question counter
+- `components/TefQuestioningSummary.tsx` — End-of-session summary (total questions, repeat count)
+- `App.tsx` — `tefQuestioningIsFirstMessage`, `tefQuestioningQuestionCount`, `tefQuestioningRepeatCount` state; `handleStartTefQuestioning`
 
 ---
 
@@ -295,6 +383,10 @@ When reviewing this codebase:
 4. **Don't suggest removing JSON response mode for single-character** - This enables French/English separation
 5. **Don't flag the TEF Ad system prompt as missing objection-counting logic** - Objection sequencing is deterministic and injected per-turn (see "Deterministic Objection Tracking" section above)
 6. **Don't flag the `contextText` text part alongside audio as an API misuse** - It is the intentional mechanism for delivering per-turn objection context to the LLM
+7. **Don't flag the missing `advanceTefObjectionState` call on the first persuasion turn as a bug** - The first turn is a greeting; the state machine must not advance until the first real exchange (see "First-Message Skip" under "Deterministic Objection Tracking")
+8. **Don't flag the two-schema branch (`TefQuestioningSchema` / `SingleCharacterSchema`) as unnecessary** - `isRepeat` must only appear in the questioning path; the schemas must remain separate
+9. **Don't flag `isRepeat` on `VoiceResponse` as dead code** - It is consumed by the repeat counter in `App.tsx` and displayed on `TefQuestioningSummary`
+10. **Don't add per-turn context injection to the questioning mode path** - Unlike persuasion mode, questioning mode needs no external sequencing signal; its system prompt is self-sufficient
 
 If you believe you've found a genuine bug in one of these areas, please:
 - Reference this document in your review
@@ -307,4 +399,5 @@ If you believe you've found a genuine bug in one of these areas, please:
 
 - 2025-01-XX: Initial documentation of TTS/history pattern and successive message merging
 - 2026-03-11: Added deterministic objection tracking pattern (TEF Ad mode)
+- 2026-03-14: Added TEF Ad Questioning mode patterns (isTefQuestioning schema selection, isRepeat flag, no per-turn context injection, first-message skip); added persuasion first-message skip note; updated credentials table
 - See git history for detailed implementation timeline

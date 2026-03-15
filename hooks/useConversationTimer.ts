@@ -1,25 +1,39 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState } from '../types';
 
-const MAX_ELAPSED_SECONDS = 600;
+const DEFAULT_MAX_ELAPSED_SECONDS = 600;
 
 /**
  * Timer hook that counts elapsed seconds for TEF Ad conversation practice.
  * Increments once per second when isActive is true and appState is not PROCESSING or ERROR.
- * Stops and calls onTimeUp when elapsed reaches 600 seconds.
+ * Stops and calls onTimeUp when elapsed reaches maxSeconds (default 600).
  * Resets elapsed to 0 when isActive transitions from false to true (rising edge).
+ *
+ * @param appState - current app state
+ * @param isActive - whether the timer should be running
+ * @param onTimeUp - callback fired when time limit is reached
+ * @param maxSeconds - optional time limit in seconds (default 600)
  */
 export const useConversationTimer = (
   appState: AppState,
   isActive: boolean,
-  onTimeUp: () => void
+  onTimeUp: () => void,
+  maxSeconds?: number
 ): { elapsed: number; isTimedOut: boolean; reset: () => void } => {
+  const limit = (maxSeconds !== undefined && Number.isFinite(maxSeconds) && maxSeconds > 0)
+    ? maxSeconds
+    : DEFAULT_MAX_ELAPSED_SECONDS;
+
   const [elapsed, setElapsed] = useState(0);
   const [isTimedOut, setIsTimedOut] = useState(false);
 
   // Keep stable references to avoid stale closures in the interval
   const onTimeUpRef = useRef(onTimeUp);
   onTimeUpRef.current = onTimeUp;
+
+  // Keep stable reference to limit so the effect doesn't re-run unnecessarily
+  const limitRef = useRef(limit);
+  limitRef.current = limit;
 
   // Track previous isActive value to detect rising edge
   const prevIsActiveRef = useRef(isActive);
@@ -42,7 +56,7 @@ export const useConversationTimer = (
     }
 
     const intervalId = setInterval(() => {
-      setElapsed(prev => Math.min(prev + 1, MAX_ELAPSED_SECONDS));
+      setElapsed(prev => Math.min(prev + 1, limitRef.current));
     }, 1000);
 
     return () => {
@@ -51,11 +65,11 @@ export const useConversationTimer = (
   }, [isActive, isTimedOut, appState]);
 
   useEffect(() => {
-    if (elapsed >= MAX_ELAPSED_SECONDS && !isTimedOut) {
+    if (elapsed >= limit && !isTimedOut) {
       setIsTimedOut(true);
       onTimeUpRef.current();
     }
-  }, [elapsed, isTimedOut]);
+  }, [elapsed, isTimedOut, limit]);
 
   const reset = useCallback(() => {
     setElapsed(0);

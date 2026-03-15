@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdMode, TefObjectionState } from './types';
+import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdMode, TefObjectionState, TefQuestioningMode } from './types';
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
 import { useConversationTimer } from './hooks/useConversationTimer';
@@ -8,14 +8,17 @@ import { processScenarioDescriptionOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
 import { hasApiKeyOrEnv } from './services/apiKeyService';
 import { assignVoicesToCharacters } from './services/voiceService';
-import { generateId, generateTefAdSystemInstruction } from './services/scenarioService';
+import { generateId, generateTefAdSystemInstruction, generateTefQuestioningSystemInstruction } from './services/scenarioService';
 import { createInitialTefObjectionState, advanceTefObjectionState, TOTAL_ROUNDS_PER_DIRECTION } from './utils/tefObjectionState';
 import { Orb } from './components/Orb';
 import { Controls } from './components/Controls';
 import { ConversationHistory } from './components/ConversationHistory';
 import { ScenarioSetup } from './components/ScenarioSetup';
 import { AdPersuasionSetup } from './components/AdPersuasionSetup';
+import { AdQuestioningSetup } from './components/AdQuestioningSetup';
 import { PersuasionTimer } from './components/PersuasionTimer';
+import { QuestioningTimer } from './components/QuestioningTimer';
+import { TefQuestioningSummary } from './components/TefQuestioningSummary';
 import { AdThumbnail } from './components/AdThumbnail';
 import { ImageLightbox } from './components/ImageLightbox';
 import { ApiKeySetup } from './components/ApiKeySetup';
@@ -57,17 +60,45 @@ const App: React.FC = () => {
   // TEF Ad state
   const [tefAdMode, setTefAdMode] = useState<TefAdMode>('none');
   const [tefAdImage, setTefAdImage] = useState<string | null>(null);
-  const [tefAdMimeType, setTefAdMimeType] = useState<string | null>(null);
-  const [tefAdConfirmation, setTefAdConfirmation] = useState<{ summary: string; roleSummary: string } | null>(null);
   const [showLightbox, setShowLightbox] = useState(false);
   const [tefTimedUp, setTefTimedUp] = useState(false);
   const [tefObjectionState, setTefObjectionState] = useState<TefObjectionState | null>(null);
+  const [tefAdIsFirstMessage, setTefAdIsFirstMessage] = useState(true);
 
   // TEF Ad conversation timer
   const { elapsed: tefElapsed, reset: resetTefTimer } = useConversationTimer(
     appState,
     tefAdMode === 'practice',
     () => setTefTimedUp(true)
+  );
+
+  // TEF Questioning state
+  const [tefQuestioningMode, setTefQuestioningMode] = useState<TefQuestioningMode>('none');
+  const [tefQuestioningImage, setTefQuestioningImage] = useState<string | null>(null);
+  const [tefQuestioningTimedUp, setTefQuestioningTimedUp] = useState(false);
+  const [tefQuestioningQuestionCount, setTefQuestioningQuestionCount] = useState(0);
+  const [tefQuestioningRepeatCount, setTefQuestioningRepeatCount] = useState(0);
+  const [tefQuestioningIsFirstMessage, setTefQuestioningIsFirstMessage] = useState(true);
+  const [showTefQuestioningSummary, setShowTefQuestioningSummary] = useState(false);
+
+  // AbortController for cancelling in-flight requests (declared here so timer callback can use it)
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  // TEF Questioning conversation timer (5-minute limit)
+  const handleTefQuestioningTimeUp = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setTefQuestioningTimedUp(true);
+    setShowTefQuestioningSummary(true);
+  }, []);
+
+  const { elapsed: tefQuestioningElapsed } = useConversationTimer(
+    appState,
+    tefQuestioningMode === 'practice' && !showTefQuestioningSummary,
+    handleTefQuestioningTimeUp,
+    300
   );
 
   // Audio retry state - stores last recorded audio for retry on failure
@@ -90,8 +121,6 @@ const App: React.FC = () => {
 
   // Ref to track if processing was aborted by the user
   const processingAbortedRef = useRef(false);
-  // AbortController for cancelling in-flight requests
-  const abortControllerRef = useRef<AbortController | null>(null);
   // Request ID counter to detect stale responses from previous requests
   const requestIdRef = useRef(0);
 
@@ -256,8 +285,9 @@ const App: React.FC = () => {
       const { base64, mimeType } = audioData;
 
       // Build per-turn objection context for TEF Ad practice
+      // Skip context injection for the very first message (greeting turn)
       let objectionContextText: string | undefined;
-      if (tefAdMode === 'practice' && tefObjectionState) {
+      if (tefAdMode === 'practice' && tefObjectionState && !tefAdIsFirstMessage) {
         if (tefObjectionState.isConvinced) {
           objectionContextText = '[Per-turn context: All objection directions have been fully explored. You may now express that you are convinced.]';
         } else {
@@ -369,8 +399,11 @@ const App: React.FC = () => {
           },
         ]);
 
-        // Update current hint (only in scenario mode)
+        // Update current hint (only in scenario/ad/questioning practice mode)
         if ((scenarioMode === 'practice' || tefAdMode === 'practice') && hint) {
+          setCurrentHint(hint);
+        }
+        if (tefQuestioningMode === 'practice' && !tefQuestioningIsFirstMessage && hint) {
           setCurrentHint(hint);
         }
 
@@ -383,9 +416,29 @@ const App: React.FC = () => {
       setLastChatAudio(null);
       setAppState(AppState.IDLE);
 
-      // Advance TEF objection state machine after each successful user turn
-      if (tefAdMode === 'practice' && tefObjectionState && !tefObjectionState.isConvinced) {
-        setTefObjectionState(prev => prev ? advanceTefObjectionState(prev) : null);
+      // Persuasion first-message handling
+      if (tefAdMode === 'practice') {
+        if (tefAdIsFirstMessage) {
+          // First turn is a greeting — skip objection state advance, just mark first message done
+          setTefAdIsFirstMessage(false);
+        } else {
+          // Advance TEF objection state machine after each non-first successful user turn
+          if (tefObjectionState && !tefObjectionState.isConvinced) {
+            setTefObjectionState(prev => prev ? advanceTefObjectionState(prev) : null);
+          }
+        }
+      }
+
+      // TEF Questioning: count questions (skip first message / greeting)
+      if (tefQuestioningMode === 'practice') {
+        if (tefQuestioningIsFirstMessage) {
+          setTefQuestioningIsFirstMessage(false);
+        } else {
+          setTefQuestioningQuestionCount(c => c + 1);
+          if (response.isRepeat === true) {
+            setTefQuestioningRepeatCount(r => r + 1);
+          }
+        }
       }
 
     } catch (error) {
@@ -827,20 +880,20 @@ const App: React.FC = () => {
   };
 
   // Mode sheet handler — routes mode selection to the appropriate setup flow
-  const handleSelectMode = (modeId: 'ad-persuasion' | 'role-play') => {
+  const handleSelectMode = (modeId: 'ad-persuasion' | 'role-play' | 'ad-questioning') => {
     setShowModeSheet(false);
     if (modeId === 'ad-persuasion') {
       handleOpenTefAdSetup();
     } else if (modeId === 'role-play') {
       handleOpenScenarioSetup();
+    } else if (modeId === 'ad-questioning') {
+      setTefQuestioningMode('setup');
     }
   };
 
   const handleCloseTefAdSetup = () => {
     setTefAdMode('none');
     setTefAdImage(null);
-    setTefAdMimeType(null);
-    setTefAdConfirmation(null);
   };
 
   const handleStartTefConversation = async (
@@ -852,6 +905,9 @@ const App: React.FC = () => {
       setShowApiKeyModal(true);
       return;
     }
+
+    // Reset first-message flag at the start of every new session
+    setTefAdIsFirstMessage(true);
 
     // Revoke existing audio URLs
     for (const msg of messages) {
@@ -890,10 +946,8 @@ const App: React.FC = () => {
     setScenario(tefScenario);
     setActiveScenario(tefScenario);
 
-    // Store image and confirmation
+    // Store image
     setTefAdImage(image);
-    setTefAdMimeType(mimeType);
-    setTefAdConfirmation(confirmation);
 
     // Reset timer state
     setTefTimedUp(false);
@@ -916,6 +970,8 @@ const App: React.FC = () => {
   };
 
   const handleExitTefAd = async () => {
+    setTefAdIsFirstMessage(true);
+
     // Abort any in-flight processing or recording
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
@@ -953,13 +1009,130 @@ const App: React.FC = () => {
     // Reset all TEF state
     setTefAdMode('none');
     setTefAdImage(null);
-    setTefAdMimeType(null);
-    setTefAdConfirmation(null);
     setShowLightbox(false);
     setTefTimedUp(false);
     setTefObjectionState(null);
+    setTefAdIsFirstMessage(true);
 
     // Force back to idle so landing page is clean
+    setAppState(AppState.IDLE);
+  };
+
+  // TEF Questioning handlers
+  const handleStartTefQuestioningConversation = async (
+    image: string,
+    mimeType: string,
+    confirmation: { summary: string; roleSummary: string }
+  ) => {
+    if (!hasApiKeyOrEnv('gemini')) {
+      setShowApiKeyModal(true);
+      return;
+    }
+
+    // Reset counts and first-message flag immediately
+    setTefQuestioningQuestionCount(0);
+    setTefQuestioningRepeatCount(0);
+    setTefQuestioningIsFirstMessage(true);
+    setTefQuestioningTimedUp(false);
+    setShowTefQuestioningSummary(false);
+
+    // Revoke existing audio URLs
+    for (const msg of messages) {
+      if (msg.audioUrl) {
+        if (Array.isArray(msg.audioUrl)) {
+          for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
+        } else {
+          URL.revokeObjectURL(msg.audioUrl);
+        }
+      }
+    }
+
+    // Clear conversation
+    clearHistory();
+    setMessages([]);
+    setAutoPlayMessageId(null);
+    setCurrentHint(null);
+
+    // Build a synthetic Scenario for the questioning mode
+    const questioningScenario: Scenario = {
+      id: generateId(),
+      name: 'TEF Ad Questioning',
+      description: generateTefQuestioningSystemInstruction(confirmation.summary, confirmation.roleSummary),
+      aiSummary: confirmation.summary,
+      createdAt: Date.now(),
+      isActive: true,
+      isTefQuestioning: true,
+      characters: [{
+        id: `${generateId()}_agent`,
+        name: 'Agent',
+        role: 'customer service agent',
+        voiceName: 'puck',
+      }],
+    };
+
+    // Configure Gemini service with the questioning scenario
+    setScenario(questioningScenario);
+    setActiveScenario(questioningScenario);
+
+    // Store image
+    setTefQuestioningImage(image);
+
+    // Ensure mutual exclusivity with other modes
+    setScenarioMode('none');
+    setTefAdMode('none');
+
+    // Enter practice mode
+    setTefQuestioningMode('practice');
+  };
+
+  const handleExitTefQuestioning = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setShowLightbox(false);
+    setShowTefQuestioningSummary(true);
+  };
+
+  const handleDismissTefQuestioningSummary = () => {
+    // Abort any in-flight processing or recording
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setShowLightbox(false);
+    if (appState === AppState.RECORDING) {
+      cancelRecording();
+    }
+
+    // Revoke audio URLs
+    for (const msg of messages) {
+      if (msg.audioUrl) {
+        if (Array.isArray(msg.audioUrl)) {
+          for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
+        } else {
+          URL.revokeObjectURL(msg.audioUrl);
+        }
+      }
+    }
+
+    // Clear scenario and conversation
+    setActiveScenario(null);
+    setScenario(null);
+    clearHistory();
+    setMessages([]);
+    setAutoPlayMessageId(null);
+    setCurrentHint(null);
+
+    // Reset all questioning state
+    setTefQuestioningMode('none');
+    setTefQuestioningImage(null);
+    setTefQuestioningTimedUp(false);
+    setTefQuestioningQuestionCount(0);
+    setTefQuestioningRepeatCount(0);
+    setTefQuestioningIsFirstMessage(true);
+    setShowTefQuestioningSummary(false);
+
     setAppState(AppState.IDLE);
   };
 
@@ -1029,6 +1202,22 @@ const App: React.FC = () => {
             </>
           )}
 
+          {/* TEF Questioning practice header items */}
+          {tefQuestioningMode === 'practice' && tefQuestioningImage && (
+            <>
+              <QuestioningTimer
+                remainingSeconds={300 - tefQuestioningElapsed}
+                isPaused={appState === AppState.PROCESSING || appState === AppState.ERROR}
+                questionCount={tefQuestioningQuestionCount}
+                isTimedUp={tefQuestioningTimedUp}
+              />
+              <AdThumbnail
+                imageDataUrl={tefQuestioningImage}
+                onOpenLightbox={() => setShowLightbox(true)}
+              />
+            </>
+          )}
+
           <button
             onClick={() => setShowApiKeyModal(true)}
             className="p-2 text-slate-400 hover:text-white transition-colors bg-slate-800/50 rounded-full border border-slate-700/50"
@@ -1060,6 +1249,8 @@ const App: React.FC = () => {
             onExitScenario={handleExitScenario}
             tefAdMode={tefAdMode}
             onExitTefAd={handleExitTefAd}
+            tefQuestioningMode={tefQuestioningMode}
+            onExitTefQuestioning={handleExitTefQuestioning}
           />
 
           {/* Orb-Mic — at the bottom, closest to thumb */}
@@ -1124,7 +1315,7 @@ const App: React.FC = () => {
             <div className="flex-shrink-0">
               <ConversationHint
                 hint={currentHint}
-                isVisible={(scenarioMode === 'practice' || tefAdMode === 'practice') && (appState === AppState.IDLE || appState === AppState.RECORDING)}
+                isVisible={(scenarioMode === 'practice' || tefAdMode === 'practice' || tefQuestioningMode === 'practice') && (appState === AppState.IDLE || appState === AppState.RECORDING)}
               />
             </div>
           </main>
@@ -1167,6 +1358,8 @@ const App: React.FC = () => {
                   onExitScenario={handleExitScenario}
                   tefAdMode={tefAdMode}
                   onExitTefAd={handleExitTefAd}
+                  tefQuestioningMode={tefQuestioningMode}
+                  onExitTefQuestioning={handleExitTefQuestioning}
                   compact
                 />
               </div>
@@ -1192,6 +1385,27 @@ const App: React.FC = () => {
           onClose={handleCloseTefAdSetup}
           geminiKeyMissing={geminiKeyMissing}
           onOpenApiKeyModal={() => setShowApiKeyModal(true)}
+        />
+      )}
+
+      {/* TEF Questioning Setup Modal */}
+      {tefQuestioningMode === 'setup' && (
+        <AdQuestioningSetup
+          onStartConversation={handleStartTefQuestioningConversation}
+          onClose={() => setTefQuestioningMode('none')}
+          geminiKeyMissing={geminiKeyMissing}
+          onOpenApiKeyModal={() => setShowApiKeyModal(true)}
+        />
+      )}
+
+      {/* TEF Questioning Summary Overlay */}
+      {showTefQuestioningSummary && (
+        <TefQuestioningSummary
+          questionCount={tefQuestioningQuestionCount}
+          repeatCount={tefQuestioningRepeatCount}
+          elapsedSeconds={tefQuestioningElapsed}
+          adImage={tefQuestioningImage}
+          onDismiss={handleDismissTefQuestioningSummary}
         />
       )}
 
@@ -1227,9 +1441,9 @@ const App: React.FC = () => {
       )}
 
       {/* Image Lightbox */}
-      {showLightbox && tefAdImage && (
+      {showLightbox && (tefAdImage || tefQuestioningImage) && (
         <ImageLightbox
-          imageDataUrl={tefAdImage}
+          imageDataUrl={(tefAdImage || tefQuestioningImage)!}
           onClose={() => setShowLightbox(false)}
         />
       )}

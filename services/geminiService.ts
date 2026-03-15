@@ -64,12 +64,31 @@ const SingleCharacterSchema = z.object({
 });
 
 /**
+ * Zod schema for TEF Questioning mode response.
+ * Adds optional isRepeat field to flag repeated questions.
+ */
+const TefQuestioningSchema = z.object({
+  french: z.string().describe("The complete response in French only"),
+  english: z.string().describe("The English translation of the French response"),
+  hint: z.string().describe("Suggestion of a question the user could ask next - brief description in English"),
+  isRepeat: z.boolean().optional().describe("true if the user asked a question that was already answered"),
+});
+
+/**
  * Zod schema for free conversation mode response.
  * Separates French and English for TTS control, with optional hint.
  */
 const FreeConversationSchema = z.object({
   french: z.string().describe("The complete response in French only"),
   english: z.string().describe("The English translation of the French response")
+});
+
+/**
+ * Zod schema for image analysis responses (confirmTefAdImage / confirmTefAdImageForQuestioning).
+ */
+const ImageAnalysisSchema = z.object({
+  summary: z.string().min(1),
+  roleSummary: z.string().min(1),
 });
 
 /**
@@ -136,6 +155,8 @@ function toGeminiSchema(jsonSchema: Record<string, any>): Record<string, any> {
 const SINGLE_CHARACTER_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(SingleCharacterSchema) as Record<string, any>);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const FREE_CONVERSATION_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(FreeConversationSchema) as Record<string, any>);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const TEF_QUESTIONING_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(TefQuestioningSchema) as Record<string, any>);
 const createGeminiMultiCharacterSchema = (scenario: Scenario) =>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   toGeminiSchema(z.toJSONSchema(createMultiCharacterSchema(scenario)) as Record<string, any>);
@@ -162,11 +183,20 @@ function createChatSession(): void {
   // Pick the response schema that matches the scenario type.
   // This enforces the JSON shape at the API level, preventing the model from
   // returning an array of turns instead of a single response object.
-  const responseSchema = activeScenario && activeScenario.characters && activeScenario.characters.length > 1
-    ? createGeminiMultiCharacterSchema(activeScenario)
-    : activeScenario
-      ? SINGLE_CHARACTER_RESPONSE_SCHEMA
-      : FREE_CONVERSATION_RESPONSE_SCHEMA;
+  // isTefQuestioning is a sub-case of having a single-character activeScenario,
+  // so it is only evaluated once we know activeScenario is non-null.
+  const responseSchema = (() => {
+    if (activeScenario && activeScenario.characters && activeScenario.characters.length > 1) {
+      return createGeminiMultiCharacterSchema(activeScenario);
+    }
+    if (!activeScenario) {
+      return FREE_CONVERSATION_RESPONSE_SCHEMA;
+    }
+    if (activeScenario.isTefQuestioning) {
+      return TEF_QUESTIONING_RESPONSE_SCHEMA;
+    }
+    return SINGLE_CHARACTER_RESPONSE_SCHEMA;
+  })();
 
   chatSession = ai.chats.create({
     model: 'gemini-2.0-flash-lite',
@@ -293,46 +323,102 @@ Respond ONLY with valid JSON in this format:
     throw new Error('No response received from image analysis');
   }
 
-  let parsed: { summary: string; roleSummary: string };
+  let parsedRaw: unknown;
   try {
-    parsed = JSON.parse(text);
+    parsedRaw = JSON.parse(text);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(`Failed to parse image analysis response: ${errorMessage}. Raw: ${text}`);
   }
 
+  const validation = ImageAnalysisSchema.safeParse(parsedRaw);
+  if (!validation.success) {
+    throw new Error(`Image analysis response validation failed: ${validation.error.message}`);
+  }
+
   return {
-    summary: parsed.summary || 'Advertisement analyzed.',
-    roleSummary: parsed.roleSummary || 'I understand the ad and will play your skeptical friend.',
+    summary: validation.data.summary,
+    roleSummary: validation.data.roleSummary,
   };
 };
 
 /**
- * Creates a one-shot AI instance for operations that don't need the chat session singleton.
- * Each call creates a fresh instance from the current GoogleGenAI mock/implementation,
- * which allows test isolation when the mock is changed between tests.
+ * Analyzes an advertisement image and returns a summary and role confirmation for questioning mode.
+ * One-shot call (not a chat session) with inline image data.
+ * Describes a customer service agent role (not skeptical friend).
  */
-function createOneShot(): GoogleGenAI {
-  const apiKey = getApiKeyOrEnv('gemini');
-  if (!apiKey) {
-    throw new Error("Missing Gemini API Key");
+export const confirmTefAdImageForQuestioning = async (
+  imageBase64: string,
+  mimeType: string
+): Promise<{ summary: string; roleSummary: string }> => {
+  const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+  if (!SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
+    const typeLabels = SUPPORTED_IMAGE_TYPES.map(t => t.replace('image/', '').toUpperCase()).join(', ');
+    throw new Error(`Unsupported image type "${mimeType}". Please use ${typeLabels}.`);
   }
+
+  ensureAiInitialized();
+
+  const response = await ai!.models.generateContent({
+    model: 'gemini-2.0-flash-lite',
+    contents: [{
+      parts: [
+        {
+          text: `Look at this advertisement image. Please respond with a JSON object containing:
+1. "summary": A concise 2-3 sentence description of what the advertisement is for, what product or service it promotes, and its key selling points or tagline if visible.
+2. "roleSummary": A brief confirmation (1-2 sentences) that you understand the ad and are ready to play the role of a customer service agent for the company in this ad — answering caller questions briefly and accurately without volunteering extra information.
+
+Respond ONLY with valid JSON in this format:
+{
+  "summary": "...",
+  "roleSummary": "..."
+}`
+        },
+        {
+          inlineData: {
+            data: imageBase64,
+            mimeType: mimeType,
+          },
+        },
+      ],
+    }],
+    config: {
+      responseMimeType: 'application/json',
+    },
+  });
+
+  const text = response.text || '';
+  if (!text.trim()) {
+    throw new Error('No response received from image analysis');
+  }
+
+  let parsedRaw: unknown;
   try {
-    return new GoogleGenAI({ apiKey });
-  } catch {
-    // Fallback for test environments where GoogleGenAI is mocked as a plain function
-    return (GoogleGenAI as unknown as (opts: { apiKey: string }) => GoogleGenAI)({ apiKey });
+    parsedRaw = JSON.parse(text);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse image analysis response: ${errorMessage}. Raw: ${text}`);
   }
-}
+
+  const validation = ImageAnalysisSchema.safeParse(parsedRaw);
+  if (!validation.success) {
+    throw new Error(`Image analysis response validation failed: ${validation.error.message}`);
+  }
+
+  return {
+    summary: validation.data.summary,
+    roleSummary: validation.data.roleSummary,
+  };
+};
 
 /**
  * Generates 5 distinct objection directions for a TEF Ad Persuasion session.
  * One-shot call using the ad summary to ground objections in the ad's actual claims.
  */
 export const generateTefAdObjections = async (adSummary: string): Promise<{ directions: string[] }> => {
-  const oneShotAi = createOneShot();
+  ensureAiInitialized();
 
-  const response = await oneShotAi.models.generateContent({
+  const response = await ai!.models.generateContent({
     model: 'gemini-2.0-flash-lite',
     contents: [{
       parts: [{
@@ -846,13 +932,17 @@ export const sendVoiceMessage = async (
           throw new Error(`Failed to parse single-character response as JSON: ${errorMessage}. Raw response: ${rawModelText}`);
         }
 
+        // Choose schema: TEF Questioning adds isRepeat field
+        const schemaToUse = activeScenario.isTefQuestioning ? TefQuestioningSchema : SingleCharacterSchema;
+
         // Use safeParse for better error handling
-        const validationResult = SingleCharacterSchema.safeParse(jsonResponse);
+        const validationResult = schemaToUse.safeParse(jsonResponse);
         if (!validationResult.success) {
           throw new Error(`Failed to validate single-character response: ${validationResult.error.message}. Raw response: ${rawModelText}`);
         }
 
         const validated = validationResult.data;
+        const isRepeat = activeScenario.isTefQuestioning && 'isRepeat' in validated ? (validated as { isRepeat?: boolean }).isRepeat : undefined;
 
         // Check if operation was cancelled before generating audio
         if (signal?.aborted) {
@@ -900,6 +990,7 @@ export const sendVoiceMessage = async (
           hint: validated.hint,
           voiceName,
           audioGenerationFailed: !audioUrl, // Empty audioUrl means TTS failed
+          ...(isRepeat !== undefined ? { isRepeat } : {}),
           characters: [{
             characterId: activeScenario?.characters?.[0]?.id || '',
             characterName: activeScenario?.characters?.[0]?.name || '',

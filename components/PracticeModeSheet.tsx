@@ -4,7 +4,7 @@ import { Drawer } from 'vaul';
 interface PracticeModeSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSelectMode: (modeId: 'ad-persuasion' | 'role-play') => void;
+  onSelectMode: (modeId: 'ad-persuasion' | 'role-play' | 'ad-questioning') => void;
 }
 
 export const PracticeModeSheet: React.FC<PracticeModeSheetProps> = ({
@@ -66,6 +66,25 @@ export const PracticeModeSheet: React.FC<PracticeModeSheetProps> = ({
                 <div className="text-sm font-medium text-slate-100">Role Play</div>
                 <div className="text-xs text-slate-400 mt-0.5">
                   Practice everyday conversation scenarios with an AI partner.
+                </div>
+              </div>
+            </button>
+
+            {/* Ad Questioning */}
+            <button
+              onClick={() => onSelectMode('ad-questioning')}
+              className="w-full flex items-center gap-4 p-4 rounded-2xl border border-slate-700/50 bg-slate-800/50 hover:bg-slate-800 hover:border-slate-600 transition-colors text-left"
+            >
+              <div className="flex-shrink-0 w-10 h-10 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center">
+                {/* Question mark / phone icon */}
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-slate-100">Ad Questioning</div>
+                <div className="text-xs text-slate-400 mt-0.5">
+                  Call a company's customer service line and ask at least 10 questions — TEF exam practice.
                 </div>
               </div>
             </button>
