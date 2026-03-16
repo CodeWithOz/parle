@@ -1,29 +1,87 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Parle
 
-# Run and deploy your AI Studio app
+**Practice speaking French with AI** — voice conversations, role-play scenarios, and TEF-style practice in the browser.
 
-This contains everything you need to run your app locally.
+---
 
-## Run Locally
+## What is Parle?
 
-**Prerequisites:**  Node.js
+Parle is a web app for practicing French conversation using your microphone and AI. You speak, the app transcribes and replies in French (with optional English), and you hear the reply via text-to-speech. No account required to try it; API keys are configured in the app or via environment variables.
 
+### Features
 
-1. Install dependencies:
-   `npm install`
-2. Set API keys in [.env.local](.env.local):
-   - `GEMINI_API_KEY` - Your Gemini API key (required for Gemini provider)
-   - `OPENAI_API_KEY` - Your OpenAI API key (optional, required for OpenAI provider)
-3. Run the app:
-   `npm run dev`
+| Mode | Description |
+|------|-------------|
+| **Free conversation** | Open-ended French chat with the AI. Speak, get transcribed and answered, hear responses with TTS. |
+| **Scenario role-play** | Create or load scenarios (e.g. bakery, restaurant). Practice with one AI character or multiple (e.g. baker + cashier), each with a distinct voice. |
+| **TEF Ad Persuasion** | Practice the TEF “persuasion” task: upload an ad image, then respond to objections in a structured 5-direction × 3-round flow with a timer. |
+| **TEF Ad Questioning** | Practice the TEF “questioning” task: upload an ad, ask questions in French; the app tracks questions and repeated questions for review. |
 
-### API Key Management
+Scenarios are stored in the browser. Conversation history, hints, and (where applicable) timers and summaries are shown in the UI.
 
-API keys can be provided in two ways:
+---
 
-1. **Environment Variables** (recommended for development): Set `GEMINI_API_KEY` and/or `OPENAI_API_KEY` in `.env.local`
-2. **In-App UI**: The app will prompt you to enter API keys on first launch if none are found. You can also access the API settings at any time using the gear icon (⚙️) in the header.
+## Tech stack
 
-Keys entered via the UI are stored locally in your browser and take precedence over environment variables. At least one API key (Gemini or OpenAI) is required for the app to function.
+- **Frontend:** React 19, Vite 7, TypeScript, Tailwind CSS  
+- **AI:** Google Gemini (transcription, chat, TTS); OpenAI optional for scenario creation from a description  
+- **Tests:** Vitest (unit), Playwright (e2e)
+
+---
+
+## Prerequisites
+
+- **Node.js** (LTS recommended)
+- **API keys:**
+  - **Gemini** — required for voice conversation, scenario practice, and TEF modes (transcription, chat, TTS).
+  - **OpenAI** — optional; used only when creating a scenario from a spoken/typed description (scenario planning).
+
+---
+
+## Run locally
+
+1. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+2. **Configure API keys** (pick one approach)
+   - **Option A — Environment (recommended for development)**  
+     Create `.env.local` in the project root:
+     ```env
+     GEMINI_API_KEY=your_gemini_key
+     OPENAI_API_KEY=your_openai_key   # optional, for scenario-from-description
+     ```
+   - **Option B — In-app**  
+     Run the app; if no keys are found, you’ll be prompted to enter them. Keys are stored in the browser and override env vars.
+
+3. **Start the app**
+   ```bash
+   npm run dev
+   ```
+   Open the URL shown in the terminal (e.g. `http://localhost:5173`).
+
+### Other commands
+
+| Command | Purpose |
+|---------|--------|
+| `npm run build` | Production build |
+| `npm run preview` | Preview production build locally |
+| `npm test` | Run unit tests (Vitest) |
+| `npm run test:e2e` | Run E2E tests (Playwright; run `npm run test:e2e:install` once to install browsers) |
+
+---
+
+## Project layout (high level)
+
+| Area | Contents |
+|------|----------|
+| `App.tsx` | Main UI and mode orchestration (free chat, scenario, TEF Ad persuasion/questioning) |
+| `components/` | UI (Orb, Controls, conversation history, setup flows, timers, summaries) |
+| `services/` | Gemini (session, voice message, TTS), OpenAI (scenario planning), scenario/voice/API-key helpers |
+| `hooks/` | Audio, conversation timer, document head |
+| `utils/` | TEF objection state machine, time helpers |
+| `__tests__/` | Unit tests |
+| `e2e/` | Playwright E2E tests |
+
+Design notes and intentional patterns (e.g. TTS vs history ordering, TEF state machine, schema choices) are documented in **`AGENTS.md`** for contributors and code review.
