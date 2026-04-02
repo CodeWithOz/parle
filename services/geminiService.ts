@@ -540,7 +540,8 @@ export const transcribeAudio = async (audioBase64: string, mimeType: string): Pr
  */
 export const transcribeAndCleanupAudio = async (
   audioBase64: string,
-  mimeType: string
+  mimeType: string,
+  signal?: AbortSignal
 ): Promise<{ rawTranscript: string; cleanedTranscript: string }> => {
   ensureAiInitialized();
 
@@ -570,6 +571,7 @@ export const transcribeAndCleanupAudio = async (
     }],
     config: {
       responseMimeType: 'application/json',
+      abortSignal: signal,
       responseSchema: {
         type: Type.OBJECT,
         properties: {

@@ -119,6 +119,10 @@ const App: React.FC = () => {
   const scenarioRecordingRef = useRef(false);
   const scenarioSetupOpenRef = useRef(false);
 
+  // Abort + stale guarding for scenario description transcription requests.
+  const scenarioDescriptionAbortControllerRef = useRef<AbortController | null>(null);
+  const scenarioDescriptionRequestIdRef = useRef(0);
+
   // Ref to track if processing was aborted by the user
   const processingAbortedRef = useRef(false);
   // Request ID counter to detect stale responses from previous requests
@@ -596,6 +600,13 @@ const App: React.FC = () => {
   };
 
   // Scenario mode handlers
+  const abortScenarioDescriptionTranscription = useCallback(() => {
+    if (scenarioDescriptionAbortControllerRef.current) {
+      scenarioDescriptionAbortControllerRef.current.abort();
+      scenarioDescriptionAbortControllerRef.current = null;
+    }
+  }, []);
+
   const handleOpenScenarioSetup = () => {
     scenarioSetupOpenRef.current = true;
     setScenarioMode('setup');
@@ -608,6 +619,7 @@ const App: React.FC = () => {
   };
 
   const handleCloseScenarioSetup = () => {
+    abortScenarioDescriptionTranscription();
     scenarioSetupOpenRef.current = false;
     setScenarioMode('none');
     setScenarioDescription('');
@@ -662,16 +674,29 @@ const App: React.FC = () => {
    * Process description audio (from recording or retry) and transcribe it
    */
   const processDescriptionAudio = async (audioData: AudioData): Promise<void> => {
+    // Increment request ID so we can ignore stale results even if the modal
+    // is closed and then re-opened while a previous transcription is still in-flight.
+    const currentRequestId = ++scenarioDescriptionRequestIdRef.current;
+
+    // Abort any previous transcription attempt (e.g., quick retry or close+reopen races).
+    abortScenarioDescriptionTranscription();
+    const abortController = new AbortController();
+    scenarioDescriptionAbortControllerRef.current = abortController;
+
     setIsTranscribingDescription(true);
 
     try {
       const { base64, mimeType } = audioData;
 
       // Single LLM call to transcribe and clean up the audio - using Gemini
-      const { rawTranscript: rawText, cleanedTranscript: cleanedText } = await transcribeAndCleanupAudio(base64, mimeType);
+      const { rawTranscript: rawText, cleanedTranscript: cleanedText } = await transcribeAndCleanupAudio(
+        base64,
+        mimeType,
+        abortController.signal
+      );
 
-      // Modal was closed while transcription was in-flight; discard results
-      if (!scenarioSetupOpenRef.current) {
+      // Discard results if a newer request started or the modal has been closed.
+      if (currentRequestId !== scenarioDescriptionRequestIdRef.current || !scenarioSetupOpenRef.current) {
         return;
       }
 
@@ -690,6 +715,16 @@ const App: React.FC = () => {
       setLastDescriptionAudio(null);
       setShowTranscriptOptions(true);
     } catch (error) {
+      // If this was an intentional cancellation, discard silently.
+      const errName = error instanceof DOMException ? error.name : (error as any)?.name;
+      if (errName === 'AbortError') {
+        return;
+      }
+
+      if (currentRequestId !== scenarioDescriptionRequestIdRef.current || !scenarioSetupOpenRef.current) {
+        return;
+      }
+
       console.error('Error transcribing description:', error);
       if (scenarioSetupOpenRef.current) {
         // Enable retry with the stored audio
@@ -697,7 +732,15 @@ const App: React.FC = () => {
         showErrorFlash('Failed to transcribe audio. Please try again.');
       }
     } finally {
-      setIsTranscribingDescription(false);
+      // Only clear the spinner for the latest attempt; stale requests must not
+      // affect transcript UI state after a close+reopen race.
+      if (currentRequestId === scenarioDescriptionRequestIdRef.current) {
+        setIsTranscribingDescription(false);
+      }
+
+      if (scenarioDescriptionAbortControllerRef.current === abortController) {
+        scenarioDescriptionAbortControllerRef.current = null;
+      }
     }
   };
 
@@ -752,6 +795,7 @@ const App: React.FC = () => {
   const handleCancelRecordingDescription = () => {
     scenarioRecordingRef.current = false;
     setIsRecordingDescription(false);
+    abortScenarioDescriptionTranscription();
     cancelRecording();
   };
 
