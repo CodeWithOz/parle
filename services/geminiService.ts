@@ -42,6 +42,7 @@ let ai: GoogleGenAI | null = null;
 let chatSession: Chat | null = null;
 // Track how many messages from shared history have been synced to the session
 let syncedMessageCount = 0;
+// (debug instrumentation removed)
 // Track the active scenario for scenario-aware prompting
 let activeScenario: Scenario | null = null;
 // Store pending scenario and history when ai is not yet initialized
@@ -632,7 +633,8 @@ export const initializeSession = async () => {
  */
 export const generateCharacterSpeech = async (
   text: string,
-  voiceName: string
+  voiceName: string,
+  signal?: AbortSignal
 ): Promise<string> => {
   if (!ai) {
     ensureAiInitialized();
@@ -647,6 +649,7 @@ export const generateCharacterSpeech = async (
     model: 'gemini-2.5-flash-preview-tts',
     contents: [{ parts: [{ text: systemPrompt }] }],
     config: {
+      abortSignal: signal,
       responseModalities: [Modality.AUDIO],
       speechConfig: {
         voiceConfig: {
@@ -732,6 +735,9 @@ export const sendVoiceMessage = async (
           },
         ],
       }],
+      config: {
+        abortSignal: signal,
+      },
     }));
 
     const userText = transcribeResponse.text || "";
@@ -764,8 +770,34 @@ export const sendVoiceMessage = async (
     }
     messageParts.push({ inlineData: { data: audioBase64, mimeType: mimeType } });
 
+    // NOTE: Passing per-request config does NOT inherit chat-level config.
+    // When we pass abortSignal here, we must also include responseMimeType/responseSchema
+    // or the SDK may return plain text (which would break JSON parsing below).
+    const systemInstructionForThisRequest = activeScenario
+      ? generateScenarioSystemInstruction(activeScenario)
+      : SYSTEM_INSTRUCTION;
+
+    const responseSchemaForThisRequest = (() => {
+      if (activeScenario && activeScenario.characters && activeScenario.characters.length > 1) {
+        return createGeminiMultiCharacterSchema(activeScenario);
+      }
+      if (!activeScenario) {
+        return FREE_CONVERSATION_RESPONSE_SCHEMA;
+      }
+      if (activeScenario.isTefQuestioning) {
+        return TEF_QUESTIONING_RESPONSE_SCHEMA;
+      }
+      return SINGLE_CHARACTER_RESPONSE_SCHEMA;
+    })();
+
     const chatResponse = await abortablePromise(chatSession.sendMessage({
       message: messageParts,
+      config: {
+        abortSignal: signal,
+        systemInstruction: systemInstructionForThisRequest,
+        responseMimeType: 'application/json',
+        responseSchema: responseSchemaForThisRequest,
+      },
     }));
 
     const rawModelText = chatResponse.text; // Access text property directly
@@ -866,7 +898,7 @@ export const sendVoiceMessage = async (
           throw new Error(`Character not found: ${charResp.characterName} (ID: ${charResp.characterId})`);
         }
 
-        const audioUrl = await abortablePromise(generateCharacterSpeech(charResp.french, character.voiceName));
+        const audioUrl = await abortablePromise(generateCharacterSpeech(charResp.french, character.voiceName, signal));
         return { ...charResp, audioUrl, voiceName: character.voiceName };
       });
 
@@ -958,7 +990,7 @@ export const sendVoiceMessage = async (
 
         let audioUrl = '';
         try {
-          audioUrl = await abortablePromise(generateCharacterSpeech(validated.french, voiceName));
+          audioUrl = await abortablePromise(generateCharacterSpeech(validated.french, voiceName, signal));
         } catch (ttsError) {
           // Re-throw aborts - user cancelled the operation
           if (ttsError instanceof DOMException && ttsError.name === 'AbortError') {
@@ -1031,7 +1063,7 @@ export const sendVoiceMessage = async (
 
         let audioUrl = '';
         try {
-          audioUrl = await abortablePromise(generateCharacterSpeech(validated.french, voiceName));
+          audioUrl = await abortablePromise(generateCharacterSpeech(validated.french, voiceName, signal));
         } catch (ttsError) {
           // Re-throw aborts - user cancelled the operation
           if (ttsError instanceof DOMException && ttsError.name === 'AbortError') {
