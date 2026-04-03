@@ -184,6 +184,44 @@ Previously, single-character scenarios used free-form text with inline translati
 
 ---
 
+## Abort / Cancellation Strategy for Audio Requests
+
+### Why this exists
+Audio flows can have races: a user may cancel, close/reopen a modal, or start a new 'turn' while a previous Gemini request is still in-flight. If the stale request resolves after the user moved on, it can incorrectly update UI state (wrong transcript/messages/spinners) or throw JSON parsing errors.
+
+This section is a developer-facing rule to prevent that entire class of bug.
+
+### Required strategy (use for every future audio request)
+1. Create a new `AbortController` per 'turn/request' and store it in a ref that cancellation/timeout handlers can reach.
+2. Pass the per-request `signal` into the Gemini SDK via `config.abortSignal` on *every* relevant SDK call (`ai.models.generateContent(...)` and `chatSession.sendMessage(...)`).
+   - Do not rely on `Promise.race` / wrapper rejection alone. The Gemini SDK must receive the signal so it can stop internally and reject with `AbortError`.
+3. Invalidate/discard stale responses:
+   - Track a request token (e.g. `requestIdRef.current` captured into `currentRequestId`) and check it before any state updates.
+   - If a newer request started (token changed) or the relevant UI is no longer open, return early and do not mutate UI state.
+4. Preserve JSON enforcement when passing per-request config with `abortSignal`:
+   - Keep `responseMimeType: 'application/json'` and `responseSchema: ...` set in the same request config.
+   - This avoids the SDK returning plain text (which breaks downstream JSON parsing/validation).
+5. Handle `AbortError` so it doesn’t surface to the UI:
+   - Treat `AbortError` as intentional cancellation and `return` silently.
+   - Do not switch to generic ERROR UI or show error flashes for intentional aborts.
+
+### Example: scenario description recording (abort + stale discard)
+In the scenario description 'describe by voice' flow:
+- Each transcription attempt creates a fresh `AbortController` (`scenarioDescriptionAbortControllerRef`) and increments a request token (`scenarioDescriptionRequestIdRef`).
+- The in-flight call passes `abortController.signal` into `transcribeAndCleanupAudio(...)`.
+- After awaiting, results are discarded if `currentRequestId !== scenarioDescriptionRequestIdRef.current` or if the modal is closed (`scenarioSetupOpenRef`).
+- In `catch`, `AbortError` is ignored, and only non-abort failures show errors / enable retry.
+- In `finally`, the transcription spinner is only cleared when the request token still matches (so stale requests can’t affect UI after close+reopen).
+
+This is the same overall strategy used for the main mic audio flow: per-turn `AbortController`, request-token guarded state updates, and explicit `AbortError` suppression to avoid UI regressions.
+
+### Related files
+- `App.tsx` (main mic + scenario description cancellation/discard logic)
+- `services/geminiService.ts` (`transcribeAndCleanupAudio`, `sendVoiceMessage` per-request `config.abortSignal`, and JSON enforcement config)
+- `__tests__/scenarioDescriptionRecordingAbortDiscard.test.tsx` / `__tests__/transcribeAndCleanupAudioAbortSignal.test.ts` (abort + discard + config preservation)
+
+---
+
 ## Missing AI Credentials Handling
 
 **Location:** `App.tsx` handlers, `components/ScenarioSetup.tsx`, `components/AdPersuasionSetup.tsx`
