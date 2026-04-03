@@ -57,6 +57,10 @@ let transcriptionCalls: Array<{
   abortSignal?: AbortSignal;
 }> = [];
 
+// Some tests need to simulate "late resolve even after abort" to verify
+// request-id based discard works on close+reopen races.
+let rejectOnAbort = true;
+
 const mockGenerateContent = vi.fn().mockImplementation((request: any) => {
   const abortSignal: AbortSignal | undefined = request?.config?.abortSignal;
   const deferred = createDeferred<{ text: string }>();
@@ -66,7 +70,9 @@ const mockGenerateContent = vi.fn().mockImplementation((request: any) => {
   // If the app wires abortSignal through to Gemini, we reject when aborted.
   if (abortSignal) {
     abortSignal.addEventListener('abort', () => {
-      deferred.reject(new DOMException('Request aborted', 'AbortError'));
+      if (rejectOnAbort) {
+        deferred.reject(new DOMException('Request aborted', 'AbortError'));
+      }
     });
   }
 
@@ -188,6 +194,7 @@ describe('ScenarioSetup · describe by voice abort + discard', () => {
     localStorage.setItem('parle_api_key_gemini', 'test-key-scenario-abort');
     localStorage.setItem('parle_api_key_openai', 'test-key-openai');
     transcriptionCalls = [];
+    rejectOnAbort = true;
     mockGenerateContent.mockClear();
     mockStartRecording.mockClear();
     mockStopRecording.mockClear();
@@ -265,6 +272,49 @@ describe('ScenarioSetup · describe by voice abort + discard', () => {
     expect(await screen.findByText('RAW_TWO')).toBeInTheDocument();
     expect(screen.getByText('CLEAN_TWO')).toBeInTheDocument();
     expect(screen.queryByText('RAW_ONE')).not.toBeInTheDocument();
+  });
+
+  it('invalidates close+reopen without starting a new transcription (late resolve is discarded)', async () => {
+    // Simulate a provider that may still resolve after AbortError.
+    rejectOnAbort = false;
+
+    const { default: App } = await import('../App');
+    render(<App />);
+
+    // Open PracticeModeSheet -> Role Play -> ScenarioSetup modal
+    fireEvent.click(screen.getByRole('button', { name: /Start Practice/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /Role Play/i }));
+    await screen.findByText(/Practice Role Play/i);
+
+    // Start first "describe by voice" transcription
+    fireEvent.click(screen.getByRole('button', { name: /Or describe by voice/i }));
+    await screen.findByRole('button', { name: /Stop Recording/i });
+    fireEvent.click(screen.getByRole('button', { name: /Stop Recording/i }));
+
+    await screen.findByText('Transcribing...');
+    await waitFor(() => expect(transcriptionCalls).toHaveLength(1));
+
+    const [call1] = transcriptionCalls;
+
+    // Close the modal while transcription is still pending
+    fireEvent.click(screen.getByLabelText('Close'));
+
+    // Re-open ScenarioSetup WITHOUT starting a new transcription
+    fireEvent.click(screen.getByRole('button', { name: /Start Practice/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /Role Play/i }));
+    await screen.findByText(/Practice Role Play/i);
+
+    // Late resolve of the first transcription should not overwrite the reopened modal.
+    await act(async () => {
+      call1.deferred.resolve({
+        text: JSON.stringify({ rawTranscript: 'RAW_ONE', cleanedTranscript: 'CLEAN_ONE' }),
+      });
+    });
+
+    expect(screen.queryByText('Transcribing...')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Choose your transcript version/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('RAW_ONE')).not.toBeInTheDocument();
+    expect(screen.queryByText('CLEAN_ONE')).not.toBeInTheDocument();
   });
 });
 
