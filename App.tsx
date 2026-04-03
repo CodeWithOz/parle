@@ -86,6 +86,9 @@ const App: React.FC = () => {
 
   // TEF Questioning conversation timer (5-minute limit)
   const handleTefQuestioningTimeUp = useCallback(() => {
+    // Treat this as an intentional abort so processAudioMessage doesn't
+    // fall through into ERROR UI on AbortError.
+    processingAbortedRef.current = true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -619,6 +622,9 @@ const App: React.FC = () => {
   };
 
   const handleCloseScenarioSetup = () => {
+    // Invalidate any in-flight transcription so late-resolving promises
+    // cannot overwrite transcript state after close+reopen.
+    scenarioDescriptionRequestIdRef.current += 1;
     abortScenarioDescriptionTranscription();
     scenarioSetupOpenRef.current = false;
     setScenarioMode('none');
@@ -795,6 +801,9 @@ const App: React.FC = () => {
   const handleCancelRecordingDescription = () => {
     scenarioRecordingRef.current = false;
     setIsRecordingDescription(false);
+    // Invalidate any in-flight transcription and clear spinner immediately.
+    scenarioDescriptionRequestIdRef.current += 1;
+    setIsTranscribingDescription(false);
     abortScenarioDescriptionTranscription();
     cancelRecording();
   };
@@ -1130,6 +1139,9 @@ const App: React.FC = () => {
   };
 
   const handleExitTefQuestioning = () => {
+    // Treat this as an intentional abort so processAudioMessage doesn't
+    // fall through into ERROR UI on AbortError.
+    processingAbortedRef.current = true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
@@ -1140,6 +1152,7 @@ const App: React.FC = () => {
 
   const handleDismissTefQuestioningSummary = () => {
     // Abort any in-flight processing or recording
+    processingAbortedRef.current = true;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
