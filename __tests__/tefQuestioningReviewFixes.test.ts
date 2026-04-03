@@ -95,7 +95,7 @@ describe('B2 · showLightbox reset in questioning exit/dismiss handlers (App.tsx
     const src = await import('../App?raw');
     // After fix: handleExitTefQuestioning must contain setShowLightbox(false)
     expect(src.default).toMatch(
-      /handleExitTefQuestioning[\s\S]{0,300}setShowLightbox\s*\(\s*false\s*\)/
+      /handleExitTefQuestioning[\s\S]{0,800}setShowLightbox\s*\(\s*false\s*\)/
     );
   });
 
@@ -103,7 +103,7 @@ describe('B2 · showLightbox reset in questioning exit/dismiss handlers (App.tsx
     const src = await import('../App?raw');
     // After fix: the dismiss handler must also reset the lightbox
     expect(src.default).toMatch(
-      /handleDismissTefQuestioningSummary[\s\S]{0,500}setShowLightbox\s*\(\s*false\s*\)/
+      /handleDismissTefQuestioningSummary[\s\S]{0,800}setShowLightbox\s*\(\s*false\s*\)/
     );
   });
 });

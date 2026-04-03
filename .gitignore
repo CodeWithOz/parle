@@ -32,3 +32,6 @@ test-results/
 
 # Generated workflow artifacts
 workflow-report.md
+
+# Cursor
+.cursor/hooks/state/

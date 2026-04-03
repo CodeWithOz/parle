@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// Only use system Chrome when explicitly configured.
+// Otherwise prefer Playwright's managed Chromium (downloaded into ./node_modules cache or PLAYWRIGHT_BROWSERS_PATH).
+const chromeExecutablePath = process.env.PW_CHROME_EXECUTABLE_PATH;
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -13,7 +17,17 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   outputDir: 'test-results/',
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      use: {
+        ...devices['Desktop Chrome'],
+        launchOptions: chromeExecutablePath
+          ? { executablePath: chromeExecutablePath }
+          : undefined,
+      },
+    },
+  ],
   webServer: {
     command: 'npm run dev',
     port: 3000,
