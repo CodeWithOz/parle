@@ -273,7 +273,8 @@ describe('generateTefReview · happy path', () => {
 // ---------------------------------------------------------------------------
 
 describe('generateTefReview · prompt construction', () => {
-  it('includes user message transcripts in the prompt for questioning type', async () => {
+  it('includes user audio as inlineData (not transcript text) when audio fetch succeeds — questioning', async () => {
+    // beforeEach sets up successful audio fetch
     await generateTefReview({
       exerciseType: 'questioning',
       messages: SAMPLE_MESSAGES_QUESTIONING,
@@ -282,10 +283,14 @@ describe('generateTefReview · prompt construction', () => {
 
     const callArg = mockGenerateContent.mock.calls[0][0];
     const promptText = JSON.stringify(callArg);
-    expect(promptText).toContain('Quel est le prix de cette voiture');
+    // inlineData should be present for user audio
+    expect(promptText).toContain('inlineData');
+    // transcript text should NOT be included when audio is available
+    expect(promptText).not.toContain('Quel est le prix de cette voiture');
   });
 
-  it('includes user message transcripts in the prompt for persuasion type', async () => {
+  it('includes user audio as inlineData (not transcript text) when audio fetch succeeds — persuasion', async () => {
+    // beforeEach sets up successful audio fetch
     await generateTefReview({
       exerciseType: 'persuasion',
       messages: SAMPLE_MESSAGES_PERSUASION,
@@ -296,7 +301,10 @@ describe('generateTefReview · prompt construction', () => {
 
     const callArg = mockGenerateContent.mock.calls[0][0];
     const promptText = JSON.stringify(callArg);
-    expect(promptText).toContain('Ce produit est fiable et abordable');
+    // inlineData should be present for user audio
+    expect(promptText).toContain('inlineData');
+    // transcript text should NOT be included when audio is available
+    expect(promptText).not.toContain('Ce produit est fiable et abordable');
   });
 
   it('includes "questioning" context cue in the prompt for questioning type', async () => {

@@ -2,9 +2,45 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { getApiKeyOrEnv } from './apiKeyService';
 import type { Message, TefObjectionState, TefReview } from '../types';
 
-import sectionAGuide from '../data/tef-guides/section-a-prise-dinformation.md?raw';
-import sectionBGuide from '../data/tef-guides/section-b-argumentation.md?raw';
-import tefOverallGuide from '../data/tef-guides/tef-canada-expression-orale.md?raw';
+// ---------------------------------------------------------------------------
+// Synthesized TEF evaluation guidance
+// Distilled from the official test guides — only what matters for review.
+// ---------------------------------------------------------------------------
+
+const SECTION_A_GUIDANCE = `TEF Canada Oral Expression — Section A: Prise d'information (5 minutes)
+
+WHAT THE TEST EXPECTS:
+Ask approximately 10 questions about a classified ad over the phone to a customer service representative. Evaluators assess linguistic skills only — grammar, vocabulary variety, pronunciation, and fluency. The relevance of questions is not graded.
+
+EVALUATION CRITERIA:
+- Question formation: correct subject-verb inversion (Habite-t-il ? Va-t-elle ?) or "est-ce que" structure
+- Range of interrogative adverbs: quoi/que, qui, quand, où, comment
+- Fluency and spontaneity: ability to react to answers and sustain a natural conversation
+- Vocabulary breadth: varied and accurate rather than repetitive simple phrases
+
+WHAT EXAMINERS LOOK FOR (tips from the test creators):
+- Avoid questions learnt by heart — examiners notice and penalise recitation
+- React to the agent's answers to demonstrate comprehension and conversational flexibility
+- Aim for a flowing conversation, not 10 isolated questions fired in sequence
+- The priority is fluent speech with varied vocabulary`;
+
+const SECTION_B_GUIDANCE = `TEF Canada Oral Expression — Section B: Argumentation (10 minutes)
+
+WHAT THE TEST EXPECTS:
+Present a classified ad to a skeptical friend and argue to convince them to participate. Evaluators assess how clearly you present, how persuasively you argue, how well you structure reasoning, and how fluently you adapt to the conversation.
+
+EVALUATION CRITERIA:
+- Argumentation vocabulary: verbs of advice (je te conseille de, je te recommande de, je te propose de) and linking words (parce que, car, donc, c'est pourquoi, en effet, d'ailleurs, de plus)
+- Use of document context: extract and rephrase information from the ad — do NOT recite it verbatim
+- Persuasive structure: arguments that address the friend's situation and objections directly
+- Fluency and naturalness in conversation
+- Variety and accuracy of vocabulary and sentence structures
+
+WHAT EXAMINERS LOOK FOR (tips from the test creators):
+- This is NOT a reading test — rephrase the ad's content, never recite it word for word
+- Tailor arguments to the friend's specific context (their interests, situation)
+- Justify claims with linking words and reasons, not bare assertions
+- Demonstrate understanding of the instructions by adapting to your conversation partner`;
 
 // ---------------------------------------------------------------------------
 // AI initialization (same pattern as geminiService.ts)
@@ -80,17 +116,13 @@ export async function generateTefReview(params: {
 
   const parts: Part[] = [];
 
-  // Guide content
-  const guideContent =
-    exerciseType === 'questioning'
-      ? `${tefOverallGuide}\n\n${sectionAGuide}`
-      : `${tefOverallGuide}\n\n${sectionBGuide}`;
-
   // Preamble
   const exerciseLabel =
     exerciseType === 'questioning'
       ? 'TEF Section A – Prise d\'information (questioning a customer service agent about an advertisement)'
       : 'TEF Section B – Argumentation (persuading a skeptical friend about an advertisement)';
+
+  const sectionGuidance = exerciseType === 'questioning' ? SECTION_A_GUIDANCE : SECTION_B_GUIDANCE;
 
   let preamble = `You are an expert French language evaluator specialising in TEF Canada oral expression assessments.
 
@@ -98,8 +130,7 @@ EXERCISE TYPE: ${exerciseLabel}
 ELAPSED TIME: ${elapsedSeconds} seconds
 TARGET LEVEL: C1 (minimum acceptable: B2)
 
-TEF EVALUATION GUIDES:
-${guideContent}
+${sectionGuidance}
 `;
 
   if (adSummary) {
@@ -134,12 +165,12 @@ CONVERSATION TRANSCRIPT:
         if (audioUrl) {
           const audioData = await fetchAudioAsInlineData(audioUrl, signal);
           if (audioData) {
+            // Audio available — send only the audio; no transcript to avoid misleading the model
             parts.push({
               inlineData: { data: audioData.base64, mimeType: audioData.mimeType },
             });
-            parts.push({ text: `[Transcript of above: ${message.text}]` });
           } else {
-            // Fallback to transcript only
+            // Audio fetch failed — fall back to transcript only
             parts.push({ text: `[User said (transcript only — audio unavailable): ${message.text}]` });
           }
         } else {
