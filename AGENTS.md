@@ -218,7 +218,88 @@ This is the same overall strategy used for the main mic audio flow: per-turn `Ab
 ### Related files
 - `App.tsx` (main mic + scenario description cancellation/discard logic)
 - `services/geminiService.ts` (`transcribeAndCleanupAudio`, `sendVoiceMessage` per-request `config.abortSignal`, and JSON enforcement config)
+- `services/tefReviewService.ts` (`generateTefReview` — passes `signal` to `fetch` and to `ai.models.generateContent`; returns `null` on `AbortError`)
 - `__tests__/scenarioDescriptionRecordingAbortDiscard.test.tsx` / `__tests__/transcribeAndCleanupAudioAbortSignal.test.ts` (abort + discard + config preservation)
+
+---
+
+## Deferred Audio URL Revocation for TEF Post-Exercise Review
+
+**Location:** `App.tsx` — `handleExitTefAd`, `handleExitTefQuestioning`, `handleDismissTefAdSummary`, `handleDismissTefQuestioningSummary`
+
+### Pattern
+
+For TEF Ad and TEF Questioning sessions, `URL.revokeObjectURL` is **not** called in the exit handlers. Revocation is deferred to the dismiss handlers — after the summary screen closes and the user is done with the review.
+
+```typescript
+// handleExitTefAd — NO revocation here
+const snapshot = messagesRef.current;
+tefAdMessagesSnapshotRef.current = snapshot;
+startTefAdReview(snapshot);       // review service will fetch audio from blob URLs
+
+// handleDismissTefAdSummary — revocation happens here, after review is done
+for (const msg of tefAdMessagesSnapshotRef.current) {
+  if (msg.audioUrl) {
+    // ...
+    URL.revokeObjectURL(url);     // safe: review service is no longer fetching
+  }
+}
+tefAdMessagesSnapshotRef.current = [];
+```
+
+The same pattern applies to TEF Questioning: `handleExitTefQuestioning` captures the snapshot and calls `startTefQuestioningReview`; `handleDismissTefQuestioningSummary` does the revocation.
+
+### Why This Is Intentional
+
+`generateTefReview` in `services/tefReviewService.ts` fetches user audio from blob URLs to send to the Gemini evaluator as inline audio data. If exit handlers revoked the URLs immediately (as other scenario exit handlers do), the fetch inside `generateTefReview` would fail with a network error and the review would only have transcripts, degrading evaluation quality.
+
+### What "snapshot refs" are for
+
+`tefAdMessagesSnapshotRef` and `tefQuestioningMessagesSnapshotRef` capture the message array at exit time so that:
+1. The review service has a stable reference to the messages (including blob URLs) that persists even after React state is cleared.
+2. The dismiss handler can find the URLs to revoke them after the review is complete.
+
+Do **not** clear these refs or revoke URLs in the exit handlers. Do **not** "clean up" the exit handlers by adding `URL.revokeObjectURL` calls there — this will silently break review audio.
+
+### Related Files
+
+- `App.tsx` — `handleExitTefAd`, `handleExitTefQuestioning` (exit: capture snapshot, no revocation); `handleDismissTefAdSummary`, `handleDismissTefQuestioningSummary` (dismiss: revoke + clear snapshot)
+- `services/tefReviewService.ts` — `generateTefReview` — fetches blob URLs via `fetchAudioAsInlineData`
+
+---
+
+## TEF Post-Exercise Review: `generateTefReview` Returns `null` on Abort
+
+**Location:** `services/tefReviewService.ts` — `generateTefReview()`
+
+### Pattern
+
+`generateTefReview` has return type `Promise<TefReview | null>`. It returns `null` when the request is aborted (via `AbortSignal`) rather than throwing. All callers must check for `null` and treat it as a graceful cancellation — not as an error.
+
+```typescript
+// tefReviewService.ts
+if (err instanceof DOMException && err.name === 'AbortError') return null;
+if (err instanceof Error && err.name === 'AbortError') return null;
+
+// App.tsx callers
+generateTefReview({ ... })
+  .then((r) => {
+    if (r) {              // null check is required — null means aborted
+      setReviews([r]);
+    }
+  })
+```
+
+### Why This Is Intentional
+
+This follows the same abort-suppression convention used throughout the codebase (see "Abort / Cancellation Strategy for Audio Requests" above). Returning `null` rather than throwing keeps callers free of AbortError-specific catch logic. The review loading state is cleared in `finally`, so the UI returns cleanly to its idle state.
+
+Do **not** change `null` returns to throws. Do **not** flag the `if (r)` null-checks in callers as unnecessary — they guard against the abort case.
+
+### Related Files
+
+- `services/tefReviewService.ts` — `generateTefReview` return type and AbortError handling
+- `App.tsx` — `startTefAdReview`, `regenerateTefAdReview`, `startTefQuestioningReview`, `regenerateTefQuestioningReview` callers
 
 ---
 
@@ -425,6 +506,8 @@ When reviewing this codebase:
 8. **Don't flag the two-schema branch (`TefQuestioningSchema` / `SingleCharacterSchema`) as unnecessary** - `isRepeat` must only appear in the questioning path; the schemas must remain separate
 9. **Don't flag `isRepeat` on `VoiceResponse` as dead code** - It is consumed by the repeat counter in `App.tsx` and displayed on `TefQuestioningSummary`
 10. **Don't add per-turn context injection to the questioning mode path** - Unlike persuasion mode, questioning mode needs no external sequencing signal; its system prompt is self-sufficient
+11. **Don't add `URL.revokeObjectURL` calls to `handleExitTefAd` or `handleExitTefQuestioning`** - Revocation is intentionally deferred to the dismiss handlers so the review service can fetch audio blob URLs for evaluation (see "Deferred Audio URL Revocation" section)
+12. **Don't flag the `if (r)` null-checks on `generateTefReview` results as redundant** - `null` is the documented return value for an aborted review request; the check is required (see "TEF Post-Exercise Review: `generateTefReview` Returns `null` on Abort" section)
 
 If you believe you've found a genuine bug in one of these areas, please:
 - Reference this document in your review
@@ -438,4 +521,5 @@ If you believe you've found a genuine bug in one of these areas, please:
 - 2025-01-XX: Initial documentation of TTS/history pattern and successive message merging
 - 2026-03-11: Added deterministic objection tracking pattern (TEF Ad mode)
 - 2026-03-14: Added TEF Ad Questioning mode patterns (isTefQuestioning schema selection, isRepeat flag, no per-turn context injection, first-message skip); added persuasion first-message skip note; updated credentials table
+- 2026-04-04: Added deferred audio URL revocation pattern and `generateTefReview` null-on-abort convention (TEF post-exercise review feature)
 - See git history for detailed implementation timeline
