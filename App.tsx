@@ -499,7 +499,16 @@ const App: React.FC = () => {
         }
 
         const timestamp = Date.now();
-        const userMessage: Message = { role: 'user', text: response.userText, timestamp };
+
+        // Create a blob URL for the user's recorded audio so the review service
+        // can evaluate actual speech rather than relying solely on transcripts.
+        const userAudioBlob = new Blob(
+          [Uint8Array.from(atob(base64), c => c.charCodeAt(0))],
+          { type: mimeType }
+        );
+        const userAudioUrl = URL.createObjectURL(userAudioBlob);
+
+        const userMessage: Message = { role: 'user', text: response.userText, timestamp, audioUrl: userAudioUrl };
 
         // Create separate messages for each character
         const modelMessages: Message[] = characters.map((char, idx) => ({
@@ -531,9 +540,18 @@ const App: React.FC = () => {
         // Add messages to history (append for chronological order - newest last)
         const timestamp = Date.now();
         const modelTimestamp = timestamp + 1;
+
+        // Create a blob URL for the user's recorded audio so the review service
+        // can evaluate actual speech rather than relying solely on transcripts.
+        const userAudioBlob = new Blob(
+          [Uint8Array.from(atob(base64), c => c.charCodeAt(0))],
+          { type: mimeType }
+        );
+        const userAudioUrl = URL.createObjectURL(userAudioBlob);
+
         setMessages(prev => [
           ...prev,
-          { role: 'user', text: userText, timestamp },
+          { role: 'user', text: userText, timestamp, audioUrl: userAudioUrl },
           {
             role: 'model',
             text: modelText as string,

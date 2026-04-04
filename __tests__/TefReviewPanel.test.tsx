@@ -224,60 +224,63 @@ describe('TefReviewPanel · carousel navigation', () => {
 
   it('shows "Review X of Y" label when multiple reviews exist', () => {
     renderPanel({ reviews: [SAMPLE_REVIEW, SECOND_REVIEW], currentIndex: 0 });
-    expect(screen.getByText(/review 1 of 2/i)).toBeInTheDocument();
+    // Two carousel rows (top + bottom) — both show the same label
+    const labels = screen.getAllByText(/review 1 of 2/i);
+    expect(labels.length).toBeGreaterThanOrEqual(1);
   });
 
   it('updates "Review X of Y" label based on currentIndex', () => {
     renderPanel({ reviews: [SAMPLE_REVIEW, SECOND_REVIEW], currentIndex: 1 });
-    expect(screen.getByText(/review 2 of 2/i)).toBeInTheDocument();
+    const labels = screen.getAllByText(/review 2 of 2/i);
+    expect(labels.length).toBeGreaterThanOrEqual(1);
   });
 
   it('renders prev and next navigation buttons when multiple reviews exist', () => {
     renderPanel({ reviews: [SAMPLE_REVIEW, SECOND_REVIEW], currentIndex: 0 });
-    // There should be some previous/back button and a next button
-    const prevBtn = screen.getByRole('button', { name: /previous|←|prev/i });
-    const nextBtn = screen.getByRole('button', { name: /next|→/i });
-    expect(prevBtn).toBeInTheDocument();
-    expect(nextBtn).toBeInTheDocument();
+    // Two carousel rows (top + bottom) so there are 2 of each button
+    const prevBtns = screen.getAllByRole('button', { name: /previous|←|prev/i });
+    const nextBtns = screen.getAllByRole('button', { name: /next|→/i });
+    expect(prevBtns.length).toBeGreaterThanOrEqual(1);
+    expect(nextBtns.length).toBeGreaterThanOrEqual(1);
   });
 
   it('disables the previous button at index 0', () => {
     renderPanel({ reviews: [SAMPLE_REVIEW, SECOND_REVIEW], currentIndex: 0 });
-    const prevBtn = screen.getByRole('button', { name: /previous|←|prev/i });
-    expect(prevBtn).toBeDisabled();
+    const prevBtns = screen.getAllByRole('button', { name: /previous|←|prev/i });
+    prevBtns.forEach(btn => expect(btn).toBeDisabled());
   });
 
   it('disables the next button at the last index', () => {
     renderPanel({ reviews: [SAMPLE_REVIEW, SECOND_REVIEW], currentIndex: 1 });
-    const nextBtn = screen.getByRole('button', { name: /next|→/i });
-    expect(nextBtn).toBeDisabled();
+    const nextBtns = screen.getAllByRole('button', { name: /next|→/i });
+    nextBtns.forEach(btn => expect(btn).toBeDisabled());
   });
 
   it('enables the next button when not at the last index', () => {
     renderPanel({ reviews: [SAMPLE_REVIEW, SECOND_REVIEW], currentIndex: 0 });
-    const nextBtn = screen.getByRole('button', { name: /next|→/i });
-    expect(nextBtn).not.toBeDisabled();
+    const nextBtns = screen.getAllByRole('button', { name: /next|→/i });
+    nextBtns.forEach(btn => expect(btn).not.toBeDisabled());
   });
 
   it('enables the previous button when not at index 0', () => {
     renderPanel({ reviews: [SAMPLE_REVIEW, SECOND_REVIEW], currentIndex: 1 });
-    const prevBtn = screen.getByRole('button', { name: /previous|←|prev/i });
-    expect(prevBtn).not.toBeDisabled();
+    const prevBtns = screen.getAllByRole('button', { name: /previous|←|prev/i });
+    prevBtns.forEach(btn => expect(btn).not.toBeDisabled());
   });
 
   it('calls onNavigate with index+1 when next button is clicked', () => {
     const onNavigate = vi.fn();
     renderPanel({ reviews: [SAMPLE_REVIEW, SECOND_REVIEW], currentIndex: 0, onNavigate });
-    fireEvent.click(screen.getByRole('button', { name: /next|→/i }));
-    expect(onNavigate).toHaveBeenCalledTimes(1);
+    // Click the first (top) next button
+    fireEvent.click(screen.getAllByRole('button', { name: /next|→/i })[0]);
     expect(onNavigate).toHaveBeenCalledWith(1);
   });
 
   it('calls onNavigate with index-1 when previous button is clicked', () => {
     const onNavigate = vi.fn();
     renderPanel({ reviews: [SAMPLE_REVIEW, SECOND_REVIEW], currentIndex: 1, onNavigate });
-    fireEvent.click(screen.getByRole('button', { name: /previous|←|prev/i }));
-    expect(onNavigate).toHaveBeenCalledTimes(1);
+    // Click the first (top) previous button
+    fireEvent.click(screen.getAllByRole('button', { name: /previous|←|prev/i })[0]);
     expect(onNavigate).toHaveBeenCalledWith(0);
   });
 

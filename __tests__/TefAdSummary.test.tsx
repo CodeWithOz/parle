@@ -244,7 +244,7 @@ describe('TefAdSummary · TefReviewPanel integration', () => {
       reviewIndex: 0,
       onNavigateReview,
     });
-    fireEvent.click(screen.getByRole('button', { name: /next|→/i }));
+    fireEvent.click(screen.getAllByRole('button', { name: /next|→/i })[0]);
     expect(onNavigateReview).toHaveBeenCalledWith(1);
   });
 });

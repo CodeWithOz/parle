@@ -175,6 +175,31 @@ export const TefReviewPanel: React.FC<TefReviewPanelProps> = ({
         </ol>
       </div>
 
+      {/* Bottom carousel controls — mirrors the top so you don't need to scroll up to switch */}
+      {reviews.length > 1 && (
+        <div className="flex items-center justify-center gap-3">
+          <button
+            onClick={() => onNavigate(currentIndex - 1)}
+            disabled={currentIndex === 0}
+            aria-label="Previous review"
+            className="text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed text-lg px-2"
+          >
+            ←
+          </button>
+          <span className="text-slate-400 text-xs">
+            Review {currentIndex + 1} of {reviews.length}
+          </span>
+          <button
+            onClick={() => onNavigate(currentIndex + 1)}
+            disabled={currentIndex === reviews.length - 1}
+            aria-label="Next review"
+            className="text-slate-400 hover:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed text-lg px-2"
+          >
+            →
+          </button>
+        </div>
+      )}
+
       {/* Regenerate button */}
       <div className="flex justify-center pt-2">
         <button
