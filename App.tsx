@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdMode, TefObjectionState, TefQuestioningMode } from './types';
+import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdMode, TefObjectionState, TefQuestioningMode, TefReview } from './types';
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
 import { useConversationTimer } from './hooks/useConversationTimer';
@@ -9,6 +9,7 @@ import { clearHistory } from './services/conversationHistory';
 import { hasApiKeyOrEnv } from './services/apiKeyService';
 import { assignVoicesToCharacters } from './services/voiceService';
 import { generateId, generateTefAdSystemInstruction, generateTefQuestioningSystemInstruction } from './services/scenarioService';
+import { generateTefReview } from './services/tefReviewService';
 import { createInitialTefObjectionState, advanceTefObjectionState, TOTAL_ROUNDS_PER_DIRECTION } from './utils/tefObjectionState';
 import { Orb } from './components/Orb';
 import { Controls } from './components/Controls';
@@ -19,6 +20,7 @@ import { AdQuestioningSetup } from './components/AdQuestioningSetup';
 import { PersuasionTimer } from './components/PersuasionTimer';
 import { QuestioningTimer } from './components/QuestioningTimer';
 import { TefQuestioningSummary } from './components/TefQuestioningSummary';
+import { TefAdSummary } from './components/TefAdSummary';
 import { AdThumbnail } from './components/AdThumbnail';
 import { ImageLightbox } from './components/ImageLightbox';
 import { ApiKeySetup } from './components/ApiKeySetup';
@@ -40,6 +42,8 @@ const App: React.FC = () => {
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const messagesRef = useRef<Message[]>(messages);
+  messagesRef.current = messages;
   const [autoPlayMessageId, setAutoPlayMessageId] = useState<number | null>(null);
   const [currentHint, setCurrentHint] = useState<string | null>(null);
 
@@ -81,8 +85,132 @@ const App: React.FC = () => {
   const [tefQuestioningIsFirstMessage, setTefQuestioningIsFirstMessage] = useState(true);
   const [showTefQuestioningSummary, setShowTefQuestioningSummary] = useState(false);
 
+  // Review state — arrays to support carousel/regenerate
+  const [tefQuestioningReviews, setTefQuestioningReviews] = useState<TefReview[]>([]);
+  const [tefQuestioningReviewIndex, setTefQuestioningReviewIndex] = useState(0);
+  const [tefQuestioningReviewLoading, setTefQuestioningReviewLoading] = useState(false);
+  const [tefQuestioningReviewError, setTefQuestioningReviewError] = useState<string | null>(null);
+
+  const [showTefAdSummary, setShowTefAdSummary] = useState(false);
+  const [tefAdReviews, setTefAdReviews] = useState<TefReview[]>([]);
+  const [tefAdReviewIndex, setTefAdReviewIndex] = useState(0);
+  const [tefAdReviewLoading, setTefAdReviewLoading] = useState(false);
+  const [tefAdReviewError, setTefAdReviewError] = useState<string | null>(null);
+
+  // Snapshot refs for retry/regenerate after messages state is cleared
+  const tefQuestioningMessagesSnapshotRef = useRef<Message[]>([]);
+  const tefAdMessagesSnapshotRef = useRef<Message[]>([]);
+
   // AbortController for cancelling in-flight requests (declared here so timer callback can use it)
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // TEF Questioning review helpers
+  // ---------------------------------------------------------------------------
+
+  const startTefQuestioningReview = (snapshot: Message[]) => {
+    const adSummary = activeScenario?.aiSummary;
+    setTefQuestioningReviews([]);
+    setTefQuestioningReviewIndex(0);
+    setTefQuestioningReviewError(null);
+    setTefQuestioningReviewLoading(true);
+    generateTefReview({
+      exerciseType: 'questioning',
+      messages: snapshot,
+      adSummary,
+      elapsedSeconds: tefQuestioningElapsed,
+    })
+      .then((r) => {
+        if (r) {
+          setTefQuestioningReviews([r]);
+          setTefQuestioningReviewIndex(0);
+        }
+      })
+      .catch((e) => {
+        setTefQuestioningReviewError(e instanceof Error ? e.message : 'Review failed');
+      })
+      .finally(() => setTefQuestioningReviewLoading(false));
+  };
+
+  const regenerateTefQuestioningReview = (snapshot: Message[]) => {
+    const adSummary = activeScenario?.aiSummary;
+    setTefQuestioningReviewError(null);
+    setTefQuestioningReviewLoading(true);
+    generateTefReview({
+      exerciseType: 'questioning',
+      messages: snapshot,
+      adSummary,
+      elapsedSeconds: tefQuestioningElapsed,
+    })
+      .then((r) => {
+        if (r) {
+          setTefQuestioningReviews((prev) => {
+            const next = [...prev, r];
+            setTefQuestioningReviewIndex(next.length - 1);
+            return next;
+          });
+        }
+      })
+      .catch((e) => {
+        setTefQuestioningReviewError(e instanceof Error ? e.message : 'Review failed');
+      })
+      .finally(() => setTefQuestioningReviewLoading(false));
+  };
+
+  // ---------------------------------------------------------------------------
+  // TEF Ad review helpers
+  // ---------------------------------------------------------------------------
+
+  const startTefAdReview = (snapshot: Message[]) => {
+    const adSummary = activeScenario?.aiSummary;
+    setTefAdReviews([]);
+    setTefAdReviewIndex(0);
+    setTefAdReviewError(null);
+    setTefAdReviewLoading(true);
+    generateTefReview({
+      exerciseType: 'persuasion',
+      messages: snapshot,
+      adSummary,
+      objectionState: tefObjectionState,
+      elapsedSeconds: tefElapsed,
+    })
+      .then((r) => {
+        if (r) {
+          setTefAdReviews([r]);
+          setTefAdReviewIndex(0);
+        }
+      })
+      .catch((e) => {
+        setTefAdReviewError(e instanceof Error ? e.message : 'Review failed');
+      })
+      .finally(() => setTefAdReviewLoading(false));
+  };
+
+  const regenerateTefAdReview = (snapshot: Message[]) => {
+    const adSummary = activeScenario?.aiSummary;
+    setTefAdReviewError(null);
+    setTefAdReviewLoading(true);
+    generateTefReview({
+      exerciseType: 'persuasion',
+      messages: snapshot,
+      adSummary,
+      objectionState: tefObjectionState,
+      elapsedSeconds: tefElapsed,
+    })
+      .then((r) => {
+        if (r) {
+          setTefAdReviews((prev) => {
+            const next = [...prev, r];
+            setTefAdReviewIndex(next.length - 1);
+            return next;
+          });
+        }
+      })
+      .catch((e) => {
+        setTefAdReviewError(e instanceof Error ? e.message : 'Review failed');
+      })
+      .finally(() => setTefAdReviewLoading(false));
+  };
 
   // TEF Questioning conversation timer (5-minute limit)
   const handleTefQuestioningTimeUp = useCallback(() => {
@@ -95,6 +223,10 @@ const App: React.FC = () => {
     }
     setTefQuestioningTimedUp(true);
     setShowTefQuestioningSummary(true);
+    const snapshot = messagesRef.current;
+    tefQuestioningMessagesSnapshotRef.current = snapshot;
+    startTefQuestioningReview(snapshot);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const { elapsed: tefQuestioningElapsed } = useConversationTimer(
@@ -1022,7 +1154,10 @@ const App: React.FC = () => {
     setTefAdMode('practice');
   };
 
-  const handleExitTefAd = async () => {
+  const handleExitTefAd = () => {
+    // Guard: prevent double-trigger
+    if (showTefAdSummary) return;
+
     setTefAdIsFirstMessage(true);
 
     // Abort any in-flight processing or recording
@@ -1040,8 +1175,26 @@ const App: React.FC = () => {
     setLastDescriptionAudio(null);
     setCanRetryDescriptionAudio(false);
 
-    // Revoke audio URLs
-    for (const msg of messages) {
+    setShowLightbox(false);
+    setTefTimedUp(false);
+
+    // Capture snapshot BEFORE clearing state — audio URLs must stay valid for review generation
+    const snapshot = messagesRef.current;
+    tefAdMessagesSnapshotRef.current = snapshot;
+
+    // Show review screen and start generating review
+    setTefAdReviews([]);
+    setTefAdReviewIndex(0);
+    setTefAdReviewError(null);
+    setTefAdReviewLoading(true);
+    setShowTefAdSummary(true);
+
+    startTefAdReview(snapshot);
+  };
+
+  const handleDismissTefAdSummary = () => {
+    // Revoke audio URLs from snapshot (safe now that review is done)
+    for (const msg of tefAdMessagesSnapshotRef.current) {
       if (msg.audioUrl) {
         if (Array.isArray(msg.audioUrl)) {
           for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
@@ -1050,6 +1203,7 @@ const App: React.FC = () => {
         }
       }
     }
+    tefAdMessagesSnapshotRef.current = [];
 
     // Clear scenario and conversation
     setActiveScenario(null);
@@ -1059,13 +1213,20 @@ const App: React.FC = () => {
     setAutoPlayMessageId(null);
     setCurrentHint(null);
 
-    // Reset all TEF state
+    // Reset all TEF Ad state
     setTefAdMode('none');
     setTefAdImage(null);
     setShowLightbox(false);
     setTefTimedUp(false);
     setTefObjectionState(null);
     setTefAdIsFirstMessage(true);
+
+    // Reset review state
+    setTefAdReviews([]);
+    setTefAdReviewIndex(0);
+    setTefAdReviewLoading(false);
+    setTefAdReviewError(null);
+    setShowTefAdSummary(false);
 
     // Force back to idle so landing page is clean
     setAppState(AppState.IDLE);
@@ -1148,6 +1309,9 @@ const App: React.FC = () => {
     }
     setShowLightbox(false);
     setShowTefQuestioningSummary(true);
+    const snapshot = messagesRef.current;
+    tefQuestioningMessagesSnapshotRef.current = snapshot;
+    startTefQuestioningReview(snapshot);
   };
 
   const handleDismissTefQuestioningSummary = () => {
@@ -1160,17 +1324,6 @@ const App: React.FC = () => {
     setShowLightbox(false);
     if (appState === AppState.RECORDING) {
       cancelRecording();
-    }
-
-    // Revoke audio URLs
-    for (const msg of messages) {
-      if (msg.audioUrl) {
-        if (Array.isArray(msg.audioUrl)) {
-          for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
-        } else {
-          URL.revokeObjectURL(msg.audioUrl);
-        }
-      }
     }
 
     // Clear scenario and conversation
@@ -1189,6 +1342,24 @@ const App: React.FC = () => {
     setTefQuestioningRepeatCount(0);
     setTefQuestioningIsFirstMessage(true);
     setShowTefQuestioningSummary(false);
+
+    // Revoke audio URLs from the snapshot (safe now that review is done)
+    for (const msg of tefQuestioningMessagesSnapshotRef.current) {
+      if (msg.audioUrl) {
+        if (Array.isArray(msg.audioUrl)) {
+          for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
+        } else {
+          URL.revokeObjectURL(msg.audioUrl);
+        }
+      }
+    }
+    tefQuestioningMessagesSnapshotRef.current = [];
+
+    // Reset review state
+    setTefQuestioningReviews([]);
+    setTefQuestioningReviewIndex(0);
+    setTefQuestioningReviewLoading(false);
+    setTefQuestioningReviewError(null);
 
     setAppState(AppState.IDLE);
   };
@@ -1463,11 +1634,35 @@ const App: React.FC = () => {
           elapsedSeconds={tefQuestioningElapsed}
           adImage={tefQuestioningImage}
           onDismiss={handleDismissTefQuestioningSummary}
+          reviews={tefQuestioningReviews}
+          reviewIndex={tefQuestioningReviewIndex}
+          onNavigateReview={setTefQuestioningReviewIndex}
+          isReviewLoading={tefQuestioningReviewLoading}
+          reviewError={tefQuestioningReviewError}
+          onRetryReview={() => startTefQuestioningReview(tefQuestioningMessagesSnapshotRef.current)}
+          onRegenerateReview={() => regenerateTefQuestioningReview(tefQuestioningMessagesSnapshotRef.current)}
+        />
+      )}
+
+      {/* TEF Ad Summary Overlay */}
+      {showTefAdSummary && (
+        <TefAdSummary
+          elapsedSeconds={tefElapsed}
+          objectionState={tefObjectionState}
+          adImage={tefAdImage}
+          reviews={tefAdReviews}
+          reviewIndex={tefAdReviewIndex}
+          onNavigateReview={setTefAdReviewIndex}
+          isReviewLoading={tefAdReviewLoading}
+          reviewError={tefAdReviewError}
+          onRetryReview={() => startTefAdReview(tefAdMessagesSnapshotRef.current)}
+          onRegenerateReview={() => regenerateTefAdReview(tefAdMessagesSnapshotRef.current)}
+          onDismiss={handleDismissTefAdSummary}
         />
       )}
 
       {/* TEF Ad Time's Up Overlay */}
-      {tefTimedUp && tefAdMode === 'practice' && (
+      {tefTimedUp && tefAdMode === 'practice' && !showTefAdSummary && (
         <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4">
           <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-sm w-full p-8 text-center">
             <div className="w-16 h-16 bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-700/50">
@@ -1487,7 +1682,7 @@ const App: React.FC = () => {
                 Continue Anyway
               </button>
               <button
-                onClick={handleExitTefAd}
+                onClick={() => { setTefTimedUp(false); handleExitTefAd(); }}
                 className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors"
               >
                 End Session
