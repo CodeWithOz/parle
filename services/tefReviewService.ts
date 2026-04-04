@@ -128,7 +128,7 @@ export async function generateTefReview(params: {
 
 EXERCISE TYPE: ${exerciseLabel}
 ELAPSED TIME: ${elapsedSeconds} seconds
-TARGET LEVEL: C1 (minimum acceptable: B2)
+TARGET LEVEL: C1
 
 ${sectionGuidance}
 `;
@@ -189,7 +189,7 @@ CONVERSATION TRANSCRIPT:
 
 EVALUATION INSTRUCTIONS:
 Based on the conversation above, provide a structured CEFR evaluation. Assess the user's spoken French on:
-1. CEFR level (B1, B2, C1, or C2) with a 1–2 sentence justification
+1. CEFR level (A1, A2, B1, B2, C1, or C2) with a 1–2 sentence justification
 2. What the user did well (concrete positive observations)
 3. Grammatical/lexical mistakes with corrections and explanations
 4. Vocabulary improvements: suggest more precise or higher-register alternatives
@@ -216,7 +216,7 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
           properties: {
             cefrLevel: {
               type: Type.STRING,
-              description: 'CEFR level (e.g. "B2", "C1")',
+              description: 'CEFR level (one of "A1", "A2", "B1", "B2", "C1", "C2")',
             },
             cefrJustification: {
               type: Type.STRING,
