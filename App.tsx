@@ -1184,6 +1184,10 @@ const App: React.FC = () => {
     // Guard: prevent double-trigger
     if (showTefAdSummary) return;
 
+    // Mark processing as aborted so any in-flight processAudioMessage continuation
+    // won't create a new user audio blob URL after the snapshot has been captured.
+    processingAbortedRef.current = true;
+
     setTefAdIsFirstMessage(true);
 
     // Abort any in-flight processing or recording
