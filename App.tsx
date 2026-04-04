@@ -101,6 +101,12 @@ const App: React.FC = () => {
   const tefQuestioningMessagesSnapshotRef = useRef<Message[]>([]);
   const tefAdMessagesSnapshotRef = useRef<Message[]>([]);
 
+  // Refs to keep handleTefQuestioningTimeUp (useCallback with []) in sync with current state.
+  // Sync assignments (.current = ...) happen after tefQuestioningElapsed is declared below.
+  const tefQuestioningElapsedRef = useRef(0);
+  const activeScenarioRef = useRef<Scenario | null>(null);
+  activeScenarioRef.current = activeScenario;
+
   // AbortController for cancelling in-flight requests (declared here so timer callback can use it)
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -109,7 +115,7 @@ const App: React.FC = () => {
   // ---------------------------------------------------------------------------
 
   const startTefQuestioningReview = (snapshot: Message[]) => {
-    const adSummary = activeScenario?.aiSummary;
+    const adSummary = activeScenarioRef.current?.aiSummary;
     setTefQuestioningReviews([]);
     setTefQuestioningReviewIndex(0);
     setTefQuestioningReviewError(null);
@@ -118,7 +124,7 @@ const App: React.FC = () => {
       exerciseType: 'questioning',
       messages: snapshot,
       adSummary,
-      elapsedSeconds: tefQuestioningElapsed,
+      elapsedSeconds: tefQuestioningElapsedRef.current,
     })
       .then((r) => {
         if (r) {
@@ -133,14 +139,14 @@ const App: React.FC = () => {
   };
 
   const regenerateTefQuestioningReview = (snapshot: Message[]) => {
-    const adSummary = activeScenario?.aiSummary;
+    const adSummary = activeScenarioRef.current?.aiSummary;
     setTefQuestioningReviewError(null);
     setTefQuestioningReviewLoading(true);
     generateTefReview({
       exerciseType: 'questioning',
       messages: snapshot,
       adSummary,
-      elapsedSeconds: tefQuestioningElapsed,
+      elapsedSeconds: tefQuestioningElapsedRef.current,
     })
       .then((r) => {
         if (r) {
@@ -235,6 +241,8 @@ const App: React.FC = () => {
     handleTefQuestioningTimeUp,
     300
   );
+  // Keep ref in sync so the memoized handleTefQuestioningTimeUp always reads the latest value
+  tefQuestioningElapsedRef.current = tefQuestioningElapsed;
 
   // Audio retry state - stores last recorded audio for retry on failure
   const [lastChatAudio, setLastChatAudio] = useState<AudioData | null>(null);
