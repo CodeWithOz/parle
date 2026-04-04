@@ -32,10 +32,12 @@ function ensureAiInitialized(): void {
 // ---------------------------------------------------------------------------
 
 async function fetchAudioAsInlineData(
-  url: string
+  url: string,
+  signal?: AbortSignal
 ): Promise<{ base64: string; mimeType: string } | null> {
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, signal ? { signal } : undefined);
+    if (signal?.aborted) return null;
     const blob = await response.blob();
     const mimeType = blob.type || 'audio/wav';
 
@@ -65,8 +67,9 @@ export async function generateTefReview(params: {
   adSummary?: string;
   objectionState?: TefObjectionState | null;
   elapsedSeconds: number;
-}): Promise<TefReview> {
-  const { exerciseType, messages, adSummary, objectionState, elapsedSeconds } = params;
+  signal?: AbortSignal;
+}): Promise<TefReview | null> {
+  const { exerciseType, messages, adSummary, objectionState, elapsedSeconds, signal } = params;
 
   ensureAiInitialized();
 
@@ -129,7 +132,7 @@ CONVERSATION TRANSCRIPT:
         const audioUrl = typeof message.audioUrl === 'string' ? message.audioUrl : undefined;
 
         if (audioUrl) {
-          const audioData = await fetchAudioAsInlineData(audioUrl);
+          const audioData = await fetchAudioAsInlineData(audioUrl, signal);
           if (audioData) {
             parts.push({
               inlineData: { data: audioData.base64, mimeType: audioData.mimeType },
@@ -165,71 +168,83 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
 
   parts.push({ text: epilogue });
 
+  // Bail out early if already aborted (before the expensive API call)
+  if (signal?.aborted) return null;
+
   // API call
-  const response = await ai!.models.generateContent({
-    model: 'gemini-2.0-flash-lite',
-    contents: [{ parts }],
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          cefrLevel: {
-            type: Type.STRING,
-            description: 'CEFR level (e.g. "B2", "C1")',
-          },
-          cefrJustification: {
-            type: Type.STRING,
-            description: '1-2 sentences explaining the level assessment',
-          },
-          wentWell: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: 'List of things the user did well',
-          },
-          mistakes: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                original: { type: Type.STRING },
-                correction: { type: Type.STRING },
-                explanation: { type: Type.STRING },
-              },
-              required: ['original', 'correction', 'explanation'],
+  let response: { text?: string };
+  try {
+    response = await ai!.models.generateContent({
+      model: 'gemini-2.0-flash-lite',
+      contents: [{ parts }],
+      config: {
+        responseMimeType: 'application/json',
+        ...(signal ? { abortSignal: signal } : {}),
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            cefrLevel: {
+              type: Type.STRING,
+              description: 'CEFR level (e.g. "B2", "C1")',
             },
-            description: 'Grammatical/lexical mistakes with corrections',
-          },
-          vocabularySuggestions: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                used: { type: Type.STRING },
-                better: { type: Type.STRING },
-                reason: { type: Type.STRING },
-              },
-              required: ['used', 'better', 'reason'],
+            cefrJustification: {
+              type: Type.STRING,
+              description: '1-2 sentences explaining the level assessment',
             },
-            description: 'Vocabulary improvements',
+            wentWell: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: 'List of things the user did well',
+            },
+            mistakes: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  original: { type: Type.STRING },
+                  correction: { type: Type.STRING },
+                  explanation: { type: Type.STRING },
+                },
+                required: ['original', 'correction', 'explanation'],
+              },
+              description: 'Grammatical/lexical mistakes with corrections',
+            },
+            vocabularySuggestions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  used: { type: Type.STRING },
+                  better: { type: Type.STRING },
+                  reason: { type: Type.STRING },
+                },
+                required: ['used', 'better', 'reason'],
+              },
+              description: 'Vocabulary improvements',
+            },
+            tipsForC1: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: 'Tips to reach or maintain C1 level',
+            },
           },
-          tipsForC1: {
-            type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: 'Tips to reach or maintain C1 level',
-          },
+          required: [
+            'cefrLevel',
+            'cefrJustification',
+            'wentWell',
+            'mistakes',
+            'vocabularySuggestions',
+            'tipsForC1',
+          ],
         },
-        required: [
-          'cefrLevel',
-          'cefrJustification',
-          'wentWell',
-          'mistakes',
-          'vocabularySuggestions',
-          'tipsForC1',
-        ],
       },
-    },
-  });
+    });
+  } catch (err) {
+    // Treat intentional aborts as graceful cancellations — return null instead of throwing
+    if (err instanceof DOMException && err.name === 'AbortError') return null;
+    if (err instanceof Error && err.name === 'AbortError') return null;
+    throw err;
+  }
 
   // Parse and validate
   const text = response.text || '';
