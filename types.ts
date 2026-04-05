@@ -90,3 +90,24 @@ export interface TefObjectionState {
   currentRound: number;      // 0-2 (3 rounds per direction)
   isConvinced: boolean;      // true after all 15 rounds complete
 }
+
+export interface TefReviewMistake {
+  original: string;     // What the user said
+  correction: string;   // Corrected phrase
+  explanation: string;  // Why, in plain English
+}
+
+export interface TefReviewVocabSuggestion {
+  used: string;
+  better: string;
+  reason: string;
+}
+
+export interface TefReview {
+  cefrLevel: string;                           // e.g. "B2", "C1"
+  cefrJustification: string;                   // 1-2 sentences explaining the assessment
+  wentWell: string[];
+  mistakes: TefReviewMistake[];
+  vocabularySuggestions: TefReviewVocabSuggestion[];
+  tipsForC1: string[];
+}
