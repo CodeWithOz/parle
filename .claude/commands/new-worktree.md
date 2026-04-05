@@ -36,7 +36,7 @@ Read the setup commands from `.cursor/worktrees.json` and execute them all in on
 
 ```bash
 cd ~/.cursor/worktrees/parle/{folder-name} && \
-  export ROOT_WORKTREE_PATH=/Users/ucheozoemena/01-projects/parle && \
+  export ROOT_WORKTREE_PATH="$(git rev-parse --show-toplevel)" && \
   npm install && \
   cp "$ROOT_WORKTREE_PATH/.env.local" .env.local
 ```

@@ -43,7 +43,12 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
   const goalMet = questionCount >= questionGoal;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="questioning-summary-title"
+    >
       <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[85vh] flex flex-col text-center">
         {/* Scrollable content area */}
         <div className="overflow-y-auto p-8 flex-1 min-h-0">
@@ -54,7 +59,7 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
             </svg>
           </div>
 
-          <h2 className="text-xl font-bold text-slate-100 mb-2">Session Complete</h2>
+          <h2 id="questioning-summary-title" className="text-xl font-bold text-slate-100 mb-2">Session Complete</h2>
           <p className="text-slate-400 text-sm mb-6">Here's how your questioning session went.</p>
 
           {/* Ad thumbnail */}
