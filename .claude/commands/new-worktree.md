@@ -32,7 +32,7 @@ git worktree add ~/.cursor/worktrees/parle/{folder-name} -b feature/{folder-name
 
 ### 3. Execute Setup Commands
 
-Read the setup commands from `.cursor/worktrees.json` and execute them all in one sequential bash call:
+Read the setup commands from `.cursor/worktrees.json` and execute them all in one sequential bash call, for instance:
 
 ```bash
 export ROOT_WORKTREE_PATH="$(git rev-parse --show-toplevel)" && \
