@@ -35,8 +35,8 @@ git worktree add ~/.cursor/worktrees/parle/{folder-name} -b feature/{folder-name
 Read the setup commands from `.cursor/worktrees.json` and execute them all in one sequential bash call:
 
 ```bash
-cd ~/.cursor/worktrees/parle/{folder-name} && \
-  export ROOT_WORKTREE_PATH="$(git rev-parse --show-toplevel)" && \
+export ROOT_WORKTREE_PATH="$(git rev-parse --show-toplevel)" && \
+  cd ~/.cursor/worktrees/parle/{folder-name} && \
   npm install && \
   cp "$ROOT_WORKTREE_PATH/.env.local" .env.local
 ```
