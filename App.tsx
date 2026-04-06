@@ -3,7 +3,7 @@ import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdM
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
 import { useConversationTimer } from './hooks/useConversationTimer';
-import { initializeSession, sendVoiceMessage, resetSession, setScenario, transcribeAndCleanupAudio, generateCharacterSpeech, generateTefAdObjections } from './services/geminiService';
+import { initializeSession, sendVoiceMessage, resetSession, setScenario, transcribeAndCleanupAudio, generateCharacterSpeech, generateTefAdObjections, PIPELINE_MAX_MS } from './services/geminiService';
 import { processScenarioDescriptionOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
 import { hasApiKeyOrEnv } from './services/apiKeyService';
@@ -27,6 +27,8 @@ import { ApiKeySetup } from './components/ApiKeySetup';
 import { GearIcon } from './components/icons/GearIcon';
 import { ConversationHint } from './components/ConversationHint';
 import { PracticeModeSheet } from './components/PracticeModeSheet';
+import { combineAbortSignals } from './utils/combineAbortSignals';
+import { isAbortLikeError } from './utils/isAbortLikeError';
 
 const App: React.FC = () => {
   // SEO metadata - similar to Next.js metadata export
@@ -268,12 +270,16 @@ const App: React.FC = () => {
 
   // Ref to track if processing was aborted by the user
   const processingAbortedRef = useRef(false);
+  /** Set before abort for user cancel (orb) or pipeline deadline; cleared in processAudioMessage finally/catch. */
+  const pipelineFailureKindRef = useRef<'timeout' | 'user_cancel' | null>(null);
   // Request ID counter to detect stale responses from previous requests
   const requestIdRef = useRef(0);
 
   // Error flash state
   const [errorFlashVisible, setErrorFlashVisible] = useState(false);
   const [errorFlashMessage, setErrorFlashMessage] = useState<string>('');
+  /** Persistent copy for ERROR status line (aligned with flash on pipeline failures). */
+  const [chatProcessingErrorMessage, setChatProcessingErrorMessage] = useState('');
 
   const hasMessages = messages.length > 0;
   const geminiKeyMissing = apiKeyCheckDone && !hasApiKeyOrEnv('gemini');
@@ -412,6 +418,7 @@ const App: React.FC = () => {
     // Clear retry state when starting a new recording
     setCanRetryChatAudio(false);
     setLastChatAudio(null);
+    setChatProcessingErrorMessage('');
 
     setAppState(AppState.RECORDING);
     await startRecording();
@@ -422,13 +429,23 @@ const App: React.FC = () => {
    */
   const processAudioMessage = async (audioData: AudioData) => {
     processingAbortedRef.current = false;
-    // Create a new AbortController for this request
-    abortControllerRef.current = new AbortController();
+    const userAbort = new AbortController();
+    abortControllerRef.current = userAbort;
+    const deadlineAbort = new AbortController();
+    let deadlineTimeoutId: ReturnType<typeof setTimeout> | undefined;
     // Increment request ID so we can detect stale responses
     const currentRequestId = ++requestIdRef.current;
     setAppState(AppState.PROCESSING);
+    setChatProcessingErrorMessage('');
 
     try {
+      deadlineTimeoutId = setTimeout(() => {
+        pipelineFailureKindRef.current = 'timeout';
+        deadlineAbort.abort();
+      }, PIPELINE_MAX_MS);
+
+      const pipelineSignal = combineAbortSignals(userAbort.signal, deadlineAbort.signal);
+
       const { base64, mimeType } = audioData;
 
       // Build per-turn objection context for TEF Ad practice
@@ -447,7 +464,7 @@ const App: React.FC = () => {
       const response = await sendVoiceMessage(
         base64,
         mimeType,
-        abortControllerRef.current.signal,
+        pipelineSignal,
         objectionContextText
       );
 
@@ -470,15 +487,21 @@ const App: React.FC = () => {
         // Validate multi-character response structure
         if (!response.characters || !Array.isArray(response.characters)) {
           console.error('Multi-character response missing characters array');
+          const invalidMsg = 'Invalid response format from AI';
+          setChatProcessingErrorMessage(invalidMsg);
+          setCanRetryChatAudio(true);
           setAppState(AppState.ERROR);
-          showErrorFlash('Invalid response format from AI');
+          showErrorFlash(invalidMsg);
           return;
         }
 
         if (!Array.isArray(response.modelText)) {
           console.error('Multi-character response has invalid modelText');
+          const invalidMsg = 'Invalid response format from AI';
+          setChatProcessingErrorMessage(invalidMsg);
+          setCanRetryChatAudio(true);
           setAppState(AppState.ERROR);
-          showErrorFlash('Invalid response format from AI');
+          showErrorFlash(invalidMsg);
           return;
         }
 
@@ -493,8 +516,11 @@ const App: React.FC = () => {
             characters: characters.length,
             modelTexts: modelTexts.length
           });
+          const invalidMsg = 'Invalid response format from AI';
+          setChatProcessingErrorMessage(invalidMsg);
+          setCanRetryChatAudio(true);
           setAppState(AppState.ERROR);
-          showErrorFlash('Invalid response format from AI');
+          showErrorFlash(invalidMsg);
           return;
         }
 
@@ -588,6 +614,7 @@ const App: React.FC = () => {
       // Success - clear retry state
       setCanRetryChatAudio(false);
       setLastChatAudio(null);
+      setChatProcessingErrorMessage('');
       setAppState(AppState.IDLE);
 
       // Persuasion first-message handling
@@ -616,18 +643,45 @@ const App: React.FC = () => {
       }
 
     } catch (error) {
+      const kind = pipelineFailureKindRef.current;
+      pipelineFailureKindRef.current = null;
+
       // If aborted or superseded by a newer request, don't show error
       if (processingAbortedRef.current || currentRequestId !== requestIdRef.current) {
         return;
       }
+
+      const isAbort = isAbortLikeError(error);
+      const defaultMsg = 'Connection error. Please try again.';
+
+      if (isAbort && kind === 'user_cancel') {
+        const msg = 'You canceled the processing.';
+        setChatProcessingErrorMessage(msg);
+        setCanRetryChatAudio(true);
+        setAppState(AppState.ERROR);
+        showErrorFlash(msg);
+        return;
+      }
+      if (isAbort && kind === 'timeout') {
+        const msg = 'Connection timed out';
+        setChatProcessingErrorMessage(msg);
+        setCanRetryChatAudio(true);
+        setAppState(AppState.ERROR);
+        showErrorFlash(msg);
+        return;
+      }
+
       console.error("Interaction failed", error);
-      // Enable retry with the stored audio
+      setChatProcessingErrorMessage(defaultMsg);
       setCanRetryChatAudio(true);
       setAppState(AppState.ERROR);
-      showErrorFlash();
+      showErrorFlash(defaultMsg);
     } finally {
-      // Clean up AbortController
+      if (deadlineTimeoutId !== undefined) {
+        clearTimeout(deadlineTimeoutId);
+      }
       abortControllerRef.current = null;
+      pipelineFailureKindRef.current = null;
     }
   };
 
@@ -657,8 +711,10 @@ const App: React.FC = () => {
         return;
       }
       console.error("Interaction failed", error);
+      const defaultMsg = 'Connection error. Please try again.';
+      setChatProcessingErrorMessage(defaultMsg);
       setAppState(AppState.ERROR);
-      showErrorFlash();
+      showErrorFlash(defaultMsg);
     }
   };
 
@@ -714,14 +770,14 @@ const App: React.FC = () => {
     }
   };
 
-  // Abort handler - cancels in-flight processing
+  // Abort handler - cancels in-flight processing (orb tap during PROCESSING)
   const handleAbortProcessing = useCallback(() => {
-    processingAbortedRef.current = true;
-    // Abort the in-flight network requests
-    if (abortControllerRef.current) {
-      abortControllerRef.current.abort();
+    if (!abortControllerRef.current) {
+      return;
     }
-    setAppState(AppState.IDLE);
+    pipelineFailureKindRef.current = 'user_cancel';
+    abortControllerRef.current.abort();
+    // ERROR + retry are set in processAudioMessage catch (do not set processingAbortedRef — that is for exercise-exit suppress)
   }, []);
 
   // Orb click handler - toggle recording or abort processing
@@ -1409,7 +1465,8 @@ const App: React.FC = () => {
       return <p className="text-red-400 font-medium animate-pulse">{errorFlashMessage}</p>;
     }
     if (appState === AppState.ERROR) {
-      return <p className="text-red-400 font-medium animate-pulse">Connection Error. Please try again.</p>;
+      const errLine = chatProcessingErrorMessage || 'Connection error. Please try again.';
+      return <p className="text-red-400 font-medium animate-pulse">{errLine}</p>;
     }
     if (geminiKeyMissing) {
       return <p className="text-yellow-400 font-medium text-sm">Warning: No Gemini API key configured.</p>;
