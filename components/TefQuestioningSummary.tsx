@@ -17,7 +17,7 @@ interface TefQuestioningSummaryProps {
   reviewError: string | null;
   onRetryReview: () => void;
   onRegenerateReview: () => void;
-  messages: Message[];
+  messages?: Message[];
 }
 
 function formatTime(seconds: number): string {
@@ -78,7 +78,7 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
   reviewError,
   onRetryReview,
   onRegenerateReview,
-  messages,
+  messages = [],
 }) => {
   const goalMet = questionCount >= questionGoal;
   const repeatedConcepts = groupRepeatedConcepts(messages);
