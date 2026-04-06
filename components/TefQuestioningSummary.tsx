@@ -48,8 +48,8 @@ export function groupRepeatedConcepts(
       const entry = allConcepts.get(label)!;
       if (msg.isRepeat === true) {
         entry.hasRepeat = true;
-        entry.messages.push({ before, user: msg, after });
       }
+      entry.messages.push({ before, user: msg, after });
     }
   }
 
@@ -178,7 +178,7 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
                         <span className="text-slate-100 text-sm font-medium">
                           {label}
                           <span className="text-slate-400 font-normal ml-1">
-                            · asked {group.messages.length + 1} time{group.messages.length + 1 !== 1 ? 's' : ''}
+                            · asked {group.messages.length} time{group.messages.length !== 1 ? 's' : ''}
                           </span>
                         </span>
                         <svg
