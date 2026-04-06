@@ -10,6 +10,9 @@ import { getApiKeyOrEnv } from "./apiKeyService";
 const DEFAULT_PCM_SAMPLE_RATE = 24000; // 24kHz sample rate
 const DEFAULT_PCM_CHANNELS = 1; // Mono audio
 
+/** Wall-clock maximum (ms) for transcribe + chat + TTS in `sendVoiceMessage`. */
+export const PIPELINE_MAX_MS = 90_000;
+
 // Define the system instruction to enforce the language constraint
 const SYSTEM_INSTRUCTION = `
 You are a friendly and patient French language tutor.
@@ -708,23 +711,13 @@ export const sendVoiceMessage = async (
     }
   }
 
+  if (signal?.aborted) {
+    throw new DOMException('Request aborted', 'AbortError');
+  }
+
   try {
-    // Helper to make API calls cancellable via AbortSignal
-    const abortablePromise = <T>(promise: Promise<T>): Promise<T> => {
-      if (!signal) return promise;
-
-      return Promise.race([
-        promise,
-        new Promise<T>((_, reject) => {
-          signal.addEventListener('abort', () => {
-            reject(new DOMException('Request aborted', 'AbortError'));
-          });
-        })
-      ]);
-    };
-
     // Step 1: Transcribe user audio
-    const transcribeResponse = await abortablePromise(ai.models.generateContent({
+    const transcribeResponse = await ai.models.generateContent({
       model: 'gemini-2.0-flash-lite',
       contents: [{
         parts: [
@@ -740,7 +733,7 @@ export const sendVoiceMessage = async (
       config: {
         abortSignal: signal,
       },
-    }));
+    });
 
     const userText = transcribeResponse.text || "";
 
@@ -792,7 +785,7 @@ export const sendVoiceMessage = async (
       return SINGLE_CHARACTER_RESPONSE_SCHEMA;
     })();
 
-    const chatResponse = await abortablePromise(chatSession.sendMessage({
+    const chatResponse = await chatSession.sendMessage({
       message: messageParts,
       config: {
         abortSignal: signal,
@@ -800,7 +793,7 @@ export const sendVoiceMessage = async (
         responseMimeType: 'application/json',
         responseSchema: responseSchemaForThisRequest,
       },
-    }));
+    });
 
     const rawModelText = chatResponse.text; // Access text property directly
 
@@ -900,11 +893,20 @@ export const sendVoiceMessage = async (
           throw new Error(`Character not found: ${charResp.characterName} (ID: ${charResp.characterId})`);
         }
 
-        const audioUrl = await abortablePromise(generateCharacterSpeech(charResp.french, character.voiceName, signal));
+        const audioUrl = await generateCharacterSpeech(charResp.french, character.voiceName, signal);
         return { ...charResp, audioUrl, voiceName: character.voiceName };
       });
 
       const results = await Promise.allSettled(audioPromises);
+
+      if (signal?.aborted) {
+        for (const result of results) {
+          if (result.status === 'fulfilled' && result.value.audioUrl) {
+            URL.revokeObjectURL(result.value.audioUrl);
+          }
+        }
+        throw new DOMException('Request aborted', 'AbortError');
+      }
 
       // Process results: extract successes and mark failures
       const characterAudios = results.map((result, idx) => {
@@ -992,7 +994,7 @@ export const sendVoiceMessage = async (
 
         let audioUrl = '';
         try {
-          audioUrl = await abortablePromise(generateCharacterSpeech(validated.french, voiceName, signal));
+          audioUrl = await generateCharacterSpeech(validated.french, voiceName, signal);
         } catch (ttsError) {
           // Re-throw aborts - user cancelled the operation
           if (ttsError instanceof DOMException && ttsError.name === 'AbortError') {
@@ -1065,7 +1067,7 @@ export const sendVoiceMessage = async (
 
         let audioUrl = '';
         try {
-          audioUrl = await abortablePromise(generateCharacterSpeech(validated.french, voiceName, signal));
+          audioUrl = await generateCharacterSpeech(validated.french, voiceName, signal);
         } catch (ttsError) {
           // Re-throw aborts - user cancelled the operation
           if (ttsError instanceof DOMException && ttsError.name === 'AbortError') {

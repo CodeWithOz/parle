@@ -201,9 +201,16 @@ This section is a developer-facing rule to prevent that entire class of bug.
 4. Preserve JSON enforcement when passing per-request config with `abortSignal`:
    - Keep `responseMimeType: 'application/json'` and `responseSchema: ...` set in the same request config.
    - This avoids the SDK returning plain text (which breaks downstream JSON parsing/validation).
-5. Handle `AbortError` so it doesn’t surface to the UI:
-   - Treat `AbortError` as intentional cancellation and `return` silently.
-   - Do not switch to generic ERROR UI or show error flashes for intentional aborts.
+5. Handle `AbortError` according to *why* the request was aborted:
+   - **`processingAbortedRef` (exercise exit, TEF timer, leaving summary):** suppress ERROR UI — treat as intentional and return silently from `processAudioMessage` / related flows.
+   - **User orb cancel during processing:** `handleAbortProcessing` is a no-op if `abortControllerRef` is null (nothing in flight). Otherwise set `pipelineFailureKindRef` to `'user_cancel'`, then `abort()` on the user `AbortController` — surface ERROR + retry + a clear message (same retry path as network failures). `lastChatAudio` remains for Retry.
+   - **Pipeline deadline (`PIPELINE_MAX_MS`, 90s wall-clock for transcribe + chat + TTS):** set `pipelineFailureKindRef` to `'timeout'` before aborting a second controller; combine **user** + **deadline** signals with `combineAbortSignals` (or `AbortSignal.any`) and pass that composite signal to `sendVoiceMessage`. Clear the deadline `setTimeout` in `finally`.
+
+### Main mic pipeline (`sendVoiceMessage`)
+- One composite `AbortSignal` covers the whole turn: user cancel **or** `PIPELINE_MAX_MS` (exported from `services/geminiService.ts`).
+- `sendVoiceMessage` uses `config.abortSignal` on transcribe, `sendMessage`, and TTS; no parallel `Promise.race` wrappers around those SDK calls.
+- In `App.tsx`, **`isAbortLikeError`** classifies aborted requests: the SDK may throw `APIUserAbortError`, plain `Error` with `name === 'AbortError'`, or **`Error` with default `name` and a message containing `signal is aborted`** (from the GenAI client). Do not rely on `instanceof DOMException` alone. Timeout user copy is **“Connection timed out”** (no seconds in the string).
+- If the model returns an invalid **multi-character** shape (missing `characters` / `modelText`, or array length mismatch), `App.tsx` sets ERROR and **`canRetryChatAudio(true)`** so the user can Retry with the same `lastChatAudio` (same as network/cancel failures).
 
 ### Example: scenario description recording (abort + stale discard)
 In the scenario description 'describe by voice' flow:
@@ -213,11 +220,13 @@ In the scenario description 'describe by voice' flow:
 - In `catch`, `AbortError` is ignored, and only non-abort failures show errors / enable retry.
 - In `finally`, the transcription spinner is only cleared when the request token still matches (so stale requests can’t affect UI after close+reopen).
 
-This is the same overall strategy used for the main mic audio flow: per-turn `AbortController`, request-token guarded state updates, and explicit `AbortError` suppression to avoid UI regressions.
+This is the same overall strategy used for the main mic audio flow: per-turn `AbortController`, request-token guarded state updates, and selective `AbortError` handling (suppress only when `processingAbortedRef` indicates an intentional exit).
 
 ### Related files
 - `App.tsx` (main mic + scenario description cancellation/discard logic)
-- `services/geminiService.ts` (`transcribeAndCleanupAudio`, `sendVoiceMessage` per-request `config.abortSignal`, and JSON enforcement config)
+- `utils/combineAbortSignals.ts` (composite signal for user + deadline)
+- `utils/isAbortLikeError.ts` (abort detection for `processAudioMessage` catch)
+- `services/geminiService.ts` (`transcribeAndCleanupAudio`, `sendVoiceMessage` per-request `config.abortSignal`, `PIPELINE_MAX_MS`, and JSON enforcement config)
 - `services/tefReviewService.ts` (`generateTefReview` — passes `signal` to `fetch` and to `ai.models.generateContent`; returns `null` on `AbortError`)
 - `__tests__/scenarioDescriptionRecordingAbortDiscard.test.tsx` / `__tests__/transcribeAndCleanupAudioAbortSignal.test.ts` (abort + discard + config preservation)
 
@@ -513,6 +522,16 @@ If you believe you've found a genuine bug in one of these areas, please:
 - Reference this document in your review
 - Explain why the documented rationale doesn't apply
 - Suggest an alternative approach that preserves the documented benefits
+
+---
+
+## Learned User Preferences
+
+- Remove temporary debug instrumentation (e.g. NDJSON ingest / `#region agent log` blocks) only after the user has confirmed the fix in the UI, unless they explicitly ask to clean up earlier.
+
+## Learned Workspace Facts
+
+- Continual-learning transcript processing for this project uses an index file under the main checkout: `01-projects/parle/.cursor/hooks/state/continual-learning-index.json`. `AGENTS.md` may be edited from a Cursor worktree (e.g. `worktrees/parle/<branch>/AGENTS.md`), so hook state and agent memory paths are not always the same directory.
 
 ---
 
