@@ -446,7 +446,8 @@ describe('groupRepeatedConcepts · context assembly with multiple repeats in one
     const result = groupRepeatedConcepts(messages);
 
     const group = result.get('pricing')!;
-    expect(group.messages.length).toBe(2);
+    expect(group.messages.length).toBe(3);
+    expect(group.messages.map(e => e.user)).toContain(user1);
     expect(group.messages.map(e => e.user)).toContain(user2);
     expect(group.messages.map(e => e.user)).toContain(user3);
   });
