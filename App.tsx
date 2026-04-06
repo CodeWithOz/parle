@@ -551,7 +551,16 @@ const App: React.FC = () => {
 
         setMessages(prev => [
           ...prev,
-          { role: 'user', text: userText, timestamp, audioUrl: userAudioUrl },
+          {
+            role: 'user',
+            text: userText,
+            timestamp,
+            audioUrl: userAudioUrl,
+            ...(tefQuestioningMode === 'practice' && !tefQuestioningIsFirstMessage && {
+              isRepeat: response.isRepeat,
+              conceptLabels: response.conceptLabels,
+            }),
+          },
           {
             role: 'model',
             text: modelText as string,
@@ -1659,6 +1668,7 @@ const App: React.FC = () => {
       {/* TEF Questioning Summary Overlay */}
       {showTefQuestioningSummary && (
         <TefQuestioningSummary
+          messages={tefQuestioningMessagesSnapshotRef.current}
           questionCount={tefQuestioningQuestionCount}
           repeatCount={tefQuestioningRepeatCount}
           elapsedSeconds={tefQuestioningElapsed}
