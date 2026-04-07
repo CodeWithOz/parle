@@ -236,7 +236,7 @@ describe('generateTefReview · happy path', () => {
       elapsedSeconds: 120,
     });
 
-    expect(result.vocabularySuggestions.length).toBeGreaterThanOrEqual(5);
+    expect(result.vocabularySuggestions.length).toBeGreaterThan(0);
     expect(result.vocabularySuggestions[0]).toMatchObject({
       used: 'bon',
       better: 'excellent',
@@ -683,22 +683,22 @@ describe('generateTefReview · error handling (malformed response)', () => {
     ).resolves.toBeDefined();
   });
 
-  it('throws when vocabularySuggestions has fewer than 5 entries', async () => {
-    const tooFewVocab = {
+  it('succeeds when vocabularySuggestions has fewer than 5 entries', async () => {
+    const fewVocab = {
       ...SAMPLE_REVIEW,
       vocabularySuggestions: SAMPLE_REVIEW.vocabularySuggestions.slice(0, 3),
     };
     mockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify(tooFewVocab),
+      text: JSON.stringify(fewVocab),
     });
 
-    await expect(
-      generateTefReview({
-        exerciseType: 'questioning',
-        messages: SAMPLE_MESSAGES_QUESTIONING,
-        elapsedSeconds: 120,
-      })
-    ).rejects.toThrow();
+    const result = await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+    expect(result).not.toBeNull();
+    expect(result!.vocabularySuggestions).toHaveLength(3);
   });
 
   it('throws when generateContent call itself rejects', async () => {

@@ -304,11 +304,8 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
     }
   }
 
-  const vocabSuggestions = obj['vocabularySuggestions'];
-  if (!Array.isArray(vocabSuggestions) || vocabSuggestions.length < 5) {
-    throw new Error(
-      `Review response must contain at least 5 vocabularySuggestions, got ${Array.isArray(vocabSuggestions) ? vocabSuggestions.length : 0}`
-    );
+  if (!Array.isArray(obj['vocabularySuggestions'])) {
+    throw new Error('Review response missing required field: "vocabularySuggestions"');
   }
 
   return obj as unknown as TefReview;
