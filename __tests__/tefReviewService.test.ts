@@ -38,7 +38,8 @@ vi.stubGlobal('fetch', mockFetch);
 // The function under test — does not exist yet
 import { generateTefReview } from '../services/tefReviewService';
 
-import type { Message, TefObjectionState, TefReview } from '../types';
+import type { Message, TefReview } from '../types';
+
 
 // ---------------------------------------------------------------------------
 // Shared mock Gemini client
@@ -79,6 +80,14 @@ const SAMPLE_REVIEW: TefReview = {
     { used: 'faire', better: 'effectuer', reason: 'Formal verb preferred in professional contexts.' },
     { used: 'voir', better: 'constater', reason: 'More precise observation verb in formal French.' },
   ],
+  // criteriaEvaluation is included so this fixture is valid for persuasion-type calls
+  criteriaEvaluation: [
+    { criterion: 'Clear & interesting presentation', met: true, evidence: 'User introduced the ad clearly.' },
+    { criterion: 'Argumentation vocabulary', met: true, evidence: 'Good use of linking words.' },
+    { criterion: '3+ distinct arguments', met: true, evidence: 'Three distinct points raised.' },
+    { criterion: 'Arguments developed with examples', met: false, evidence: 'Some bare assertions.' },
+    { criterion: 'Handled counter-arguments / nuance', met: true, evidence: 'Acknowledged objections.' },
+  ],
 };
 
 function makeUserMessage(text: string, audioUrl?: string): Message {
@@ -107,13 +116,6 @@ const SAMPLE_MESSAGES_PERSUASION: Message[] = [
   makeModelMessage("D'accord, vous marquez un point."),
   makeUserMessage('De plus, il est écologique.', 'blob:http://localhost/fake-audio-4'),
 ];
-
-const SAMPLE_OBJECTION_STATE: TefObjectionState = {
-  directions: ['Price', 'Quality', 'Availability', 'Sustainability', 'Brand trust'],
-  currentDirection: 4,
-  currentRound: 2,
-  isConvinced: true,
-};
 
 const FAKE_AUDIO_BASE64 = 'ZmFrZWF1ZGlv'; // base64 for "fakeaudio"
 const FAKE_MIME_TYPE = 'audio/webm';
@@ -283,7 +285,6 @@ describe('generateTefReview · prompt construction', () => {
       messages: SAMPLE_MESSAGES_PERSUASION,
       elapsedSeconds: 90,
       adSummary: 'A car ad summary.',
-      objectionState: SAMPLE_OBJECTION_STATE,
     });
 
     const callArg = mockGenerateContent.mock.calls[0][0];
@@ -313,7 +314,6 @@ describe('generateTefReview · prompt construction', () => {
       messages: SAMPLE_MESSAGES_PERSUASION,
       elapsedSeconds: 90,
       adSummary: 'A car ad summary.',
-      objectionState: SAMPLE_OBJECTION_STATE,
     });
 
     const callArg = mockGenerateContent.mock.calls[0][0];
@@ -373,17 +373,16 @@ describe('generateTefReview · guide content in prompt', () => {
         messages: SAMPLE_MESSAGES_PERSUASION,
         elapsedSeconds: 90,
         adSummary: 'A car ad.',
-        objectionState: SAMPLE_OBJECTION_STATE,
       })
     ).resolves.toBeDefined();
   });
 });
 
 // ---------------------------------------------------------------------------
-// Persuasion-specific: objection state context
+// Persuasion-specific: adSummary context (objectionState removed)
 // ---------------------------------------------------------------------------
 
-describe('generateTefReview · persuasion objectionState context', () => {
+describe('generateTefReview · persuasion adSummary context', () => {
   it('includes adSummary in the prompt when provided', async () => {
     const adSummary = 'A luxury car advertisement targeting young professionals.';
     await generateTefReview({
@@ -391,42 +390,163 @@ describe('generateTefReview · persuasion objectionState context', () => {
       messages: SAMPLE_MESSAGES_PERSUASION,
       elapsedSeconds: 90,
       adSummary,
-      objectionState: SAMPLE_OBJECTION_STATE,
     });
 
     const callArg = mockGenerateContent.mock.calls[0][0];
     const promptText = JSON.stringify(callArg);
     expect(promptText).toContain(adSummary);
   });
+});
 
-  it('includes isConvinced status from objectionState in the prompt', async () => {
+// ---------------------------------------------------------------------------
+// Persuasion-specific: 5-criteria evaluation in prompt
+// ---------------------------------------------------------------------------
+
+describe('generateTefReview · persuasion criteria in prompt', () => {
+  it('includes "clear" and "interesting" or "presentation" criterion in prompt', async () => {
     await generateTefReview({
       exerciseType: 'persuasion',
       messages: SAMPLE_MESSAGES_PERSUASION,
       elapsedSeconds: 90,
       adSummary: 'A car ad.',
-      objectionState: { ...SAMPLE_OBJECTION_STATE, isConvinced: true },
     });
 
     const callArg = mockGenerateContent.mock.calls[0][0];
-    const promptText = JSON.stringify(callArg);
-    // "convinced" or the boolean true should appear in context
-    expect(promptText).toMatch(/convinced|isConvinced/i);
+    const promptText = JSON.stringify(callArg).toLowerCase();
+    expect(promptText).toMatch(/clear.*interest|interest.*clear|presentation/);
   });
 
-  it('includes direction count from objectionState in the prompt', async () => {
+  it('includes argumentation vocabulary criterion in prompt', async () => {
     await generateTefReview({
       exerciseType: 'persuasion',
       messages: SAMPLE_MESSAGES_PERSUASION,
       elapsedSeconds: 90,
       adSummary: 'A car ad.',
-      objectionState: SAMPLE_OBJECTION_STATE,
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    const promptText = JSON.stringify(callArg).toLowerCase();
+    expect(promptText).toMatch(/argumentation.*vocab|vocab.*argumentation/);
+  });
+
+  it('includes 3+ distinct arguments criterion in prompt', async () => {
+    await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    const promptText = JSON.stringify(callArg).toLowerCase();
+    // Should mention 3 arguments or "three different" arguments
+    expect(promptText).toMatch(/3.*argument|three.*argument|argument.*3|argument.*three/);
+  });
+
+  it('includes examples / developed arguments criterion in prompt', async () => {
+    await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    const promptText = JSON.stringify(callArg).toLowerCase();
+    // Should mention examples or "developed"
+    expect(promptText).toMatch(/example|exemple|developed/);
+  });
+
+  it('includes nuance / counter-argument criterion in prompt', async () => {
+    await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    const promptText = JSON.stringify(callArg).toLowerCase();
+    // Should mention nuance or counter-argument
+    expect(promptText).toMatch(/nuanc|counter.?argument/);
+  });
+
+  it('persuasion prompt does NOT reference objectionState, isConvinced, or currentDirection', async () => {
+    await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
     });
 
     const callArg = mockGenerateContent.mock.calls[0][0];
     const promptText = JSON.stringify(callArg);
-    // currentDirection = 4 → 5 directions addressed (or the number 4 / 5 appears)
-    expect(promptText).toMatch(/[45]/);
+    expect(promptText).not.toMatch(/objectionState|isConvinced|currentDirection/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Persuasion-specific: criteriaEvaluation in response schema
+// ---------------------------------------------------------------------------
+
+describe('generateTefReview · criteriaEvaluation in response schema', () => {
+  it('includes criteriaEvaluation in the response schema for persuasion type', async () => {
+    await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    const callJson = JSON.stringify(callArg);
+    expect(callJson).toContain('criteriaEvaluation');
+  });
+
+  it('returns a result that includes criteriaEvaluation array for persuasion type', async () => {
+    const reviewWithCriteria = {
+      ...SAMPLE_REVIEW,
+      criteriaEvaluation: [
+        { criterion: 'Clear & interesting presentation', met: true, evidence: 'User clearly introduced the ad.' },
+        { criterion: 'Argumentation vocabulary', met: false, evidence: 'Limited use of linking words.' },
+        { criterion: '3+ distinct arguments', met: true, evidence: 'Three distinct points raised.' },
+        { criterion: 'Arguments developed with examples', met: false, evidence: 'Bare assertions without examples.' },
+        { criterion: 'Handled counter-arguments / nuance', met: true, evidence: 'Acknowledged objections.' },
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(reviewWithCriteria),
+    });
+
+    const result = await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    expect(result).toHaveProperty('criteriaEvaluation');
+    expect(Array.isArray((result as unknown as Record<string, unknown>)?.criteriaEvaluation)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// objectionState is no longer a parameter
+// ---------------------------------------------------------------------------
+
+describe('generateTefReview · objectionState parameter removed', () => {
+  it('does not include objectionState in the function signature (TypeScript type check via call)', async () => {
+    // The function should accept calls without objectionState for persuasion type
+    // and work correctly — if objectionState was required, this call would fail at type-check time
+    await expect(
+      generateTefReview({
+        exerciseType: 'persuasion',
+        messages: SAMPLE_MESSAGES_PERSUASION,
+        elapsedSeconds: 90,
+        adSummary: 'A car ad.',
+        // objectionState intentionally omitted
+      })
+    ).resolves.toBeDefined();
   });
 });
 

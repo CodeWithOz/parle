@@ -1,15 +1,16 @@
 /**
- * TDD tests for the persuasion mode first-message fix.
+ * TDD tests for the persuasion mode first-message behaviour.
  *
- * The bug: the first user turn (typically a greeting) incorrectly consumed
- * objection round 1 / direction 1, making the objection count off by one.
+ * The first user turn (typically a greeting) must:
+ *   - NOT receive any per-turn context injection
+ *   - NOT increment tefAdTurnCount
  *
- * The fix: when tefAdIsFirstMessage is true, skip objection context injection
- * AND skip advanceTefObjectionState; set tefAdIsFirstMessage = false.
- * On the second and subsequent turns, inject context and advance state as before.
+ * On the second and subsequent turns:
+ *   - Context IS injected (phase-based)
+ *   - tefAdTurnCount IS incremented
  *
- * Tests are written against App.tsx source text to specify the required
- * implementation, plus behavioural assertions via the geminiService mock.
+ * Source-text specs verify the required implementation in App.tsx.
+ * Behavioural specs exercise sendVoiceMessage directly.
  *
  * Tests FAIL before the implementation is in place.
  */
@@ -42,21 +43,6 @@ describe('persuasionFirstMessage · App.tsx source-text specs', () => {
     expect(src.default).toMatch(/tefAdIsFirstMessage[\s\S]{0,50}true|useState.*true.*tefAdIsFirstMessage/);
   });
 
-  it('App.tsx skips objectionContextText injection when tefAdIsFirstMessage is true', async () => {
-    const src = await import('../App?raw');
-    // The condition must check tefAdIsFirstMessage before building objectionContextText
-    expect(src.default).toMatch(/tefAdIsFirstMessage/);
-    // There must be an early-return / skip path that avoids injecting the context
-    expect(src.default).toMatch(/tefAdIsFirstMessage[\s\S]{0,300}objectionContextText|objectionContextText[\s\S]{0,300}tefAdIsFirstMessage/);
-  });
-
-  it('App.tsx skips advanceTefObjectionState on the first message', async () => {
-    const src = await import('../App?raw');
-    // The advance must be guarded against the first-message case
-    // i.e., advanceTefObjectionState is NOT called when tefAdIsFirstMessage
-    expect(src.default).toMatch(/tefAdIsFirstMessage[\s\S]{0,500}advanceTefObjectionState|advanceTefObjectionState[\s\S]{0,500}tefAdIsFirstMessage/);
-  });
-
   it('App.tsx sets tefAdIsFirstMessage to false after the first message is processed', async () => {
     const src = await import('../App?raw');
     // setTefAdIsFirstMessage(false) must appear in the code
@@ -67,6 +53,30 @@ describe('persuasionFirstMessage · App.tsx source-text specs', () => {
     const src = await import('../App?raw');
     // On exit, the flag must be reset so the next session starts fresh
     expect(src.default).toMatch(/handleExitTefAd[\s\S]{0,400}setTefAdIsFirstMessage\s*\(\s*true\s*\)/);
+  });
+
+  it('App.tsx declares tefAdTurnCount state', async () => {
+    const src = await import('../App?raw');
+    expect(src.default).toMatch(/tefAdTurnCount/);
+  });
+
+  it('App.tsx does NOT increment tefAdTurnCount when tefAdIsFirstMessage is true', async () => {
+    const src = await import('../App?raw');
+    // The tefAdTurnCount increment must be guarded by the first-message skip:
+    // setTefAdTurnCount must appear after setTefAdIsFirstMessage(false), indicating
+    // it only runs in the else (non-first-message) branch.
+    const setFalseIdx = src.default.indexOf('setTefAdIsFirstMessage(false)');
+    const incrementIdx = src.default.search(/setTefAdTurnCount\s*\(/);
+    expect(setFalseIdx).toBeGreaterThan(-1);
+    expect(incrementIdx).toBeGreaterThan(setFalseIdx);
+  });
+
+  it('App.tsx uses tefAdIsFirstMessage to gate context injection', async () => {
+    const src = await import('../App?raw');
+    // The condition must check tefAdIsFirstMessage before building phase context
+    expect(src.default).toMatch(/tefAdIsFirstMessage/);
+    // There must be branching logic that ties tefAdIsFirstMessage to context skipping
+    expect(src.default).toMatch(/tefAdIsFirstMessage[\s\S]{0,400}tefAdTurnCount|tefAdTurnCount[\s\S]{0,400}tefAdIsFirstMessage/);
   });
 });
 
@@ -156,7 +166,7 @@ describe('persuasionFirstMessage · sendVoiceMessage receives no context on firs
     setScenario(tefScenario as Parameters<typeof setScenario>[0]);
     await initializeSession();
 
-    const contextText = '[Per-turn context: Objection direction 1 of 5 — topic: "Price". Round 1 of 3. Raise or continue this objection.]';
+    const contextText = '[Per-turn context: early phase — encourage the user to introduce and present the advertisement clearly.]';
     await sendVoiceMessage(FAKE_AUDIO, FAKE_MIME, undefined, contextText);
 
     expect(mockSendMessage).toHaveBeenCalledTimes(1);
@@ -169,25 +179,5 @@ describe('persuasionFirstMessage · sendVoiceMessage receives no context on firs
       (p: { text: string }) => p.text.includes('[Per-turn context:')
     );
     expect(hasContext).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Behavioural specs: tefObjectionState must NOT advance on first turn
-// ---------------------------------------------------------------------------
-
-describe('persuasionFirstMessage · tefObjectionState unchanged after first turn', () => {
-  it('App.tsx does not call advanceTefObjectionState when tefAdIsFirstMessage is true (source spec)', async () => {
-    const src = await import('../App?raw');
-    // advanceTefObjectionState must be called in the file (not just imported)
-    expect(src.default).toMatch(/advanceTefObjectionState\s*\(/);
-    // Structural protection: the call to advanceTefObjectionState(...) must appear AFTER
-    // setTefAdIsFirstMessage(false), so it can only run in the else branch and never
-    // fires when tefAdIsFirstMessage is true.
-    const setFalseIdx = src.default.indexOf('setTefAdIsFirstMessage(false)');
-    // Find the call site, not the import — search for the function invocation pattern
-    const advanceCallIdx = src.default.indexOf('advanceTefObjectionState(');
-    expect(setFalseIdx).toBeGreaterThan(-1);
-    expect(advanceCallIdx).toBeGreaterThan(setFalseIdx);
   });
 });

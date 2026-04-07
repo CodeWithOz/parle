@@ -89,4 +89,20 @@ describe('generateTefAdSystemInstruction', () => {
     const result = generateTefAdSystemInstruction(adSummary, roleConfirmation);
     expect(result).not.toMatch(/\b5\b.*directions|directions.*\b5\b/i);
   });
+
+  it('contains language about asking for examples when user makes bare claims ("exemple")', () => {
+    const result = generateTefAdSystemInstruction(adSummary, roleConfirmation);
+    // The system instruction should prompt AI to ask for concrete examples
+    expect(result.toLowerCase()).toMatch(/exemple|example/);
+  });
+
+  it('does NOT describe "convinced" as a terminal state the AI must reach', () => {
+    const result = generateTefAdSystemInstruction(adSummary, roleConfirmation);
+    // The AI should not be described as eventually becoming "convinced" —
+    // the timer ends the session, not AI convincement
+    const lower = result.toLowerCase();
+    // "convinced" should not appear as a goal state the AI works toward
+    // It should not say the AI will be convinced when all objections are met
+    expect(lower).not.toMatch(/express.*convinced|become.*convinced|ai.*convinced|once.*convinced|when.*convinced|you.*are.*convinced/);
+  });
 });

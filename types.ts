@@ -83,15 +83,10 @@ export interface AudioData {
   mimeType: string;
 }
 
-/**
- * Tracks deterministic objection state for TEF Ad Persuasion practice.
- * 5 pre-generated directions × 3 rounds each = 15 total rounds.
- */
-export interface TefObjectionState {
-  directions: string[];      // 5 pre-generated objection topics
-  currentDirection: number;  // 0-4
-  currentRound: number;      // 0-2 (3 rounds per direction)
-  isConvinced: boolean;      // true after all 15 rounds complete
+export interface TefCriterionEvaluation {
+  criterion: string;
+  met: boolean;
+  evidence: string;
 }
 
 export interface TefReviewMistake {
@@ -112,4 +107,5 @@ export interface TefReview {
   wentWell: string[];
   mistakes: TefReviewMistake[];
   vocabularySuggestions: TefReviewVocabSuggestion[];
+  criteriaEvaluation?: TefCriterionEvaluation[]; // Persuasion-specific criteria scoring
 }

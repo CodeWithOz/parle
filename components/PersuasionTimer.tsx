@@ -1,18 +1,10 @@
 import React from 'react';
 
-interface ObjectionProgress {
-  currentDirection: number;
-  totalDirections: number;
-  currentRound: number;
-  totalRounds: number;
-  isConvinced: boolean;
-}
-
 interface PersuasionTimerProps {
   elapsed: number;
   totalSeconds?: number;
   isPaused: boolean;
-  objectionProgress?: ObjectionProgress;
+  turnCount?: number;
 }
 
 function formatTime(seconds: number): string {
@@ -25,7 +17,7 @@ export const PersuasionTimer: React.FC<PersuasionTimerProps> = ({
   elapsed,
   totalSeconds = 600,
   isPaused,
-  objectionProgress,
+  turnCount,
 }) => {
   const remaining = Math.max(0, totalSeconds - elapsed);
   const isLow = remaining <= 120 && remaining > 30;
@@ -69,13 +61,9 @@ export const PersuasionTimer: React.FC<PersuasionTimerProps> = ({
       <span className={`text-sm font-mono font-medium ${colorClass}`}>
         {isFinished ? '00:00' : formatTime(remaining)}
       </span>
-      {objectionProgress && (
+      {turnCount !== undefined && (
         <span className="text-xs font-medium text-slate-300 ml-1">
-          {objectionProgress.isConvinced ? (
-            <span className="text-green-400">&#10003; Convinced!</span>
-          ) : (
-            `Objection ${objectionProgress.currentDirection + 1}/${objectionProgress.totalDirections} \u00b7 Round ${objectionProgress.currentRound + 1}/${objectionProgress.totalRounds}`
-          )}
+          Turn {turnCount}
         </span>
       )}
     </div>
