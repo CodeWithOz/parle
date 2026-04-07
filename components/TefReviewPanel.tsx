@@ -162,19 +162,6 @@ export const TefReviewPanel: React.FC<TefReviewPanelProps> = ({
         )}
       </div>
 
-      {/* Tips for C1 */}
-      <div>
-        <h3 className="text-purple-400 font-semibold text-sm mb-2">Tips for C1</h3>
-        <ol className="space-y-1">
-          {currentReview.tipsForC1.map((tip, i) => (
-            <li key={i} className="text-slate-300 text-sm flex gap-2">
-              <span className="text-purple-400">{i + 1}.</span>
-              {tip}
-            </li>
-          ))}
-        </ol>
-      </div>
-
       {/* Bottom carousel controls — mirrors the top so you don't need to scroll up to switch */}
       {reviews.length > 1 && (
         <div className="flex items-center justify-center gap-3">
