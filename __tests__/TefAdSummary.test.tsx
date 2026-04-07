@@ -2,12 +2,12 @@
  * TDD tests for the TefAdSummary component (components/TefAdSummary.tsx).
  *
  * TefAdSummary is the post-exercise review screen shown after the TEF Ad Persuasion
- * exercise. It displays session statistics (time used, directions addressed, convinced
- * status, ad thumbnail) and embeds a TefReviewPanel for the AI-generated feedback.
+ * exercise. It displays session statistics (time used, turn count, criteria scorecard,
+ * ad thumbnail) and embeds a TefReviewPanel for the AI-generated feedback.
  *
  * Props:
  *   elapsedSeconds: number
- *   objectionState: TefObjectionState | null
+ *   turnCount: number
  *   adImage: string | null
  *   reviews: TefReview[]
  *   reviewIndex: number
@@ -17,18 +17,21 @@
  *   onRetryReview: () => void
  *   onRegenerateReview: () => void
  *   onDismiss: () => void
- *
- * Tests FAIL before the implementation exists.
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { TefAdSummary } from '../components/TefAdSummary';
-import type { TefReview, TefObjectionState } from '../types';
+import type { TefReview, TefCriterionEvaluation } from '../types';
 
 // ---------------------------------------------------------------------------
 // Fixtures
 // ---------------------------------------------------------------------------
+
+const SAMPLE_CRITERIA: TefCriterionEvaluation[] = [
+  { criterion: 'Used persuasive language', met: true,  evidence: 'Said "vous allez adorer"' },
+  { criterion: 'Addressed price concern',  met: false, evidence: 'Did not mention the discount' },
+];
 
 const SAMPLE_REVIEW: TefReview = {
   cefrLevel: 'B2',
@@ -38,25 +41,16 @@ const SAMPLE_REVIEW: TefReview = {
   vocabularySuggestions: [],
 };
 
-const SAMPLE_OBJECTION_STATE: TefObjectionState = {
-  directions: ['Price', 'Quality', 'Availability', 'Sustainability', 'Brand trust'],
-  currentDirection: 4,
-  currentRound: 2,
-  isConvinced: true,
-};
-
-const NOT_CONVINCED_STATE: TefObjectionState = {
-  directions: ['Price', 'Quality', 'Availability', 'Sustainability', 'Brand trust'],
-  currentDirection: 2,
-  currentRound: 1,
-  isConvinced: false,
+const REVIEW_WITH_CRITERIA: TefReview = {
+  ...SAMPLE_REVIEW,
+  criteriaEvaluation: SAMPLE_CRITERIA,
 };
 
 const FAKE_AD_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
 function renderSummary(overrides: {
   elapsedSeconds?: number;
-  objectionState?: TefObjectionState | null;
+  turnCount?: number;
   adImage?: string | null;
   reviews?: TefReview[];
   reviewIndex?: number;
@@ -69,7 +63,7 @@ function renderSummary(overrides: {
 } = {}) {
   const props = {
     elapsedSeconds: 180,
-    objectionState: SAMPLE_OBJECTION_STATE,
+    turnCount: 5,
     adImage: null,
     reviews: [],
     reviewIndex: 0,
@@ -122,57 +116,66 @@ describe('TefAdSummary · time used', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Directions addressed
+// Turn count display
 // ---------------------------------------------------------------------------
 
-describe('TefAdSummary · directions addressed', () => {
-  it('shows directions addressed count based on objectionState', () => {
-    // currentDirection=4 with isConvinced=true means all 5 were addressed
-    renderSummary({ objectionState: SAMPLE_OBJECTION_STATE });
-    expect(screen.getByText(/5\s*\/\s*5|5 of 5/i)).toBeInTheDocument();
+describe('TefAdSummary · turn count display', () => {
+  it('shows a "Turns" stat row', () => {
+    renderSummary({ turnCount: 7 });
+    expect(screen.getByText(/turns/i)).toBeInTheDocument();
   });
 
-  it('shows partial directions addressed when not all were reached', () => {
-    // currentDirection=2 means 3 directions addressed (0,1,2)
-    renderSummary({ objectionState: NOT_CONVINCED_STATE });
-    expect(screen.getByText(/3\s*\/\s*5|3 of 5/i)).toBeInTheDocument();
-  });
-
-  it('renders a label indicating directions addressed', () => {
-    renderSummary();
-    expect(screen.getByText(/directions|objection/i)).toBeInTheDocument();
+  it('displays the turnCount value in the stats section', () => {
+    renderSummary({ turnCount: 7 });
+    expect(screen.getByText('7')).toBeInTheDocument();
   });
 });
 
 // ---------------------------------------------------------------------------
-// Convinced status
+// Criteria scorecard
 // ---------------------------------------------------------------------------
 
-describe('TefAdSummary · convinced status', () => {
-  it('shows a positive/green indicator when isConvinced=true', () => {
-    renderSummary({ objectionState: SAMPLE_OBJECTION_STATE });
-    // Look for a checkmark, "yes", "convinced", or a green-class element
-    const convincedEl =
-      screen.queryByText(/convinced/i) ||
-      screen.queryByText(/✓|✔|yes/i) ||
-      document.querySelector('.text-green-400') ||
-      document.querySelector('[class*="green"]');
-    expect(convincedEl).toBeInTheDocument();
+describe('TefAdSummary · criteria scorecard', () => {
+  it('renders the scorecard when criteriaEvaluation is present with items', () => {
+    renderSummary({ reviews: [REVIEW_WITH_CRITERIA], reviewIndex: 0 });
+    // Both criterion names should appear
+    expect(screen.getByText('Used persuasive language')).toBeInTheDocument();
+    expect(screen.getByText('Addressed price concern')).toBeInTheDocument();
   });
 
-  it('shows a negative/red indicator when isConvinced=false', () => {
-    renderSummary({ objectionState: NOT_CONVINCED_STATE });
-    const notConvincedEl =
-      screen.queryByText(/not convinced/i) ||
-      screen.queryByText(/✗|✘|no/i) ||
-      document.querySelector('.text-red-400') ||
-      document.querySelector('[class*="red"]');
-    expect(notConvincedEl).toBeInTheDocument();
+  it('shows a checkmark indicator (✓) for a criterion with met: true', () => {
+    renderSummary({ reviews: [REVIEW_WITH_CRITERIA], reviewIndex: 0 });
+    const checkmarks = screen.getAllByText('✓');
+    expect(checkmarks.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('renders a label for the convinced status row', () => {
-    renderSummary();
-    expect(screen.getByText(/convinced/i)).toBeInTheDocument();
+  it('shows a cross indicator (✗) for a criterion with met: false', () => {
+    renderSummary({ reviews: [REVIEW_WITH_CRITERIA], reviewIndex: 0 });
+    const crosses = screen.getAllByText('✗');
+    expect(crosses.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('renders the evidence text for each criterion', () => {
+    renderSummary({ reviews: [REVIEW_WITH_CRITERIA], reviewIndex: 0 });
+    expect(screen.getByText('Said "vous allez adorer"')).toBeInTheDocument();
+    expect(screen.getByText('Did not mention the discount')).toBeInTheDocument();
+  });
+
+  it('does not render the scorecard when criteriaEvaluation is absent', () => {
+    renderSummary({ reviews: [SAMPLE_REVIEW], reviewIndex: 0 });
+    expect(screen.queryByText('Used persuasive language')).not.toBeInTheDocument();
+  });
+
+  it('does not crash when reviews array is empty (no criteriaEvaluation)', () => {
+    expect(() => renderSummary({ reviews: [], reviewIndex: 0 })).not.toThrow();
+  });
+
+  it('does not render the scorecard when criteriaEvaluation is an empty array', () => {
+    const reviewEmptyCriteria: TefReview = { ...SAMPLE_REVIEW, criteriaEvaluation: [] };
+    renderSummary({ reviews: [reviewEmptyCriteria], reviewIndex: 0 });
+    // No criterion rows present
+    expect(screen.queryByText('✓')).not.toBeInTheDocument();
+    expect(screen.queryByText('✗')).not.toBeInTheDocument();
   });
 });
 
