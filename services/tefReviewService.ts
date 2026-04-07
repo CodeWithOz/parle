@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { getApiKeyOrEnv } from './apiKeyService';
-import type { Message, TefObjectionState, TefReview } from '../types';
+import type { Message, TefReview } from '../types';
 
 // ---------------------------------------------------------------------------
 // Synthesized TEF evaluation guidance
@@ -101,11 +101,10 @@ export async function generateTefReview(params: {
   exerciseType: 'questioning' | 'persuasion';
   messages: Message[];
   adSummary?: string;
-  objectionState?: TefObjectionState | null;
   elapsedSeconds: number;
   signal?: AbortSignal;
 }): Promise<TefReview | null> {
-  const { exerciseType, messages, adSummary, objectionState, elapsedSeconds, signal } = params;
+  const { exerciseType, messages, adSummary, elapsedSeconds, signal } = params;
 
   ensureAiInitialized();
 
@@ -137,13 +136,15 @@ ${sectionGuidance}
     preamble += `\nADVERTISEMENT CONTEXT:\n${adSummary}\n`;
   }
 
-  if (exerciseType === 'persuasion' && objectionState) {
-    const directionsAddressed = Math.min(objectionState.currentDirection + 1, 5);
-    preamble += `\nPERSUASION SESSION CONTEXT:
-- Directions addressed: ${directionsAddressed} / 5
-- Current direction index: ${objectionState.currentDirection}
-- isConvinced: ${objectionState.isConvinced}
-- The user was${objectionState.isConvinced ? '' : ' not'} convinced by the end of the session.\n`;
+  if (exerciseType === 'persuasion') {
+    preamble += `
+PERSUASION CRITERIA TO EVALUATE (assess each explicitly in the criteriaEvaluation field):
+1. Clear & interesting presentation — Did the user present the advertisement clearly and in an engaging way?
+2. Argumentation vocabulary — Did the user use advice verbs (je vous conseille, il faudrait que) and linking words (en revanche, de plus, car, donc, c'est pourquoi)?
+3. 3+ distinct arguments — Did the user raise more than three distinct arguments?
+4. Arguments developed with examples — Did the user support each argument with a concrete example?
+5. Nuanced / counter-arguments — Did the user nuance their position or address counter-arguments?
+`;
   }
 
   preamble += `
@@ -252,6 +253,21 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
               },
               description: 'Vocabulary improvements — provide at least 5 suggestions',
             },
+            ...(exerciseType === 'persuasion' ? {
+              criteriaEvaluation: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    criterion: { type: Type.STRING, description: 'Name of the criterion' },
+                    met: { type: Type.BOOLEAN, description: 'Whether the criterion was met' },
+                    evidence: { type: Type.STRING, description: 'Evidence from the conversation supporting the assessment' },
+                  },
+                  required: ['criterion', 'met', 'evidence'],
+                },
+                description: 'Assessment of each of the 5 TEF persuasion criteria',
+              },
+            } : {}),
           },
           required: [
             'cefrLevel',
@@ -259,6 +275,7 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
             'wentWell',
             'mistakes',
             'vocabularySuggestions',
+            ...(exerciseType === 'persuasion' ? ['criteriaEvaluation'] : []),
           ],
         },
       },

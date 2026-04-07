@@ -1,10 +1,10 @@
 import React from 'react';
-import type { TefReview, TefObjectionState } from '../types';
+import type { TefReview } from '../types';
 import { TefReviewPanel } from './TefReviewPanel';
 
 interface TefAdSummaryProps {
   elapsedSeconds: number;
-  objectionState: TefObjectionState | null;
+  turnCount: number;
   adImage: string | null;
   reviews: TefReview[];
   reviewIndex: number;
@@ -24,7 +24,7 @@ function formatTime(seconds: number): string {
 
 export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
   elapsedSeconds,
-  objectionState,
+  turnCount,
   adImage,
   reviews,
   reviewIndex,
@@ -35,10 +35,7 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
   onRegenerateReview,
   onDismiss,
 }) => {
-  const directionsAddressed = objectionState
-    ? Math.min(objectionState.currentDirection + 1, 5)
-    : 0;
-  const isConvinced = objectionState?.isConvinced ?? false;
+  const currentReview = reviews[reviewIndex];
 
   return (
     <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4">
@@ -85,24 +82,35 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
             </span>
           </div>
 
-          {/* Directions addressed */}
+          {/* Turns */}
           <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-xl border border-slate-600">
-            <span className="text-slate-400 text-sm">Directions addressed</span>
+            <span className="text-slate-400 text-sm">Turns</span>
             <span className="text-slate-100 text-sm font-medium">
-              {directionsAddressed} / 5
+              {turnCount}
             </span>
           </div>
-
-          {/* Convinced status */}
-          <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-xl border border-slate-600">
-            <span className="text-slate-400 text-sm">Convinced</span>
-            {isConvinced ? (
-              <span className="text-green-400 text-sm font-medium">✓ Yes</span>
-            ) : (
-              <span className="text-red-400 text-sm font-medium">✗ Not yet</span>
-            )}
-          </div>
         </div>
+
+        {/* Criteria scorecard */}
+        {currentReview?.criteriaEvaluation && currentReview.criteriaEvaluation.length > 0 && (
+          <div className="space-y-2 text-left mb-6">
+            <h3 className="text-sm font-semibold text-slate-300 mb-2">Criteria</h3>
+            {currentReview.criteriaEvaluation.map((item, idx) => (
+              <div
+                key={idx}
+                className="flex items-start gap-2 p-3 bg-slate-700/50 rounded-xl border border-slate-600"
+              >
+                <span className={`text-sm font-bold flex-shrink-0 ${item.met ? 'text-green-400' : 'text-red-400'}`}>
+                  {item.met ? '✓' : '✗'}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-slate-200 text-sm font-medium">{item.criterion}</p>
+                  <p className="text-slate-400 text-xs mt-0.5">{item.evidence}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Review panel */}
         <TefReviewPanel

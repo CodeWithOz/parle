@@ -178,7 +178,6 @@ const App: React.FC = () => {
       exerciseType: 'persuasion',
       messages: snapshot,
       adSummary,
-      objectionState: tefObjectionState,
       elapsedSeconds: tefElapsed,
     })
       .then((r) => {
@@ -201,7 +200,6 @@ const App: React.FC = () => {
       exerciseType: 'persuasion',
       messages: snapshot,
       adSummary,
-      objectionState: tefObjectionState,
       elapsedSeconds: tefElapsed,
     })
       .then((r) => {
@@ -1244,6 +1242,7 @@ const App: React.FC = () => {
     processingAbortedRef.current = true;
 
     setTefAdIsFirstMessage(true);
+    setTefAdTurnCount(0);
 
     // Abort any in-flight processing or recording
     if (abortControllerRef.current) {
@@ -1303,7 +1302,7 @@ const App: React.FC = () => {
     setTefAdImage(null);
     setShowLightbox(false);
     setTefTimedUp(false);
-    setTefObjectionState(null);
+    setTefAdTurnCount(0);
     setTefAdIsFirstMessage(true);
 
     // Reset review state
@@ -1499,15 +1498,7 @@ const App: React.FC = () => {
               <PersuasionTimer
                 elapsed={tefElapsed}
                 isPaused={appState === AppState.PROCESSING || appState === AppState.ERROR}
-                {...(tefObjectionState ? {
-                  objectionProgress: {
-                    currentDirection: tefObjectionState.currentDirection,
-                    totalDirections: tefObjectionState.directions.length,
-                    currentRound: tefObjectionState.currentRound,
-                    totalRounds: TOTAL_ROUNDS_PER_DIRECTION,
-                    isConvinced: tefObjectionState.isConvinced,
-                  }
-                } : {})}
+                turnCount={tefAdTurnCount}
               />
               <AdThumbnail
                 imageDataUrl={tefAdImage}
@@ -1735,7 +1726,7 @@ const App: React.FC = () => {
       {showTefAdSummary && (
         <TefAdSummary
           elapsedSeconds={tefElapsed}
-          objectionState={tefObjectionState}
+          turnCount={tefAdTurnCount}
           adImage={tefAdImage}
           reviews={tefAdReviews}
           reviewIndex={tefAdReviewIndex}
