@@ -434,9 +434,9 @@ Do **not** flag the missing `advanceTefObjectionState` call on the first turn as
 
 ---
 
-## TEF Ad Questioning Mode: Schema Selection and `isRepeat` Flag
+## TEF Ad Questioning Mode: Schema Selection, `isRepeat` Flag, and `conceptLabels`
 
-**Location:** `services/geminiService.ts` - `TefQuestioningSchema`, `createChatSession()`, `sendVoiceMessage()`; `types.ts`; `App.tsx`
+**Location:** `services/geminiService.ts` - `TefQuestioningSchema`, `createChatSession()`, `sendVoiceMessage()`; `types.ts`; `App.tsx`; `components/TefQuestioningSummary.tsx`
 
 ### Pattern
 
@@ -451,26 +451,33 @@ const schemaToUse = activeScenario.isTefQuestioning
   : SingleCharacterSchema;
 ```
 
-`TefQuestioningSchema` is a superset of `SingleCharacterSchema` — it adds one optional field:
+`TefQuestioningSchema` is a superset of `SingleCharacterSchema` — it adds two fields:
 
 ```typescript
 isRepeat: z.boolean().optional()
-  .describe("true if the user asked a question that was already answered")
+  .describe("true if the user asked a question that was already answered"),
+conceptLabels: z.array(z.string())
+  .describe("Array of 2-4 word topic labels in English for the question asked (e.g. ['pricing', 'opening hours']). Always include this field — use an empty array if no topic applies.")
 ```
 
-Do **not** flag the two-schema branch as unnecessary complexity or suggest collapsing it into one schema. The schemas must remain separate so that `isRepeat` is never present in the standard single-character path and never absent in the questioning path.
+`isRepeat` is optional (AI may omit it on non-repeat turns). `conceptLabels` is **required** — Gemini's structured output always emits it because it is not marked optional, ensuring the post-exercise review can always group questions by concept.
 
-**2. `isRepeat` propagation in `sendVoiceMessage()`**
+Do **not** flag the two-schema branch as unnecessary complexity or suggest collapsing it into one schema. The schemas must remain separate so that `isRepeat` and `conceptLabels` are never present in the standard single-character path and never absent in the questioning path.
 
-After validating the JSON response, `isRepeat` is extracted and forwarded on the `VoiceResponse` object:
+**2. `isRepeat` and `conceptLabels` propagation in `sendVoiceMessage()`**
+
+After validating the JSON response, both fields are extracted and forwarded on the `VoiceResponse` object using the same conditional guard:
 
 ```typescript
 const isRepeat = activeScenario.isTefQuestioning && 'isRepeat' in validated
   ? (validated as { isRepeat?: boolean }).isRepeat
   : undefined;
+const conceptLabels = activeScenario.isTefQuestioning && 'conceptLabels' in validated
+  ? (validated as { conceptLabels?: string[] }).conceptLabels
+  : undefined;
 ```
 
-`App.tsx` reads `response.isRepeat` to increment a `tefQuestioningRepeatCount` displayed on the summary screen. Do **not** flag `isRepeat` on `VoiceResponse` as dead code — it is consumed by the repeat counter.
+`App.tsx` reads `response.isRepeat` to increment a `tefQuestioningRepeatCount` and reads `response.conceptLabels` to store topic labels on user `Message` objects for the post-exercise summary. Do **not** flag either field on `VoiceResponse` as dead code — both are consumed downstream.
 
 ### No Per-Turn Context Injection for Questioning Mode
 
@@ -478,7 +485,15 @@ Unlike Ad Persuasion (which injects objection direction and round number on ever
 
 ### First-Message Skip in Questioning Mode
 
-Like persuasion mode, questioning mode tracks a `tefQuestioningIsFirstMessage` boolean. The first user turn (a greeting) does not increment `tefQuestioningQuestionCount`. This is intentional — only genuine questions should count toward the score shown in `TefQuestioningSummary`.
+Like persuasion mode, questioning mode tracks a `tefQuestioningIsFirstMessage` boolean. The first user turn (a greeting) does not increment `tefQuestioningQuestionCount`, and neither `isRepeat` nor `conceptLabels` are stored on the first message. This is intentional — only genuine questions should count toward the score and appear in the concept summary shown in `TefQuestioningSummary`.
+
+```typescript
+// In App.tsx — both isRepeat and conceptLabels are gated on the same first-message skip
+...(tefQuestioningMode === 'practice' && !tefQuestioningIsFirstMessage && {
+  isRepeat: response.isRepeat,
+  conceptLabels: response.conceptLabels,
+}),
+```
 
 ```typescript
 if (tefQuestioningIsFirstMessage) {
@@ -489,15 +504,19 @@ if (tefQuestioningIsFirstMessage) {
 }
 ```
 
+### `groupRepeatedConcepts` Export
+
+`components/TefQuestioningSummary.tsx` exports a named function `groupRepeatedConcepts(messages: Message[])` that is used internally by `TefQuestioningSummary` to build the "Repeated Concepts" section of the post-exercise review. It is an exported function (not a private helper) to make it independently testable. Do **not** flag the export as unnecessary or suggest inlining it into the component.
+
 ### Related Files
 
-- `types.ts` — `isTefQuestioning?: boolean` on `Scenario`; `isRepeat?: boolean` on `VoiceResponse`
-- `services/geminiService.ts` — `TefQuestioningSchema`; schema selection in `createChatSession()`; `isRepeat` extraction in `sendVoiceMessage()`
+- `types.ts` — `isTefQuestioning?: boolean` on `Scenario`; `isRepeat?: boolean` and `conceptLabels?: string[]` on both `Message` and `VoiceResponse`
+- `services/geminiService.ts` — `TefQuestioningSchema`; schema selection in `createChatSession()`; `isRepeat` and `conceptLabels` extraction in `sendVoiceMessage()`
 - `services/scenarioService.ts` — `generateTefQuestioningSystemInstruction()` (self-contained prompt, no per-turn injection)
 - `components/AdQuestioningSetup.tsx` — Setup UI for the questioning session
 - `components/QuestioningTimer.tsx` — In-session timer and question counter
-- `components/TefQuestioningSummary.tsx` — End-of-session summary (total questions, repeat count)
-- `App.tsx` — `tefQuestioningIsFirstMessage`, `tefQuestioningQuestionCount`, `tefQuestioningRepeatCount` state; `handleStartTefQuestioning`
+- `components/TefQuestioningSummary.tsx` — End-of-session summary (total questions, repeat count, repeated concepts accordion); exports `groupRepeatedConcepts`
+- `App.tsx` — `tefQuestioningIsFirstMessage`, `tefQuestioningQuestionCount`, `tefQuestioningRepeatCount` state; `handleStartTefQuestioning`; conditional storage of `isRepeat` and `conceptLabels` on user messages
 
 ---
 

@@ -21,13 +21,15 @@ export interface Message {
   role: 'user' | 'model';
   text: string;
   timestamp: number;
-  audioUrl?: string | string[]; // Blob URL for the audio (array for multi-character)
-  hint?: string; // Optional hint for what the user could say next (in roleplay mode)
-  characterId?: string; // NEW: ID of the character who spoke
-  characterName?: string; // NEW: Name of the character who spoke
-  voiceName?: string; // NEW: Voice used for this message
-  audioGenerationFailed?: boolean; // NEW: Track if audio TTS failed
-  frenchText?: string; // French-only text for TTS retry (in bilingual scenarios)
+  audioUrl?: string | string[];
+  hint?: string;
+  characterId?: string;
+  characterName?: string;
+  voiceName?: string;
+  audioGenerationFailed?: boolean;
+  frenchText?: string;
+  isRepeat?: boolean;
+  conceptLabels?: string[];
 }
 
 export interface VoiceResponse {
@@ -38,6 +40,7 @@ export interface VoiceResponse {
   voiceName?: string; // Voice used for single-character response (for retry)
   audioGenerationFailed?: boolean; // Track if TTS failed for single-character response
   isRepeat?: boolean; // TEF Questioning: true if the user asked a repeated question
+  conceptLabels?: string[]; // TEF Questioning: topic labels for this response
   characters?: Array<{ // Character info for multi-character responses
     characterId: string;
     characterName: string;

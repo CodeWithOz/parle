@@ -76,6 +76,7 @@ const TefQuestioningSchema = z.object({
   english: z.string().describe("The English translation of the French response"),
   hint: z.string().describe("Suggestion of a question the user could ask next - brief description in English"),
   isRepeat: z.boolean().optional().describe("true if the user asked a question that was already answered"),
+  conceptLabels: z.array(z.string()).describe("Array of 2-4 word topic labels in English for the question asked (e.g. ['pricing', 'opening hours']). Always include this field — use an empty array if no topic applies."),
 });
 
 /**
@@ -979,6 +980,9 @@ export const sendVoiceMessage = async (
 
         const validated = validationResult.data;
         const isRepeat = activeScenario.isTefQuestioning && 'isRepeat' in validated ? (validated as { isRepeat?: boolean }).isRepeat : undefined;
+        const conceptLabels = activeScenario.isTefQuestioning && 'conceptLabels' in validated
+          ? (validated as { conceptLabels?: string[] }).conceptLabels
+          : undefined;
 
         // Check if operation was cancelled before generating audio
         if (signal?.aborted) {
@@ -1027,6 +1031,7 @@ export const sendVoiceMessage = async (
           voiceName,
           audioGenerationFailed: !audioUrl, // Empty audioUrl means TTS failed
           ...(isRepeat !== undefined ? { isRepeat } : {}),
+          ...(conceptLabels !== undefined ? { conceptLabels } : {}),
           characters: [{
             characterId: activeScenario?.characters?.[0]?.id || '',
             characterName: activeScenario?.characters?.[0]?.name || '',
