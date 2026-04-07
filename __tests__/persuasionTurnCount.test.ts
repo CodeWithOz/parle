@@ -7,9 +7,9 @@
  *   - First user turn (isFirstMessage=true path) does NOT increment tefAdTurnCount
  *   - Second and subsequent turns DO increment tefAdTurnCount
  *   - Phase-based context text matches expected content per turn range:
- *       Turns 1–3 (early): mention "introduce" or "present"
- *       Turns 4–7 (mid):   mention "exemple" or "example"
- *       Turns 8+  (late):  mention "counter" or "nuance" or "Oui mais"
+ *       Turns 1–2 (early): mention "introduce" or "present"
+ *       Turns 3–4 (mid):   mention "exemple" or "example"
+ *       Turns 5+  (late):  mention "counter" or "nuance" or "Oui mais"
  *
  * Source-text specs verify the required implementation exists in App.tsx.
  *
@@ -55,19 +55,19 @@ describe('persuasionTurnCount · App.tsx source-text specs', () => {
     expect(src.default).toMatch(/setTefAdTurnCount\s*\(\s*(prev|c|count|n)\s*=>/);
   });
 
-  it('App.tsx builds phase-based context for early phase (turns 1–3)', async () => {
+  it('App.tsx builds phase-based context for early phase (turns 1–2)', async () => {
     const src = await import('../App?raw');
     // Early phase should mention "introduce" and/or "present" the advertisement clearly
     expect(src.default).toMatch(/introduce.*advertisement|present.*advertisement|introduce.*clearly|Encourage.*introduce/i);
   });
 
-  it('App.tsx builds phase-based context for mid phase (turns 4–7)', async () => {
+  it('App.tsx builds phase-based context for mid phase (turns 3–4)', async () => {
     const src = await import('../App?raw');
     // Mid phase should ask for concrete examples
     expect(src.default).toMatch(/exemple concret|concrete.*example|give.*example/i);
   });
 
-  it('App.tsx builds phase-based context for late phase (turns 8+)', async () => {
+  it('App.tsx builds phase-based context for late phase (turns 5+)', async () => {
     const src = await import('../App?raw');
     // Late phase should push back with counter-arguments or nuance
     expect(src.default).toMatch(/Oui mais|counter.?argument|nuance/i);
@@ -104,28 +104,28 @@ describe('persuasionTurnCount · phase context content by turn number', () => {
     expect(src.default).toMatch(/introduce|present the advertisement/i);
   });
 
-  it('phase context for turn 4 (mid) contains "exemple" or "example"', async () => {
+  it('phase context for turn 3 (mid) contains "exemple" or "example"', async () => {
     const src = await import('../App?raw');
     expect(src.default).toMatch(/exemple|example/i);
   });
 
-  it('phase context for turn 8 (late) contains "counter" or "nuance" or "Oui mais"', async () => {
+  it('phase context for turn 5 (late) contains "counter" or "nuance" or "Oui mais"', async () => {
     const src = await import('../App?raw');
     expect(src.default).toMatch(/counter|nuance|Oui mais/i);
   });
 
-  it('early phase boundary: turn 3 still uses early phase text', async () => {
-    // Boundary: turn index 3 (tefAdTurnCount=3, which is the 3rd non-first turn)
-    // should still be in early phase (turns 1–3 means tefAdTurnCount 1,2,3)
+  it('early/mid boundary: uses turnNumber (tefAdTurnCount + 1) with threshold <= 2', async () => {
+    // Phase is computed as turnNumber = tefAdTurnCount + 1.
+    // Early covers turns 1–2 (turnNumber <= 2), mid covers 3–4, late 5+.
     const src = await import('../App?raw');
-    // The threshold between early and mid must be 3 (exclusive) or 4 (inclusive)
-    // i.e. the code must check for tefAdTurnCount <= 3 or tefAdTurnCount < 4
-    expect(src.default).toMatch(/tefAdTurnCount\s*<=\s*3|tefAdTurnCount\s*<\s*4/);
+    // Code must use tefAdTurnCount + 1 and check <= 2 (or equivalent < 3)
+    expect(src.default).toMatch(/tefAdTurnCount\s*\+\s*1/);
+    expect(src.default).toMatch(/turnNumber\s*<=\s*2|turnNumber\s*<\s*3/);
   });
 
-  it('late phase boundary: turn 8 uses late phase text', async () => {
-    // Turn 8 is tefAdTurnCount >= 8
+  it('late phase boundary: turn 5+ uses late phase text (turnNumber >= 5)', async () => {
+    // Late phase starts when turnNumber > 4, i.e. mid uses turnNumber <= 4
     const src = await import('../App?raw');
-    expect(src.default).toMatch(/tefAdTurnCount\s*>=\s*8|tefAdTurnCount\s*>\s*7/);
+    expect(src.default).toMatch(/turnNumber\s*<=\s*4|turnNumber\s*<\s*5/);
   });
 });

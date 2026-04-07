@@ -84,4 +84,4 @@ Scenarios are stored in the browser. Conversation history, hints, and (where app
 | `__tests__/` | Unit tests |
 | `e2e/` | Playwright E2E tests |
 
-Design notes and intentional patterns (e.g. TTS vs history ordering, TEF state machine, schema choices) are documented in **`AGENTS.md`** for contributors and code review.
+Design notes and intentional patterns (e.g. TTS vs history ordering, TEF phase-based turn counting, schema choices) are documented in **`AGENTS.md`** for contributors and code review.
