@@ -34,9 +34,12 @@ describe('persuasionTurnCount · App.tsx source-text specs', () => {
     expect(src.default).toMatch(/tefAdTurnCount[\s\S]{0,80}useState\s*\(\s*0\s*\)|useState\s*\(\s*0\s*\)[\s\S]{0,80}tefAdTurnCount/);
   });
 
-  it('App.tsx resets tefAdTurnCount to 0 inside handleExitTefAd', async () => {
+  it('App.tsx does NOT reset tefAdTurnCount inside handleExitTefAd (reset deferred to dismiss so summary shows correct count)', async () => {
     const src = await import('../App?raw');
-    expect(src.default).toMatch(/handleExitTefAd[\s\S]{0,600}setTefAdTurnCount\s*\(\s*0\s*\)/);
+    // Extract the handleExitTefAd function body and assert setTefAdTurnCount is absent from it
+    const match = src.default.match(/handleExitTefAd\s*=\s*\(\s*\)[\s\S]{0,2000}?\n  };/);
+    expect(match).not.toBeNull();
+    expect(match![0]).not.toMatch(/setTefAdTurnCount/);
   });
 
   it('App.tsx resets tefAdTurnCount to 0 inside handleDismissTefAdSummary', async () => {

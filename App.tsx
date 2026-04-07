@@ -1243,7 +1243,6 @@ const App: React.FC = () => {
     processingAbortedRef.current = true;
 
     setTefAdIsFirstMessage(true);
-    setTefAdTurnCount(0);
 
     // Abort any in-flight processing or recording
     if (abortControllerRef.current) {
