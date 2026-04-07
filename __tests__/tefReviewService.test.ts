@@ -38,7 +38,7 @@ vi.stubGlobal('fetch', mockFetch);
 // The function under test — does not exist yet
 import { generateTefReview } from '../services/tefReviewService';
 
-import type { Message, TefObjectionState, TefReview } from '../types';
+import type { Message, TefReview } from '../types';
 
 // ---------------------------------------------------------------------------
 // Shared mock Gemini client
@@ -107,13 +107,6 @@ const SAMPLE_MESSAGES_PERSUASION: Message[] = [
   makeModelMessage("D'accord, vous marquez un point."),
   makeUserMessage('De plus, il est écologique.', 'blob:http://localhost/fake-audio-4'),
 ];
-
-const SAMPLE_OBJECTION_STATE: TefObjectionState = {
-  directions: ['Price', 'Quality', 'Availability', 'Sustainability', 'Brand trust'],
-  currentDirection: 4,
-  currentRound: 2,
-  isConvinced: true,
-};
 
 const FAKE_AUDIO_BASE64 = 'ZmFrZWF1ZGlv'; // base64 for "fakeaudio"
 const FAKE_MIME_TYPE = 'audio/webm';
@@ -283,7 +276,6 @@ describe('generateTefReview · prompt construction', () => {
       messages: SAMPLE_MESSAGES_PERSUASION,
       elapsedSeconds: 90,
       adSummary: 'A car ad summary.',
-      objectionState: SAMPLE_OBJECTION_STATE,
     });
 
     const callArg = mockGenerateContent.mock.calls[0][0];
@@ -313,7 +305,6 @@ describe('generateTefReview · prompt construction', () => {
       messages: SAMPLE_MESSAGES_PERSUASION,
       elapsedSeconds: 90,
       adSummary: 'A car ad summary.',
-      objectionState: SAMPLE_OBJECTION_STATE,
     });
 
     const callArg = mockGenerateContent.mock.calls[0][0];
