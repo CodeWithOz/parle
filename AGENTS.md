@@ -354,21 +354,28 @@ Any new feature that depends on AI API credentials MUST implement both of these 
 
 ---
 
-## Deterministic Objection Tracking with Per-Turn Context Injection (TEF Ad Mode)
+## Phase-Based Per-Turn Context Injection (TEF Ad Persuasion Mode)
 
-**Location:** `utils/tefObjectionState.ts`, `services/geminiService.ts` - `sendVoiceMessage()`, `App.tsx`
+**Location:** `services/geminiService.ts` - `sendVoiceMessage()`, `App.tsx`
 
 ### Pattern
 
-The TEF Ad Persuasion mode tracks objection progress entirely on the client side using a pure state machine. The LLM is **not** responsible for counting objections or deciding when to move to the next direction — that is driven deterministically by the app and communicated to the LLM as a text part injected alongside the user's audio on every turn.
+The TEF Ad Persuasion mode injects coaching context into each turn based on a simple turn counter (`tefAdTurnCount`). The LLM is **not** responsible for sequencing objections or declaring conviction — the session ends when the 10-minute timer expires.
 
 ```typescript
-// App.tsx: build per-turn context from current state, inject into sendVoiceMessage
-const contextText = buildTefAdContextText(tefObjectionState);
-const response = await sendVoiceMessage(audioBase64, mimeType, signal, contextText);
+// App.tsx: inject phase-appropriate coaching text alongside the user's audio
+let phaseContextText: string | undefined;
+if (tefAdMode === 'practice' && !tefAdIsFirstMessage) {
+  if (tefAdTurnCount <= 3) {
+    phaseContextText = '[Per-turn context: Encourage the user to introduce and present the advertisement clearly...]';
+  } else if (tefAdTurnCount >= 8) {
+    phaseContextText = '[Per-turn context: Push back with counter-arguments...]';
+  } else {
+    phaseContextText = '[Per-turn context: Ask for concrete examples if only bare assertions are given...]';
+  }
+}
 
-// After each response, advance the state machine
-setTefObjectionState(prev => advanceTefObjectionState(prev));
+const response = await sendVoiceMessage(audioBase64, mimeType, signal, phaseContextText);
 ```
 
 ```typescript
@@ -380,57 +387,71 @@ if (contextText) {
 messageParts.push({ inlineData: { data: audioBase64, mimeType: mimeType } });
 ```
 
-The state machine (`utils/tefObjectionState.ts`) is a pure function with no side effects: `advanceTefObjectionState(state) => nextState`. It tracks 5 objection directions × 3 rounds each, then sets `isConvinced = true`.
+Three phases guide the AI's behaviour:
+- **Early (turns 1–3):** encourage clear ad presentation
+- **Mid (turns 4–7):** prompt concrete examples
+- **Late (turns 8+):** introduce counter-arguments and nuance
+
+The AI never expresses being "convinced". The session ends when the 10-minute timer fires.
 
 ### Why This Is Intentional
 
-**Objection sequencing must be deterministic and auditable for exam practice.** Leaving it to the LLM introduces two problems:
+**Phase-based coaching produces more realistic exam practice** than a mechanical round-counter:
 
-1. **Unpredictable pacing**: The LLM may dwell on one objection too long or skip directions, making practice sessions inconsistent.
-2. **Untestable logic**: Client-side state can be unit-tested exhaustively; LLM counting behavior cannot.
-
-The TEF system prompt is therefore intentionally thin about objection logistics — it defers to the per-turn context injection rather than carrying its own counting logic. Reviewers should **not** flag the simplified system prompt as missing objection-sequencing instructions; those are injected per-turn.
+1. **Natural pacing**: The AI adapts its pressure to where the student is in the session rather than cycling through a fixed script.
+2. **No artificial endings**: The LLM does not decide when to stop — the timer does. This matches the real TEF exam structure.
+3. **Simpler state**: A single `tefAdTurnCount` integer replaces a multi-field state machine, making the flow easier to follow and test.
 
 ### Why There Is a Text Part Alongside Audio
 
-The `contextText` parameter to `sendVoiceMessage` adds a `{ text: ... }` part to the message before the audio blob. This is the mechanism for injecting the current objection direction and round number. It is intentional and required — without it the LLM has no reliable signal for which direction to raise or when to express being convinced.
-
-### What "Simplified System Prompt" Means
-
-The TEF Ad system prompt in `services/scenarioService.ts` (`generateTefAdSystemInstruction`) deliberately omits any hardcoded round-counting or direction-sequencing logic. The prompt instructs the LLM to:
-- Follow the per-turn context for direction and round number
-- Express conviction only when the per-turn context says all directions are done
-
-This is intentional. Adding counting logic back into the system prompt would conflict with the client-side state machine.
+The `phaseContextText` parameter to `sendVoiceMessage` adds a `{ text: ... }` part to the message before the audio blob. This is the intentional mechanism for injecting per-turn coaching instructions. Do **not** remove it — without it the AI has no phase signal.
 
 ### First-Message Skip in Persuasion Mode
 
-The first user turn in a TEF Ad Persuasion session is always a greeting (e.g., "Bonjour"). It must **not** receive any objection context injection and must **not** advance the objection state machine. The app tracks this with a `tefAdIsFirstMessage` boolean:
+The first user turn is always a greeting (e.g., "Bonjour"). It must **not** receive phase context injection and must **not** increment `tefAdTurnCount`. The app tracks this with `tefAdIsFirstMessage`:
 
 ```typescript
 // App.tsx: skip context injection on the first turn
-if (tefAdMode === 'practice' && tefObjectionState && !tefAdIsFirstMessage) {
-  objectionContextText = buildTefAdContextText(tefObjectionState);
+if (tefAdMode === 'practice' && !tefAdIsFirstMessage) {
+  // inject phaseContextText based on tefAdTurnCount
 }
 
 // After the response:
 if (tefAdIsFirstMessage) {
-  setTefAdIsFirstMessage(false); // greeting done, no state advance
+  setTefAdIsFirstMessage(false); // greeting done, counter stays at 0
 } else {
-  setTefObjectionState(prev => advanceTefObjectionState(prev)); // normal advance
+  setTefAdTurnCount(c => c + 1); // advance phase counter
 }
 ```
 
-Do **not** flag the missing `advanceTefObjectionState` call on the first turn as a bug — it is intentional. The objection state machine should start from Direction 1 / Round 1 on the second turn (the first real persuasion exchange), not consume a round on the greeting.
+Do **not** flag the missing counter increment on the first turn as a bug — it is intentional. Phase counting should start from the first real persuasion exchange, not the greeting.
+
+### Post-Exercise Review: TEF Criteria Evaluation
+
+After the session ends, `generateTefReview` evaluates the conversation against the 5 official TEF persuasion criteria. Results are stored in `criteriaEvaluation: TefCriterionEvaluation[]` on the `TefReview` object and displayed as a scorecard in `TefAdSummary`.
+
+```typescript
+// types.ts
+export interface TefCriterionEvaluation {
+  criterion: string;
+  met: boolean;
+  evidence: string;
+}
+
+// TefReview
+criteriaEvaluation?: TefCriterionEvaluation[];
+```
+
+Do **not** confuse this with the old "direction/round/isConvinced" state — that mechanism no longer exists.
 
 ### Related Files
 
-- `utils/tefObjectionState.ts` — Pure state machine: `createInitialTefObjectionState`, `advanceTefObjectionState`
-- `types.ts` — `TefObjectionState` interface
-- `services/geminiService.ts` — `generateTefAdObjections()` (pre-generates 5 directions at setup), `sendVoiceMessage()` (accepts `contextText?`)
-- `services/scenarioService.ts` — `generateTefAdSystemInstruction()` (simplified system prompt)
-- `components/PersuasionTimer.tsx` — Progress indicator ("Objection X/5 · Round Y/3") driven by the same state
-- `App.tsx` — Wires generation at setup, context injection per turn, state advancement after each response
+- `types.ts` — `TefCriterionEvaluation` interface; `criteriaEvaluation` field on `TefReview`
+- `services/geminiService.ts` — `sendVoiceMessage()` (accepts `contextText?`)
+- `services/scenarioService.ts` — `generateTefAdSystemInstruction()` (timer-based system prompt, no round-counting)
+- `components/PersuasionTimer.tsx` — Shows "Turn N" driven by `tefAdTurnCount`
+- `components/TefAdSummary.tsx` — Criteria scorecard from `criteriaEvaluation`
+- `App.tsx` — `tefAdTurnCount`, `tefAdIsFirstMessage` state; phase context injection per turn
 
 ---
 
@@ -528,9 +549,9 @@ When reviewing this codebase:
 2. **Don't flag successive message merging as data loss** - This is intentional rate-limit optimization
 3. **Don't flag lowercase voice name conversion** - This is required by the Gemini API
 4. **Don't suggest removing JSON response mode for single-character** - This enables French/English separation
-5. **Don't flag the TEF Ad system prompt as missing objection-counting logic** - Objection sequencing is deterministic and injected per-turn (see "Deterministic Objection Tracking" section above)
-6. **Don't flag the `contextText` text part alongside audio as an API misuse** - It is the intentional mechanism for delivering per-turn objection context to the LLM
-7. **Don't flag the missing `advanceTefObjectionState` call on the first persuasion turn as a bug** - The first turn is a greeting; the state machine must not advance until the first real exchange (see "First-Message Skip" under "Deterministic Objection Tracking")
+5. **Don't flag the TEF Ad system prompt as missing objection-counting or round-sequencing logic** - The persuasion mode uses phase-based coaching injected per-turn; the session ends by timer, not by LLM conviction (see "Phase-Based Per-Turn Context Injection" section above)
+6. **Don't flag the `contextText` text part alongside audio as an API misuse** - It is the intentional mechanism for delivering per-turn phase coaching context to the LLM
+7. **Don't flag the missing `tefAdTurnCount` increment on the first persuasion turn as a bug** - The first turn is a greeting; the phase counter must not advance until the first real exchange (see "First-Message Skip" under "Phase-Based Per-Turn Context Injection")
 8. **Don't flag the two-schema branch (`TefQuestioningSchema` / `SingleCharacterSchema`) as unnecessary** - `isRepeat` must only appear in the questioning path; the schemas must remain separate
 9. **Don't flag `isRepeat` on `VoiceResponse` as dead code** - It is consumed by the repeat counter in `App.tsx` and displayed on `TefQuestioningSummary`
 10. **Don't add per-turn context injection to the questioning mode path** - Unlike persuasion mode, questioning mode needs no external sequencing signal; its system prompt is self-sufficient
@@ -557,7 +578,8 @@ If you believe you've found a genuine bug in one of these areas, please:
 ## Version History
 
 - 2025-01-XX: Initial documentation of TTS/history pattern and successive message merging
-- 2026-03-11: Added deterministic objection tracking pattern (TEF Ad mode)
+- 2026-03-11: Added deterministic objection tracking pattern (TEF Ad mode) — superseded 2026-04-07
+- 2026-04-07: Replaced objection state machine with phase-based per-turn context injection; AI never expresses conviction; session ends by 10-min timer; added TEF criteria scorecard to post-exercise review
 - 2026-03-14: Added TEF Ad Questioning mode patterns (isTefQuestioning schema selection, isRepeat flag, no per-turn context injection, first-message skip); added persuasion first-message skip note; updated credentials table
 - 2026-04-04: Added deferred audio URL revocation pattern and `generateTefReview` null-on-abort convention (TEF post-exercise review feature)
 - See git history for detailed implementation timeline

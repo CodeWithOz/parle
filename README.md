@@ -14,7 +14,7 @@ Parle is a web app for practicing French conversation using your microphone and 
 |------|-------------|
 | **Free conversation** | Open-ended French chat with the AI. Speak, get transcribed and answered, hear responses with TTS. |
 | **Scenario role-play** | Create or load scenarios (e.g. bakery, restaurant). Practice with one AI character or multiple (e.g. baker + cashier), each with a distinct voice. |
-| **TEF Ad Persuasion** | Practice the TEF “persuasion” task: upload an ad image, then respond to objections in a structured 5-direction × 3-round flow with a timer. |
+| **TEF Ad Persuasion** | Practice the TEF “persuasion” task: upload an ad image, argue your position for 10 minutes while the AI coaches you through early, mid, and late-session phases. Post-session review scores you against the 5 official TEF criteria. |
 | **TEF Ad Questioning** | Practice the TEF “questioning” task: upload an ad, ask questions in French; the app tracks questions and repeated questions for review. |
 
 Scenarios are stored in the browser. Conversation history, hints, and (where applicable) timers and summaries are shown in the UI.
@@ -80,7 +80,7 @@ Scenarios are stored in the browser. Conversation history, hints, and (where app
 | `components/` | UI (Orb, Controls, conversation history, setup flows, timers, summaries) |
 | `services/` | Gemini (session, voice message, TTS), OpenAI (scenario planning), scenario/voice/API-key helpers |
 | `hooks/` | Audio, conversation timer, document head |
-| `utils/` | TEF objection state machine, time helpers |
+| `utils/` | Abort signal combiner, abort error helper, time helpers |
 | `__tests__/` | Unit tests |
 | `e2e/` | Playwright E2E tests |
 
