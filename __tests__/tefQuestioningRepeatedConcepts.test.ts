@@ -335,14 +335,15 @@ describe('groupRepeatedConcepts · single repeated concept', () => {
   it('sets "before" to undefined when no model message precedes the user message', async () => {
     const groupRepeatedConcepts = await importGroupFn();
 
-    // User message is the very first message in the array (unusual but must be handled)
-    const user1 = makeMessage({ role: 'user', text: 'Quel est le prix?', conceptLabels: ['pricing'], isRepeat: true });
+    // First mention immediately followed by repeat — no model between them, so repeat has no 'before'
+    const user1 = makeMessage({ role: 'user', text: 'Quel est le prix?', conceptLabels: ['pricing'], isRepeat: false });
+    const user2 = makeMessage({ role: 'user', text: 'Le prix?', conceptLabels: ['pricing'], isRepeat: true });
     const model1 = makeMessage({ role: 'model', text: 'Le prix est 30€.' });
 
-    const messages = [user1, model1];
+    const messages = [user1, user2, model1];
     const result = groupRepeatedConcepts(messages);
 
-    const entry = result.get('pricing')!.messages.find(e => e.user === user1)!;
+    const entry = result.get('pricing')!.messages.find(e => e.user === user2)!;
     expect(entry.before).toBeUndefined();
   });
 
@@ -350,13 +351,15 @@ describe('groupRepeatedConcepts · single repeated concept', () => {
     const groupRepeatedConcepts = await importGroupFn();
 
     const model1 = makeMessage({ role: 'model', text: 'Bonjour.' });
-    const user1 = makeMessage({ role: 'user', text: 'Le prix?', conceptLabels: ['pricing'], isRepeat: true });
-    // No model message after
+    const user1 = makeMessage({ role: 'user', text: 'Quel est le prix?', conceptLabels: ['pricing'], isRepeat: false });
+    const model2 = makeMessage({ role: 'model', text: '30€.' });
+    const user2 = makeMessage({ role: 'user', text: 'Le prix?', conceptLabels: ['pricing'], isRepeat: true });
+    // No model message after user2
 
-    const messages = [model1, user1];
+    const messages = [model1, user1, model2, user2];
     const result = groupRepeatedConcepts(messages);
 
-    const entry = result.get('pricing')!.messages.find(e => e.user === user1)!;
+    const entry = result.get('pricing')!.messages.find(e => e.user === user2)!;
     expect(entry.after).toBeUndefined();
   });
 });
@@ -366,22 +369,31 @@ describe('groupRepeatedConcepts · multi-label messages', () => {
     const groupRepeatedConcepts = await importGroupFn();
 
     const model1 = makeMessage({ role: 'model', text: 'Bonjour.' });
+    // First mention of both labels
     const user1 = makeMessage({
       role: 'user',
       text: 'Quelles sont vos heures et vos tarifs?',
       conceptLabels: ['hours', 'pricing'],
-      isRepeat: true,
+      isRepeat: false,
     });
     const model2 = makeMessage({ role: 'model', text: 'On est ouvert de 9h à 18h et le tarif est 30€.' });
+    // Repeat of both labels — appears in both groups because both were previously seen
+    const user2 = makeMessage({
+      role: 'user',
+      text: 'Et les heures et tarifs encore?',
+      conceptLabels: ['hours', 'pricing'],
+      isRepeat: true,
+    });
+    const model3 = makeMessage({ role: 'model', text: 'Comme je vous ai dit, 9h-18h et 30€.' });
 
-    const messages = [model1, user1, model2];
+    const messages = [model1, user1, model2, user2, model3];
     const result = groupRepeatedConcepts(messages);
 
     expect(result.has('hours')).toBe(true);
     expect(result.has('pricing')).toBe(true);
 
-    const hoursEntry = result.get('hours')!.messages.find(e => e.user === user1);
-    const pricingEntry = result.get('pricing')!.messages.find(e => e.user === user1);
+    const hoursEntry = result.get('hours')!.messages.find(e => e.user === user2);
+    const pricingEntry = result.get('pricing')!.messages.find(e => e.user === user2);
 
     expect(hoursEntry).toBeDefined();
     expect(pricingEntry).toBeDefined();
@@ -391,19 +403,28 @@ describe('groupRepeatedConcepts · multi-label messages', () => {
     const groupRepeatedConcepts = await importGroupFn();
 
     const model1 = makeMessage({ role: 'model', text: 'Bonjour.' });
+    // First mention of both labels
     const user1 = makeMessage({
       role: 'user',
       text: 'Les heures et prix?',
       conceptLabels: ['hours', 'pricing'],
-      isRepeat: true,
+      isRepeat: false,
     });
     const model2 = makeMessage({ role: 'model', text: 'Ouvert de 9h à 18h, 30€/mois.' });
+    // Repeat of both labels
+    const user2 = makeMessage({
+      role: 'user',
+      text: 'Les heures et prix encore?',
+      conceptLabels: ['hours', 'pricing'],
+      isRepeat: true,
+    });
+    const model3 = makeMessage({ role: 'model', text: 'Toujours 9h-18h et 30€.' });
 
-    const messages = [model1, user1, model2];
+    const messages = [model1, user1, model2, user2, model3];
     const result = groupRepeatedConcepts(messages);
 
-    const hoursEntry = result.get('hours')!.messages.find(e => e.user === user1)!;
-    const pricingEntry = result.get('pricing')!.messages.find(e => e.user === user1)!;
+    const hoursEntry = result.get('hours')!.messages.find(e => e.user === user2)!;
+    const pricingEntry = result.get('pricing')!.messages.find(e => e.user === user2)!;
 
     // Same user message reference
     expect(hoursEntry.user).toBe(pricingEntry.user);
@@ -417,15 +438,19 @@ describe('groupRepeatedConcepts · excludes non-repeated messages from output', 
     const model1 = makeMessage({ role: 'model', text: 'Bonjour.' });
     const user1 = makeMessage({ role: 'user', text: 'Quel est le prix?', conceptLabels: ['pricing'], isRepeat: false });
     const model2 = makeMessage({ role: 'model', text: '30€.' });
-    const user2 = makeMessage({ role: 'user', text: 'Quelles sont les heures?', conceptLabels: ['hours'], isRepeat: true });
+    // First mention of 'hours'
+    const user2 = makeMessage({ role: 'user', text: 'Quelles sont les heures?', conceptLabels: ['hours'], isRepeat: false });
     const model3 = makeMessage({ role: 'model', text: 'De 9h à 18h.' });
+    // Repeat of 'hours' — 'hours' was already seen, so it gets hasRepeat=true
+    const user3 = makeMessage({ role: 'user', text: 'Les horaires?', conceptLabels: ['hours'], isRepeat: true });
+    const model4 = makeMessage({ role: 'model', text: 'Toujours de 9h à 18h.' });
 
-    const messages = [model1, user1, model2, user2, model3];
+    const messages = [model1, user1, model2, user2, model3, user3, model4];
     const result = groupRepeatedConcepts(messages);
 
     // 'pricing' had no repeats — should NOT appear
     expect(result.has('pricing')).toBe(false);
-    // 'hours' was repeated — should appear
+    // 'hours' was first seen then repeated — should appear
     expect(result.has('hours')).toBe(true);
   });
 });

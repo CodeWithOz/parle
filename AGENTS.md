@@ -451,14 +451,16 @@ const schemaToUse = activeScenario.isTefQuestioning
   : SingleCharacterSchema;
 ```
 
-`TefQuestioningSchema` is a superset of `SingleCharacterSchema` — it adds two optional fields:
+`TefQuestioningSchema` is a superset of `SingleCharacterSchema` — it adds two fields:
 
 ```typescript
 isRepeat: z.boolean().optional()
   .describe("true if the user asked a question that was already answered"),
-conceptLabels: z.array(z.string()).optional()
-  .describe("Array of 2-4 word topic labels in English for the question asked (e.g. ['pricing', 'opening hours'])")
+conceptLabels: z.array(z.string())
+  .describe("Array of 2-4 word topic labels in English for the question asked (e.g. ['pricing', 'opening hours']). Always include this field — use an empty array if no topic applies.")
 ```
+
+`isRepeat` is optional (AI may omit it on non-repeat turns). `conceptLabels` is **required** — Gemini's structured output always emits it because it is not marked optional, ensuring the post-exercise review can always group questions by concept.
 
 Do **not** flag the two-schema branch as unnecessary complexity or suggest collapsing it into one schema. The schemas must remain separate so that `isRepeat` and `conceptLabels` are never present in the standard single-character path and never absent in the questioning path.
 

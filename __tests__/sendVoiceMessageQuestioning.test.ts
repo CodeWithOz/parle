@@ -110,6 +110,7 @@ describe('sendVoiceMessage · isTefQuestioning=true, isRepeat=true in response',
     const response = await sendVoiceMessage(FAKE_AUDIO_BASE64, FAKE_MIME_TYPE);
 
     expect(response.isRepeat).toBe(true);
+    expect(response.conceptLabels).toEqual(['pricing']);
   });
 });
 
@@ -146,6 +147,7 @@ describe('sendVoiceMessage · isTefQuestioning=true, isRepeat=false in response'
 
     // isRepeat should be false or absent — NOT true
     expect(response.isRepeat).not.toBe(true);
+    expect(response.conceptLabels).toEqual(['contract duration']);
   });
 });
 

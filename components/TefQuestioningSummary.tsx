@@ -42,11 +42,14 @@ export function groupRepeatedConcepts(
     const after = i < messages.length - 1 && messages[i + 1].role === 'model' ? messages[i + 1] : undefined;
 
     for (const label of msg.conceptLabels) {
-      if (!allConcepts.has(label)) {
+      const wasPresent = allConcepts.has(label);
+      if (!wasPresent) {
         allConcepts.set(label, { hasRepeat: false, messages: [] });
       }
       const entry = allConcepts.get(label)!;
-      if (msg.isRepeat === true) {
+      // Only mark as repeated if the label was already seen on a prior message —
+      // a repeat flagged on a label never seen before has no first-mention to show.
+      if (msg.isRepeat === true && wasPresent) {
         entry.hasRepeat = true;
       }
       entry.messages.push({ before, user: msg, after });
