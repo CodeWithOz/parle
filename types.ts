@@ -112,5 +112,4 @@ export interface TefReview {
   wentWell: string[];
   mistakes: TefReviewMistake[];
   vocabularySuggestions: TefReviewVocabSuggestion[];
-  tipsForC1: string[];
 }

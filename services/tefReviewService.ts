@@ -192,8 +192,7 @@ Based on the conversation above, provide a structured CEFR evaluation. Assess th
 1. CEFR level (A1, A2, B1, B2, C1, or C2) with a 1–2 sentence justification
 2. What the user did well (concrete positive observations)
 3. Grammatical/lexical mistakes with corrections and explanations
-4. Vocabulary improvements: suggest more precise or higher-register alternatives
-5. Specific tips to reach or maintain C1 level
+4. Vocabulary improvements: suggest at least 5 more precise or higher-register alternatives
 
 Return ONLY valid JSON matching the required schema. Do not include any markdown or explanation outside the JSON.`;
 
@@ -251,12 +250,7 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
                 },
                 required: ['used', 'better', 'reason'],
               },
-              description: 'Vocabulary improvements',
-            },
-            tipsForC1: {
-              type: Type.ARRAY,
-              items: { type: Type.STRING },
-              description: 'Tips to reach or maintain C1 level',
+              description: 'Vocabulary improvements — provide at least 5 suggestions',
             },
           },
           required: [
@@ -265,7 +259,6 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
             'wentWell',
             'mistakes',
             'vocabularySuggestions',
-            'tipsForC1',
           ],
         },
       },
@@ -303,13 +296,21 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
     'wentWell',
     'mistakes',
     'vocabularySuggestions',
-    'tipsForC1',
   ] as const;
 
   for (const field of required) {
     if (!(field in obj)) {
       throw new Error(`Review response missing required field: "${field}"`);
     }
+  }
+
+  if (obj['vocabularySuggestions'] === undefined) {
+    throw new Error('Review response missing required field: "vocabularySuggestions"');
+  }
+  if (!Array.isArray(obj['vocabularySuggestions'])) {
+    throw new Error(
+      `Review response field "vocabularySuggestions" has invalid type: expected array, got ${typeof obj['vocabularySuggestions']}`
+    );
   }
 
   return obj as unknown as TefReview;

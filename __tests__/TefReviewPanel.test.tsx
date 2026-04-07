@@ -38,13 +38,12 @@ const SAMPLE_REVIEW: TefReview = {
     },
   ],
   vocabularySuggestions: [
-    {
-      used: 'beaucoup',
-      better: 'considérablement',
-      reason: 'This word is more formal and appropriate for C1 level.',
-    },
+    { used: 'beaucoup', better: 'considérablement', reason: 'More formal register.' },
+    { used: 'bon', better: 'excellent', reason: 'More precise and emphatic.' },
+    { used: 'grand', better: 'considérable', reason: 'Stronger academic word.' },
+    { used: 'faire', better: 'effectuer', reason: 'Formal verb preferred in writing.' },
+    { used: 'voir', better: 'constater', reason: 'More precise observation verb.' },
   ],
-  tipsForC1: ['Use more subordinate clauses', 'Vary your sentence lengths'],
 };
 
 const SECOND_REVIEW: TefReview = {
@@ -53,7 +52,6 @@ const SECOND_REVIEW: TefReview = {
   wentWell: ['Strong argumentation', 'Complex sentence structures'],
   mistakes: [],
   vocabularySuggestions: [],
-  tipsForC1: ['Continue practising idiomatic expressions'],
 };
 
 function renderPanel(overrides: {
@@ -197,15 +195,19 @@ describe('TefReviewPanel · review content', () => {
     expect(screen.getByText(/considérablement/i)).toBeInTheDocument();
   });
 
-  it('renders a "Tips for C1" section', () => {
+  it('does NOT render a "Tips for C1" section heading', () => {
     renderPanel({ reviews: [SAMPLE_REVIEW], currentIndex: 0 });
-    expect(screen.getByText(/tips for c1/i)).toBeInTheDocument();
+    expect(screen.queryByText(/tips for c1/i)).not.toBeInTheDocument();
   });
 
-  it('renders each tipsForC1 item', () => {
+  it('renders all 5 vocabulary suggestions', () => {
     renderPanel({ reviews: [SAMPLE_REVIEW], currentIndex: 0 });
-    expect(screen.getByText(/Use more subordinate clauses/i)).toBeInTheDocument();
-    expect(screen.getByText(/Vary your sentence lengths/i)).toBeInTheDocument();
+    // Each suggestion renders its "used" word
+    expect(screen.getByText(/beaucoup/i)).toBeInTheDocument();
+    expect(screen.getByText(/\bbon\b/i)).toBeInTheDocument();
+    expect(screen.getByText(/\bgrand\b/i)).toBeInTheDocument();
+    expect(screen.getByText(/\bfaire\b/i)).toBeInTheDocument();
+    expect(screen.getByText(/\bvoir\b/i)).toBeInTheDocument();
   });
 });
 

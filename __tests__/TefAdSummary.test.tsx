@@ -36,7 +36,6 @@ const SAMPLE_REVIEW: TefReview = {
   wentWell: ['Strong argumentation'],
   mistakes: [],
   vocabularySuggestions: [],
-  tipsForC1: ['Use more complex structures'],
 };
 
 const SAMPLE_OBJECTION_STATE: TefObjectionState = {
@@ -236,7 +235,6 @@ describe('TefAdSummary · TefReviewPanel integration', () => {
       wentWell: [],
       mistakes: [],
       vocabularySuggestions: [],
-      tipsForC1: [],
     };
     const onNavigateReview = vi.fn();
     renderSummary({

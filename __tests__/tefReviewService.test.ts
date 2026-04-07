@@ -73,13 +73,12 @@ const SAMPLE_REVIEW: TefReview = {
     },
   ],
   vocabularySuggestions: [
-    {
-      used: 'bon',
-      better: 'excellent',
-      reason: '"Excellent" is more precise and registers C1 vocabulary.',
-    },
+    { used: 'bon', better: 'excellent', reason: '"Excellent" is more precise and registers C1 vocabulary.' },
+    { used: 'beaucoup', better: 'considérablement', reason: 'More formal and academic register.' },
+    { used: 'grand', better: 'considérable', reason: 'Stronger academic adjective.' },
+    { used: 'faire', better: 'effectuer', reason: 'Formal verb preferred in professional contexts.' },
+    { used: 'voir', better: 'constater', reason: 'More precise observation verb in formal French.' },
   ],
-  tipsForC1: ['Use more subordinate clauses', 'Expand your register of connectors'],
 };
 
 function makeUserMessage(text: string, audioUrl?: string): Message {
@@ -176,7 +175,7 @@ describe('generateTefReview · existence', () => {
 // ---------------------------------------------------------------------------
 
 describe('generateTefReview · happy path', () => {
-  it('returns a TefReview object with all required top-level fields', async () => {
+  it('returns a TefReview object with all required top-level fields (no tipsForC1)', async () => {
     const result = await generateTefReview({
       exerciseType: 'questioning',
       messages: SAMPLE_MESSAGES_QUESTIONING,
@@ -188,7 +187,8 @@ describe('generateTefReview · happy path', () => {
     expect(result).toHaveProperty('wentWell');
     expect(result).toHaveProperty('mistakes');
     expect(result).toHaveProperty('vocabularySuggestions');
-    expect(result).toHaveProperty('tipsForC1');
+    // tipsForC1 has been removed from the schema — it must NOT appear on the result
+    expect(result).not.toHaveProperty('tipsForC1');
   });
 
   it('preserves cefrLevel and cefrJustification from the model response', async () => {
@@ -236,25 +236,12 @@ describe('generateTefReview · happy path', () => {
       elapsedSeconds: 120,
     });
 
-    expect(result.vocabularySuggestions).toHaveLength(1);
+    expect(result.vocabularySuggestions).toHaveLength(5);
     expect(result.vocabularySuggestions[0]).toMatchObject({
       used: 'bon',
       better: 'excellent',
       reason: expect.any(String),
     });
-  });
-
-  it('preserves tipsForC1 array from the model response', async () => {
-    const result = await generateTefReview({
-      exerciseType: 'questioning',
-      messages: SAMPLE_MESSAGES_QUESTIONING,
-      elapsedSeconds: 120,
-    });
-
-    expect(result.tipsForC1).toEqual([
-      'Use more subordinate clauses',
-      'Expand your register of connectors',
-    ]);
   });
 
   it('calls ai.models.generateContent exactly once', async () => {
@@ -679,19 +666,39 @@ describe('generateTefReview · error handling (malformed response)', () => {
     ).rejects.toThrow();
   });
 
-  it('throws when response is missing tipsForC1', async () => {
-    const { tipsForC1: _omitted, ...withoutTips } = SAMPLE_REVIEW;
+  it('does NOT throw when tipsForC1 is absent from the response (field is no longer required)', async () => {
+    // tipsForC1 is not part of the schema anymore — omitting it must be valid
+    const withoutTips = { ...SAMPLE_REVIEW } as Record<string, unknown>;
+    delete withoutTips['tipsForC1'];
     mockGenerateContent = vi.fn().mockResolvedValue({
       text: JSON.stringify(withoutTips),
     });
 
-    await expect(
-      generateTefReview({
-        exerciseType: 'questioning',
-        messages: SAMPLE_MESSAGES_QUESTIONING,
-        elapsedSeconds: 120,
-      })
-    ).rejects.toThrow();
+    const result = await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+    expect(result).not.toBeNull();
+    expect(result!.cefrLevel).toBe(SAMPLE_REVIEW.cefrLevel);
+  });
+
+  it('succeeds when vocabularySuggestions has fewer than 5 entries', async () => {
+    const fewVocab = {
+      ...SAMPLE_REVIEW,
+      vocabularySuggestions: SAMPLE_REVIEW.vocabularySuggestions.slice(0, 3),
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(fewVocab),
+    });
+
+    const result = await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+    expect(result).not.toBeNull();
+    expect(result!.vocabularySuggestions).toHaveLength(3);
   });
 
   it('throws when generateContent call itself rejects', async () => {
