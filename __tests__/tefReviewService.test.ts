@@ -518,7 +518,7 @@ describe('generateTefReview · criteriaEvaluation in response schema', () => {
     });
 
     expect(result).toHaveProperty('criteriaEvaluation');
-    expect(Array.isArray((result as Record<string, unknown>)?.criteriaEvaluation)).toBe(true);
+    expect(Array.isArray((result as unknown as Record<string, unknown>)?.criteriaEvaluation)).toBe(true);
   });
 });
 

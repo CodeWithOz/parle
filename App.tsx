@@ -449,7 +449,7 @@ const App: React.FC = () => {
       // Skip context injection for the very first message (greeting turn)
       let phaseContextText: string | undefined;
       if (tefAdMode === 'practice' && !tefAdIsFirstMessage) {
-        if (tefAdTurnCount <= 3) {
+        if (tefAdTurnCount < 3) {
           phaseContextText = '[Per-turn context: Encourage the user to introduce and present the advertisement clearly and in an interesting way.]';
         } else if (tefAdTurnCount >= 8) {
           phaseContextText = '[Per-turn context: Push back with a counter-argument or nuance ("Oui mais...", "Tu ne penses pas que..."). The user should demonstrate they can handle objections and nuance their position.]';

@@ -321,9 +321,10 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
     }
   }
 
-  if (obj['vocabularySuggestions'] === undefined) {
-    throw new Error('Review response missing required field: "vocabularySuggestions"');
+  if (exerciseType === 'persuasion' && !Array.isArray(obj['criteriaEvaluation'])) {
+    throw new Error('Review response missing required field: "criteriaEvaluation"');
   }
+
   if (!Array.isArray(obj['vocabularySuggestions'])) {
     throw new Error(
       `Review response field "vocabularySuggestions" has invalid type: expected array, got ${typeof obj['vocabularySuggestions']}`
