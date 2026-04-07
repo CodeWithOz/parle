@@ -304,8 +304,13 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
     }
   }
 
-  if (!Array.isArray(obj['vocabularySuggestions'])) {
+  if (obj['vocabularySuggestions'] === undefined) {
     throw new Error('Review response missing required field: "vocabularySuggestions"');
+  }
+  if (!Array.isArray(obj['vocabularySuggestions'])) {
+    throw new Error(
+      `Review response field "vocabularySuggestions" has invalid type: expected array, got ${typeof obj['vocabularySuggestions']}`
+    );
   }
 
   return obj as unknown as TefReview;

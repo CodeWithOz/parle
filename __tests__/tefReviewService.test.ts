@@ -236,7 +236,7 @@ describe('generateTefReview · happy path', () => {
       elapsedSeconds: 120,
     });
 
-    expect(result.vocabularySuggestions.length).toBeGreaterThan(0);
+    expect(result.vocabularySuggestions).toHaveLength(5);
     expect(result.vocabularySuggestions[0]).toMatchObject({
       used: 'bon',
       better: 'excellent',
@@ -674,13 +674,13 @@ describe('generateTefReview · error handling (malformed response)', () => {
       text: JSON.stringify(withoutTips),
     });
 
-    await expect(
-      generateTefReview({
-        exerciseType: 'questioning',
-        messages: SAMPLE_MESSAGES_QUESTIONING,
-        elapsedSeconds: 120,
-      })
-    ).resolves.toBeDefined();
+    const result = await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+    expect(result).not.toBeNull();
+    expect(result!.cefrLevel).toBe(SAMPLE_REVIEW.cefrLevel);
   });
 
   it('succeeds when vocabularySuggestions has fewer than 5 entries', async () => {
