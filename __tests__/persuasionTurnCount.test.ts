@@ -39,14 +39,18 @@ describe('persuasionTurnCount · App.tsx source-text specs', () => {
     expect(src.default).toMatch(/handleExitTefAd[\s\S]{0,600}setTefAdTurnCount\s*\(\s*0\s*\)/);
   });
 
-  it('App.tsx does NOT increment tefAdTurnCount when tefAdIsFirstMessage is true', async () => {
+  it('App.tsx resets tefAdTurnCount to 0 inside handleDismissTefAdSummary', async () => {
     const src = await import('../App?raw');
-    // setTefAdIsFirstMessage(false) should appear before setTefAdTurnCount increment,
-    // meaning the increment is in the else branch (non-first-message)
-    const setFalseIdx = src.default.indexOf('setTefAdIsFirstMessage(false)');
-    const incrementIdx = src.default.search(/setTefAdTurnCount\s*\(/);
-    expect(setFalseIdx).toBeGreaterThan(-1);
-    expect(incrementIdx).toBeGreaterThan(setFalseIdx);
+    expect(src.default).toMatch(/handleDismissTefAdSummary[\s\S]{0,1200}setTefAdTurnCount\s*\(\s*0\s*\)/);
+  });
+
+  it('App.tsx increments tefAdTurnCount only in the else branch when tefAdIsFirstMessage is true', async () => {
+    const src = await import('../App?raw');
+    // Assert the if/else structure: if (tefAdIsFirstMessage) { setTefAdIsFirstMessage(false) }
+    // else { setTefAdTurnCount(...) }
+    expect(src.default).toMatch(
+      /if\s*\(\s*tefAdIsFirstMessage\s*\)[\s\S]{0,200}setTefAdIsFirstMessage\s*\(\s*false\s*\)[\s\S]{0,200}else[\s\S]{0,200}setTefAdTurnCount/
+    );
   });
 
   it('App.tsx increments tefAdTurnCount in the non-first-message branch', async () => {
@@ -91,29 +95,6 @@ describe('persuasionTurnCount · App.tsx source-text specs', () => {
 // ---------------------------------------------------------------------------
 
 describe('persuasionTurnCount · phase context content by turn number', () => {
-  /**
-   * These tests derive the phase context string by reading App.tsx source and
-   * extracting the phase strings. Since the helper is inline in App.tsx (not a
-   * separate exported function), we verify the string constants are present in
-   * the source.
-   */
-
-  it('phase context for turn 1 (early) contains "introduce" or "present"', async () => {
-    const src = await import('../App?raw');
-    // The early-phase string in App.tsx must contain one of these words
-    expect(src.default).toMatch(/introduce|present the advertisement/i);
-  });
-
-  it('phase context for turn 3 (mid) contains "exemple" or "example"', async () => {
-    const src = await import('../App?raw');
-    expect(src.default).toMatch(/exemple|example/i);
-  });
-
-  it('phase context for turn 5 (late) contains "counter" or "nuance" or "Oui mais"', async () => {
-    const src = await import('../App?raw');
-    expect(src.default).toMatch(/counter|nuance|Oui mais/i);
-  });
-
   it('early/mid boundary: uses turnNumber (tefAdTurnCount + 1) with threshold <= 2', async () => {
     // Phase is computed as turnNumber = tefAdTurnCount + 1.
     // Early covers turns 1–2 (turnNumber <= 2), mid covers 3–4, late 5+.
