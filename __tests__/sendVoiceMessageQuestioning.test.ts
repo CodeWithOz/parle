@@ -88,6 +88,7 @@ describe('sendVoiceMessage · isTefQuestioning=true, isRepeat=true in response',
       english: 'Hello, as I told you, our plan costs 29 euros per month.',
       hint: 'Ask about the installation fee',
       isRepeat: true,
+      conceptLabels: ['pricing'],
     });
 
     const { sendVoiceMessage, initializeSession, setScenario } = await import('../services/geminiService');
@@ -123,6 +124,7 @@ describe('sendVoiceMessage · isTefQuestioning=true, isRepeat=false in response'
       english: 'Of course, our contracts are available in 12 or 24 months.',
       hint: 'Ask about the cancellation policy',
       isRepeat: false,
+      conceptLabels: ['contract duration'],
     });
 
     const { sendVoiceMessage, initializeSession, setScenario } = await import('../services/geminiService');

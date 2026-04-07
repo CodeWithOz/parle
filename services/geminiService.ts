@@ -76,7 +76,7 @@ const TefQuestioningSchema = z.object({
   english: z.string().describe("The English translation of the French response"),
   hint: z.string().describe("Suggestion of a question the user could ask next - brief description in English"),
   isRepeat: z.boolean().optional().describe("true if the user asked a question that was already answered"),
-  conceptLabels: z.array(z.string()).optional().describe("Array of 2-4 word topic labels in English for the question asked (e.g. ['pricing', 'opening hours'])"),
+  conceptLabels: z.array(z.string()).describe("Array of 2-4 word topic labels in English for the question asked (e.g. ['pricing', 'opening hours']). Always include this field — use an empty array if no topic applies."),
 });
 
 /**
