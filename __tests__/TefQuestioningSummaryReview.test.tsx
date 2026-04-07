@@ -53,7 +53,6 @@ const SAMPLE_REVIEW: TefReview = {
       reason: '"Considérable" is more precise in academic or formal contexts.',
     },
   ],
-  tipsForC1: ['Use inversion more frequently', 'Expand idiomatic expressions'],
 };
 
 const FAKE_AD_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -206,7 +205,6 @@ describe('TefQuestioningSummary · TefReviewPanel integration', () => {
       wentWell: [],
       mistakes: [],
       vocabularySuggestions: [],
-      tipsForC1: [],
     };
     const onNavigateReview = vi.fn();
     renderSummary({

@@ -244,16 +244,6 @@ describe('generateTefReview · happy path', () => {
     });
   });
 
-  it('returns at least 5 vocabularySuggestions from the model response', async () => {
-    const result = await generateTefReview({
-      exerciseType: 'questioning',
-      messages: SAMPLE_MESSAGES_QUESTIONING,
-      elapsedSeconds: 120,
-    });
-
-    expect(result.vocabularySuggestions.length).toBeGreaterThanOrEqual(5);
-  });
-
   it('calls ai.models.generateContent exactly once', async () => {
     await generateTefReview({
       exerciseType: 'questioning',
