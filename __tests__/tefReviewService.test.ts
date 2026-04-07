@@ -80,6 +80,14 @@ const SAMPLE_REVIEW: TefReview = {
     { used: 'faire', better: 'effectuer', reason: 'Formal verb preferred in professional contexts.' },
     { used: 'voir', better: 'constater', reason: 'More precise observation verb in formal French.' },
   ],
+  // criteriaEvaluation is included so this fixture is valid for persuasion-type calls
+  criteriaEvaluation: [
+    { criterion: 'Clear & interesting presentation', met: true, evidence: 'User introduced the ad clearly.' },
+    { criterion: 'Argumentation vocabulary', met: true, evidence: 'Good use of linking words.' },
+    { criterion: '3+ distinct arguments', met: true, evidence: 'Three distinct points raised.' },
+    { criterion: 'Arguments developed with examples', met: false, evidence: 'Some bare assertions.' },
+    { criterion: 'Handled counter-arguments / nuance', met: true, evidence: 'Acknowledged objections.' },
+  ],
 };
 
 function makeUserMessage(text: string, audioUrl?: string): Message {
