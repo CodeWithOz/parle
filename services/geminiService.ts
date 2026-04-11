@@ -204,7 +204,7 @@ function createChatSession(): void {
   })();
 
   chatSession = ai.chats.create({
-    model: 'gemini-2.0-flash-lite',
+    model: 'gemini-2.5-flash-lite',
     config: {
       systemInstruction: systemInstruction,
       // Always use JSON response format for structured French/English separation
@@ -296,7 +296,7 @@ export const confirmTefAdImage = async (
   ensureAiInitialized();
 
   const response = await ai!.models.generateContent({
-    model: 'gemini-2.0-flash-lite',
+    model: 'gemini-2.5-flash-lite',
     contents: [{
       parts: [
         {
@@ -365,7 +365,7 @@ export const confirmTefAdImageForQuestioning = async (
   ensureAiInitialized();
 
   const response = await ai!.models.generateContent({
-    model: 'gemini-2.0-flash-lite',
+    model: 'gemini-2.5-flash-lite',
     contents: [{
       parts: [
         {
@@ -423,7 +423,7 @@ export const processScenarioDescription = async (description: string): Promise<s
   ensureAiInitialized();
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash-lite',
+    model: 'gemini-2.5-flash-lite',
     contents: [{
       parts: [{ text: generateScenarioSummaryPrompt(description) }],
     }],
@@ -439,7 +439,7 @@ export const transcribeAudio = async (audioBase64: string, mimeType: string): Pr
   ensureAiInitialized();
 
   const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash-lite',
+    model: 'gemini-2.5-flash-lite',
     contents: [{
       parts: [
         { text: "Transcribe this audio exactly as spoken. Only output the transcription, nothing else." },
@@ -472,7 +472,7 @@ export const transcribeAndCleanupAudio = async (
   ensureAiInitialized();
 
   const response = await ai!.models.generateContent({
-    model: 'gemini-2.0-flash-lite',
+    model: 'gemini-2.5-flash-lite',
     contents: [{
       parts: [
         {
@@ -541,7 +541,7 @@ export const transcribeAndCleanupAudio = async (
  */
 export const initializeSession = async () => {
   ensureAiInitialized();
-  // We use gemini-2.0-flash-lite for the logic/conversation as it handles audio input well,
+  // We use gemini-2.5-flash-lite for the logic/conversation as it handles audio input well,
   // but we will ask for TEXT output to maintain REST compatibility, then TTS it.
 
   // If there was a pending scenario set before ai was initialized, use it
@@ -641,7 +641,7 @@ export const sendVoiceMessage = async (
   try {
     // Step 1: Transcribe user audio
     const transcribeResponse = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-lite',
+      model: 'gemini-2.5-flash-lite',
       contents: [{
         parts: [
           { text: "Transcribe this audio exactly as spoken. Only output the transcription, nothing else." },

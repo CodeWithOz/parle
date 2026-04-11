@@ -206,7 +206,7 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
   let response: { text?: string };
   try {
     response = await ai!.models.generateContent({
-      model: 'gemini-2.0-flash-lite',
+      model: 'gemini-2.5-flash-lite',
       contents: [{ parts }],
       config: {
         responseMimeType: 'application/json',

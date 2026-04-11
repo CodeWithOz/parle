@@ -157,7 +157,7 @@ Both single-character AND multi-character scenarios use JSON response format:
 const isScenarioMode = activeScenario !== null;
 
 chatSession = ai.chats.create({
-  model: 'gemini-2.0-flash-lite',
+  model: 'gemini-2.5-flash-lite',
   config: {
     systemInstruction: systemInstruction,
     ...(isScenarioMode && {

@@ -114,7 +114,7 @@ test.describe('ScenarioSetup · describe by voice abort/discard', () => {
 
     // Intercept Gemini transcription calls and keep the first/second attempts pending
     // until the test explicitly resolves them.
-    await page.route('**/models/gemini-2.0-flash-lite:generateContent*', async route => {
+    await page.route('**/models/gemini-2.5-flash-lite:generateContent*', async route => {
       const req = route.request();
       let bodyJson: any = null;
       try {
