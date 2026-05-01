@@ -73,7 +73,7 @@ const App: React.FC = () => {
   // TEF Ad conversation timer
   const { elapsed: tefElapsed, reset: resetTefTimer } = useConversationTimer(
     appState,
-    tefAdMode === 'practice',
+    tefAdMode === 'practice' && !showTefAdSummary,
     () => setTefTimedUp(true)
   );
 
@@ -234,7 +234,7 @@ const App: React.FC = () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { elapsed: tefQuestioningElapsed } = useConversationTimer(
+  const { elapsed: tefQuestioningElapsed, reset: resetTefQuestioningTimer } = useConversationTimer(
     appState,
     tefQuestioningMode === 'practice' && !showTefQuestioningSummary,
     handleTefQuestioningTimeUp,
@@ -1316,6 +1316,55 @@ const App: React.FC = () => {
     setAppState(AppState.IDLE);
   };
 
+  const handleRestartTefAdFromSummary = () => {
+    const scenarioToRestart = activeScenarioRef.current;
+    if (!scenarioToRestart) {
+      handleDismissTefAdSummary();
+      return;
+    }
+
+    processingAbortedRef.current = true;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (appState === AppState.RECORDING) {
+      cancelRecording();
+    }
+
+    for (const msg of tefAdMessagesSnapshotRef.current) {
+      if (msg.audioUrl) {
+        if (Array.isArray(msg.audioUrl)) {
+          for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
+        } else {
+          URL.revokeObjectURL(msg.audioUrl);
+        }
+      }
+    }
+    tefAdMessagesSnapshotRef.current = [];
+
+    clearHistory();
+    setMessages([]);
+    setAutoPlayMessageId(null);
+    setCurrentHint(null);
+    setScenario(scenarioToRestart);
+    setActiveScenario(scenarioToRestart);
+    setScenarioMode('none');
+    setTefQuestioningMode('none');
+    setTefAdMode('practice');
+    setTefTimedUp(false);
+    setTefAdTurnCount(0);
+    setTefAdIsFirstMessage(true);
+    resetTefTimer();
+
+    setTefAdReviews([]);
+    setTefAdReviewIndex(0);
+    setTefAdReviewLoading(false);
+    setTefAdReviewError(null);
+    setShowTefAdSummary(false);
+    setAppState(AppState.IDLE);
+  };
+
   // TEF Questioning handlers
   const handleStartTefQuestioningConversation = async (
     image: string,
@@ -1445,6 +1494,56 @@ const App: React.FC = () => {
     setTefQuestioningReviewLoading(false);
     setTefQuestioningReviewError(null);
 
+    setAppState(AppState.IDLE);
+  };
+
+  const handleRestartTefQuestioningFromSummary = () => {
+    const scenarioToRestart = activeScenarioRef.current;
+    if (!scenarioToRestart) {
+      handleDismissTefQuestioningSummary();
+      return;
+    }
+
+    processingAbortedRef.current = true;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (appState === AppState.RECORDING) {
+      cancelRecording();
+    }
+
+    for (const msg of tefQuestioningMessagesSnapshotRef.current) {
+      if (msg.audioUrl) {
+        if (Array.isArray(msg.audioUrl)) {
+          for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
+        } else {
+          URL.revokeObjectURL(msg.audioUrl);
+        }
+      }
+    }
+    tefQuestioningMessagesSnapshotRef.current = [];
+
+    clearHistory();
+    setMessages([]);
+    setAutoPlayMessageId(null);
+    setCurrentHint(null);
+    setScenario(scenarioToRestart);
+    setActiveScenario(scenarioToRestart);
+    setScenarioMode('none');
+    setTefAdMode('none');
+    setTefQuestioningMode('practice');
+    setTefQuestioningTimedUp(false);
+    setTefQuestioningQuestionCount(0);
+    setTefQuestioningRepeatCount(0);
+    setTefQuestioningIsFirstMessage(true);
+    resetTefQuestioningTimer();
+
+    setTefQuestioningReviews([]);
+    setTefQuestioningReviewIndex(0);
+    setTefQuestioningReviewLoading(false);
+    setTefQuestioningReviewError(null);
+    setShowTefQuestioningSummary(false);
     setAppState(AppState.IDLE);
   };
 
@@ -1711,6 +1810,7 @@ const App: React.FC = () => {
           repeatCount={tefQuestioningRepeatCount}
           elapsedSeconds={tefQuestioningElapsed}
           adImage={tefQuestioningImage}
+          onRestart={handleRestartTefQuestioningFromSummary}
           onDismiss={handleDismissTefQuestioningSummary}
           reviews={tefQuestioningReviews}
           reviewIndex={tefQuestioningReviewIndex}
@@ -1735,6 +1835,7 @@ const App: React.FC = () => {
           reviewError={tefAdReviewError}
           onRetryReview={() => startTefAdReview(tefAdMessagesSnapshotRef.current)}
           onRegenerateReview={() => regenerateTefAdReview(tefAdMessagesSnapshotRef.current)}
+          onRestart={handleRestartTefAdFromSummary}
           onDismiss={handleDismissTefAdSummary}
         />
       )}

@@ -101,11 +101,22 @@ export interface TefReviewVocabSuggestion {
   reason: string;
 }
 
+export interface TefTopicSuggestionExample {
+  french: string;
+  english: string;
+}
+
+export interface TefTopicSuggestion {
+  topic: string;
+  examples: TefTopicSuggestionExample[];
+}
+
 export interface TefReview {
   cefrLevel: string;                           // e.g. "B2", "C1"
   cefrJustification: string;                   // 1-2 sentences explaining the assessment
   wentWell: string[];
   mistakes: TefReviewMistake[];
   vocabularySuggestions: TefReviewVocabSuggestion[];
+  topicSuggestions: TefTopicSuggestion[];      // Topics + bilingual example utterances
   criteriaEvaluation?: TefCriterionEvaluation[]; // Persuasion-specific criteria scoring
 }

@@ -13,6 +13,7 @@ interface TefAdSummaryProps {
   reviewError: string | null;
   onRetryReview: () => void;
   onRegenerateReview: () => void;
+  onRestart: () => void;
   onDismiss: () => void;
 }
 
@@ -33,6 +34,7 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
   reviewError,
   onRetryReview,
   onRegenerateReview,
+  onRestart,
   onDismiss,
 }) => {
   const currentReview = reviews[reviewIndex];
@@ -123,13 +125,21 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
           onRegenerate={onRegenerateReview}
         />
 
-        {/* Done button */}
-        <button
-          onClick={onDismiss}
-          className="flex-shrink-0 w-full mt-6 py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-medium transition-colors"
-        >
-          Done
-        </button>
+        <div className="flex-shrink-0 w-full mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <button
+            onClick={onRestart}
+            disabled={isReviewLoading}
+            className="py-3 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Restart Exercise
+          </button>
+          <button
+            onClick={onDismiss}
+            className="py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-medium transition-colors"
+          >
+            Done
+          </button>
+        </div>
       </div>
     </div>
   );

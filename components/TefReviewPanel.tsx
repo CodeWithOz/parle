@@ -162,6 +162,33 @@ export const TefReviewPanel: React.FC<TefReviewPanelProps> = ({
         )}
       </div>
 
+      {/* Topic Suggestions */}
+      <div>
+        <h3 className="text-violet-400 font-semibold text-sm mb-2">Topics You Could Have Mentioned</h3>
+        {currentReview.topicSuggestions.length === 0 ? (
+          <p className="text-slate-400 text-sm">No additional topic suggestions were generated.</p>
+        ) : (
+          <div className="space-y-3">
+            {currentReview.topicSuggestions.map((topicSuggestion, i) => (
+              <div
+                key={i}
+                className="bg-slate-700/50 rounded-xl border border-slate-600 p-3"
+              >
+                <p className="text-violet-300 text-sm font-semibold">{topicSuggestion.topic}</p>
+                <div className="mt-2 space-y-2">
+                  {topicSuggestion.examples.map((example, exampleIndex) => (
+                    <div key={exampleIndex} className="rounded-lg bg-slate-800/70 border border-slate-600 p-2">
+                      <p className="text-slate-100 text-sm">{example.french}</p>
+                      <p className="text-slate-400 text-xs mt-1">{example.english}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Bottom carousel controls — mirrors the top so you don't need to scroll up to switch */}
       {reviews.length > 1 && (
         <div className="flex items-center justify-center gap-3">

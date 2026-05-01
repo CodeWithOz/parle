@@ -80,6 +80,73 @@ const SAMPLE_REVIEW: TefReview = {
     { used: 'faire', better: 'effectuer', reason: 'Formal verb preferred in professional contexts.' },
     { used: 'voir', better: 'constater', reason: 'More precise observation verb in formal French.' },
   ],
+  topicSuggestions: [
+    {
+      topic: 'Conditions de paiement',
+      examples: [
+        {
+          french: 'Peut-on payer en plusieurs fois ?',
+          english: 'Can we pay in installments?',
+        },
+        {
+          french: 'Y a-t-il des frais pour le paiement en ligne ?',
+          english: 'Are there fees for paying online?',
+        },
+      ],
+    },
+    {
+      topic: 'Garanties incluses',
+      examples: [
+        {
+          french: 'Quelle garantie est incluse avec ce service ?',
+          english: 'What warranty is included with this service?',
+        },
+        {
+          french: 'La garantie couvre-t-elle les pannes majeures ?',
+          english: 'Does the warranty cover major breakdowns?',
+        },
+      ],
+    },
+    {
+      topic: 'Frais supplementaires',
+      examples: [
+        {
+          french: 'Y a-t-il des couts caches a prevoir ?',
+          english: 'Are there hidden costs to expect?',
+        },
+        {
+          french: 'Le prix final inclut-il tous les frais ?',
+          english: 'Does the final price include all fees?',
+        },
+      ],
+    },
+    {
+      topic: 'Comparaison avec la concurrence',
+      examples: [
+        {
+          french: 'En quoi cette offre est-elle meilleure que les autres ?',
+          english: 'How is this offer better than the others?',
+        },
+        {
+          french: 'Quels avantages concrets avez-vous par rapport aux concurrents ?',
+          english: 'What concrete advantages do you have over competitors?',
+        },
+      ],
+    },
+    {
+      topic: 'Flexibilite des horaires',
+      examples: [
+        {
+          french: 'Les horaires sont-ils flexibles en semaine ?',
+          english: 'Are schedules flexible during the week?',
+        },
+        {
+          french: 'Peut-on modifier l horaire apres reservation ?',
+          english: 'Can we change the schedule after booking?',
+        },
+      ],
+    },
+  ],
   // criteriaEvaluation is included so this fixture is valid for persuasion-type calls
   criteriaEvaluation: [
     { criterion: 'Clear & interesting presentation', met: true, evidence: 'User introduced the ad clearly.' },
@@ -189,6 +256,7 @@ describe('generateTefReview · happy path', () => {
     expect(result).toHaveProperty('wentWell');
     expect(result).toHaveProperty('mistakes');
     expect(result).toHaveProperty('vocabularySuggestions');
+    expect(result).toHaveProperty('topicSuggestions');
     // tipsForC1 has been removed from the schema — it must NOT appear on the result
     expect(result).not.toHaveProperty('tipsForC1');
   });
@@ -531,6 +599,66 @@ describe('generateTefReview · criteriaEvaluation in response schema', () => {
 });
 
 // ---------------------------------------------------------------------------
+// topicSuggestions field: schema presence and response preservation
+// ---------------------------------------------------------------------------
+
+describe('generateTefReview · topicSuggestions schema and response', () => {
+  it('includes topicSuggestions in the API response schema for questioning type', async () => {
+    await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    expect(JSON.stringify(callArg)).toContain('topicSuggestions');
+  });
+
+  it('includes topicSuggestions in the API response schema for persuasion type', async () => {
+    await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    expect(JSON.stringify(callArg)).toContain('topicSuggestions');
+  });
+
+  it('preserves topicSuggestions array values from the model response', async () => {
+    const result = await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.topicSuggestions).toEqual(SAMPLE_REVIEW.topicSuggestions);
+    expect(result!.topicSuggestions).toHaveLength(5);
+    expect(result!.topicSuggestions[0].examples).toHaveLength(2);
+    expect(result!.topicSuggestions[0].examples[0]).toHaveProperty('french');
+    expect(result!.topicSuggestions[0].examples[0]).toHaveProperty('english');
+  });
+
+  it('accepts an empty topicSuggestions array without throwing', async () => {
+    const reviewEmptyTopics = { ...SAMPLE_REVIEW, topicSuggestions: [] };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(reviewEmptyTopics),
+    });
+
+    const result = await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.topicSuggestions).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // objectionState is no longer a parameter
 // ---------------------------------------------------------------------------
 
@@ -775,6 +903,21 @@ describe('generateTefReview · error handling (malformed response)', () => {
     const { vocabularySuggestions: _omitted, ...withoutVocab } = SAMPLE_REVIEW;
     mockGenerateContent = vi.fn().mockResolvedValue({
       text: JSON.stringify(withoutVocab),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow();
+  });
+
+  it('throws when response is missing topicSuggestions', async () => {
+    const { topicSuggestions: _omitted, ...withoutTopics } = SAMPLE_REVIEW;
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(withoutTopics),
     });
 
     await expect(

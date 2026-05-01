@@ -194,6 +194,9 @@ Based on the conversation above, provide a structured CEFR evaluation. Assess th
 2. What the user did well (concrete positive observations)
 3. Grammatical/lexical mistakes with corrections and explanations
 4. Vocabulary improvements: suggest at least 5 more precise or higher-register alternatives
+5. Topic suggestions: suggest at least 5 additional relevant topics/angles the user could have mentioned
+   - For EACH suggested topic, provide exactly 2 short spoken examples in French.
+   - Include an English translation for each French example.
 
 Return ONLY valid JSON matching the required schema. Do not include any markdown or explanation outside the JSON.`;
 
@@ -253,6 +256,29 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
               },
               description: 'Vocabulary improvements — provide at least 5 suggestions',
             },
+            topicSuggestions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  topic: { type: Type.STRING },
+                  examples: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        french: { type: Type.STRING },
+                        english: { type: Type.STRING },
+                      },
+                      required: ['french', 'english'],
+                    },
+                    description: 'Exactly 2 French examples with English translations',
+                  },
+                },
+                required: ['topic', 'examples'],
+              },
+              description: 'Additional relevant topics/angles the user could have mentioned, each with 2 bilingual examples',
+            },
             ...(exerciseType === 'persuasion' ? {
               criteriaEvaluation: {
                 type: Type.ARRAY,
@@ -275,6 +301,7 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
             'wentWell',
             'mistakes',
             'vocabularySuggestions',
+            'topicSuggestions',
             ...(exerciseType === 'persuasion' ? ['criteriaEvaluation'] : []),
           ],
         },
@@ -313,6 +340,7 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
     'wentWell',
     'mistakes',
     'vocabularySuggestions',
+    'topicSuggestions',
   ] as const;
 
   for (const field of required) {
