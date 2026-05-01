@@ -69,6 +69,8 @@ const App: React.FC = () => {
   const [tefTimedUp, setTefTimedUp] = useState(false);
   const [tefAdTurnCount, setTefAdTurnCount] = useState(0);
   const [tefAdIsFirstMessage, setTefAdIsFirstMessage] = useState(true);
+  /** Must be declared before `useConversationTimer` below — that hook reads `showTefAdSummary` for `isActive`. */
+  const [showTefAdSummary, setShowTefAdSummary] = useState(false);
 
   // TEF Ad conversation timer
   const { elapsed: tefElapsed, reset: resetTefTimer } = useConversationTimer(
@@ -92,7 +94,6 @@ const App: React.FC = () => {
   const [tefQuestioningReviewLoading, setTefQuestioningReviewLoading] = useState(false);
   const [tefQuestioningReviewError, setTefQuestioningReviewError] = useState<string | null>(null);
 
-  const [showTefAdSummary, setShowTefAdSummary] = useState(false);
   const [tefAdReviews, setTefAdReviews] = useState<TefReview[]>([]);
   const [tefAdReviewIndex, setTefAdReviewIndex] = useState(0);
   const [tefAdReviewLoading, setTefAdReviewLoading] = useState(false);
