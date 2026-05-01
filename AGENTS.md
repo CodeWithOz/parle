@@ -258,6 +258,8 @@ tefAdMessagesSnapshotRef.current = [];
 
 The same pattern applies to TEF Questioning: `handleExitTefQuestioning` captures the snapshot and calls `startTefQuestioningReview`; `handleDismissTefQuestioningSummary` does the revocation.
 
+Restart handlers (`handleRestartTefAdFromSummary`, `handleRestartTefQuestioningFromSummary`) also revoke URLs before re-launching the session. This is safe: the user only reaches the restart button from the summary screen, so the review service has already finished fetching when restart is triggered.
+
 ### Why This Is Intentional
 
 `generateTefReview` in `services/tefReviewService.ts` fetches user audio from blob URLs to send to the Gemini evaluator as inline audio data. If exit handlers revoked the URLs immediately (as other scenario exit handlers do), the fetch inside `generateTefReview` would fail with a network error and the review would only have transcripts, degrading evaluation quality.
@@ -266,13 +268,13 @@ The same pattern applies to TEF Questioning: `handleExitTefQuestioning` captures
 
 `tefAdMessagesSnapshotRef` and `tefQuestioningMessagesSnapshotRef` capture the message array at exit time so that:
 1. The review service has a stable reference to the messages (including blob URLs) that persists even after React state is cleared.
-2. The dismiss handler can find the URLs to revoke them after the review is complete.
+2. The dismiss or restart handler can find the URLs to revoke them after the review is complete.
 
 Do **not** clear these refs or revoke URLs in the exit handlers. Do **not** "clean up" the exit handlers by adding `URL.revokeObjectURL` calls there — this will silently break review audio.
 
 ### Related Files
 
-- `App.tsx` — `handleExitTefAd`, `handleExitTefQuestioning` (exit: capture snapshot, no revocation); `handleDismissTefAdSummary`, `handleDismissTefQuestioningSummary` (dismiss: revoke + clear snapshot)
+- `App.tsx` — `handleExitTefAd`, `handleExitTefQuestioning` (exit: capture snapshot, no revocation); `handleDismissTefAdSummary`, `handleDismissTefQuestioningSummary` (dismiss: revoke + clear snapshot); `handleRestartTefAdFromSummary`, `handleRestartTefQuestioningFromSummary` (restart from summary: revoke + clear snapshot + re-launch session)
 - `services/tefReviewService.ts` — `generateTefReview` — fetches blob URLs via `fetchAudioAsInlineData`
 
 ---
@@ -428,7 +430,7 @@ Do **not** flag the missing counter increment on the first turn as a bug — it 
 
 ### Post-Exercise Review: TEF Criteria Evaluation
 
-After the session ends, `generateTefReview` evaluates the conversation against the 5 official TEF persuasion criteria. Results are stored in `criteriaEvaluation: TefCriterionEvaluation[]` on the `TefReview` object and displayed as a scorecard in `TefAdSummary`.
+After the session ends, `generateTefReview` evaluates the conversation. The `TefReview` object always carries `topicSuggestions: string[]` — at least 5 additional topics or angles the learner could have raised, shown in `TefReviewPanel` for both exercise types. For persuasion sessions it also carries `criteriaEvaluation: TefCriterionEvaluation[]`, which scores the user against the 5 official TEF criteria and is displayed in `TefAdSummary`.
 
 ```typescript
 // types.ts
@@ -438,7 +440,10 @@ export interface TefCriterionEvaluation {
   evidence: string;
 }
 
-// TefReview
+// TefReview (shared fields — both exercise types)
+topicSuggestions: string[];               // required; topics learner could have mentioned
+
+// TefReview (persuasion-specific)
 criteriaEvaluation?: TefCriterionEvaluation[];
 ```
 
@@ -555,7 +560,7 @@ When reviewing this codebase:
 8. **Don't flag the two-schema branch (`TefQuestioningSchema` / `SingleCharacterSchema`) as unnecessary** - `isRepeat` must only appear in the questioning path; the schemas must remain separate
 9. **Don't flag `isRepeat` on `VoiceResponse` as dead code** - It is consumed by the repeat counter in `App.tsx` and displayed on `TefQuestioningSummary`
 10. **Don't add per-turn context injection to the questioning mode path** - Unlike persuasion mode, questioning mode needs no external sequencing signal; its system prompt is self-sufficient
-11. **Don't add `URL.revokeObjectURL` calls to `handleExitTefAd` or `handleExitTefQuestioning`** - Revocation is intentionally deferred to the dismiss handlers so the review service can fetch audio blob URLs for evaluation (see "Deferred Audio URL Revocation" section)
+11. **Don't add `URL.revokeObjectURL` calls to `handleExitTefAd` or `handleExitTefQuestioning`** - Revocation is intentionally deferred to the dismiss or restart handlers so the review service can fetch audio blob URLs for evaluation (see "Deferred Audio URL Revocation" section)
 12. **Don't flag the `if (r)` null-checks on `generateTefReview` results as redundant** - `null` is the documented return value for an aborted review request; the check is required (see "TEF Post-Exercise Review: `generateTefReview` Returns `null` on Abort" section)
 
 If you believe you've found a genuine bug in one of these areas, please:
@@ -582,4 +587,5 @@ If you believe you've found a genuine bug in one of these areas, please:
 - 2026-04-07: Replaced objection state machine with phase-based per-turn context injection; AI never expresses conviction; session ends by 10-min timer; added TEF criteria scorecard to post-exercise review
 - 2026-03-14: Added TEF Ad Questioning mode patterns (isTefQuestioning schema selection, isRepeat flag, no per-turn context injection, first-message skip); added persuasion first-message skip note; updated credentials table
 - 2026-04-04: Added deferred audio URL revocation pattern and `generateTefReview` null-on-abort convention (TEF post-exercise review feature)
+- 2026-05-01: Added restart handlers to deferred URL revocation section; documented `topicSuggestions` required field on `TefReview` (both exercise types)
 - See git history for detailed implementation timeline
