@@ -430,7 +430,7 @@ Do **not** flag the missing counter increment on the first turn as a bug — it 
 
 ### Post-Exercise Review: TEF Criteria Evaluation
 
-After the session ends, `generateTefReview` evaluates the conversation. The `TefReview` object always carries `topicSuggestions: string[]` — at least 5 additional topics or angles the learner could have raised, shown in `TefReviewPanel` for both exercise types. For persuasion sessions it also carries `criteriaEvaluation: TefCriterionEvaluation[]`, which scores the user against the 5 official TEF criteria and is displayed in `TefAdSummary`.
+After the session ends, `generateTefReview` evaluates the conversation. The `TefReview` object always carries `topicSuggestions: TefTopicSuggestion[]` — at least 5 structured topic entries the learner could have raised, each with a `topic` label and at least 2 bilingual `examples`, shown in `TefReviewPanel` for both exercise types. For persuasion sessions it also carries `criteriaEvaluation: TefCriterionEvaluation[]`, which scores the user against the 5 official TEF criteria and is displayed in `TefAdSummary`.
 
 ```typescript
 // types.ts
@@ -440,8 +440,18 @@ export interface TefCriterionEvaluation {
   evidence: string;
 }
 
+export interface TefTopicSuggestionExample {
+  french: string;
+  english: string;
+}
+
+export interface TefTopicSuggestion {
+  topic: string;
+  examples: TefTopicSuggestionExample[]; // at least 2 bilingual examples per topic
+}
+
 // TefReview (shared fields — both exercise types)
-topicSuggestions: string[];               // required; topics learner could have mentioned
+topicSuggestions: TefTopicSuggestion[];  // required; ≥5 entries, each with a topic label and ≥2 bilingual examples
 
 // TefReview (persuasion-specific)
 criteriaEvaluation?: TefCriterionEvaluation[];
