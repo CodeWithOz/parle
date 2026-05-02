@@ -359,5 +359,62 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
     );
   }
 
+  // Validate topicSuggestions: TefTopicSuggestion[]
+  const topicSuggestions = obj['topicSuggestions'];
+  if (!Array.isArray(topicSuggestions)) {
+    throw new Error(
+      `Review response field "topicSuggestions" has invalid type: expected array, got ${typeof topicSuggestions}`
+    );
+  }
+  if (topicSuggestions.length < 5) {
+    throw new Error(
+      `Review response field "topicSuggestions" has insufficient length: expected at least 5, got ${topicSuggestions.length}`
+    );
+  }
+  for (let i = 0; i < topicSuggestions.length; i++) {
+    const item = topicSuggestions[i];
+    if (typeof item !== 'object' || item === null) {
+      throw new Error(
+        `Review response field "topicSuggestions[${i}]" must be an object, got ${typeof item}`
+      );
+    }
+    const itemObj = item as Record<string, unknown>;
+    if (typeof itemObj['topic'] !== 'string' || itemObj['topic'].trim() === '') {
+      throw new Error(
+        `Review response field "topicSuggestions[${i}].topic" must be a non-empty string`
+      );
+    }
+    const examples = itemObj['examples'];
+    if (!Array.isArray(examples)) {
+      throw new Error(
+        `Review response field "topicSuggestions[${i}].examples" has invalid type: expected array, got ${typeof examples}`
+      );
+    }
+    if (examples.length < 2) {
+      throw new Error(
+        `Review response field "topicSuggestions[${i}].examples" has insufficient length: expected at least 2, got ${examples.length}`
+      );
+    }
+    for (let j = 0; j < examples.length; j++) {
+      const example = examples[j];
+      if (typeof example !== 'object' || example === null) {
+        throw new Error(
+          `Review response field "topicSuggestions[${i}].examples[${j}]" must be an object, got ${typeof example}`
+        );
+      }
+      const exObj = example as Record<string, unknown>;
+      if (typeof exObj['french'] !== 'string' || exObj['french'].trim() === '') {
+        throw new Error(
+          `Review response field "topicSuggestions[${i}].examples[${j}].french" must be a non-empty string`
+        );
+      }
+      if (typeof exObj['english'] !== 'string' || exObj['english'].trim() === '') {
+        throw new Error(
+          `Review response field "topicSuggestions[${i}].examples[${j}].english" must be a non-empty string`
+        );
+      }
+    }
+  }
+
   return obj as unknown as TefReview;
 }
