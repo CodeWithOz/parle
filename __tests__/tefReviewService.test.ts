@@ -604,49 +604,27 @@ describe('generateTefReview · criteriaEvaluation in response schema', () => {
 // ---------------------------------------------------------------------------
 
 describe('generateTefReview · topicSuggestions schema and response', () => {
-  it('encodes the full nested topicSuggestions shape in the response schema for questioning type', async () => {
-    await generateTefReview({
-      exerciseType: 'questioning',
-      messages: SAMPLE_MESSAGES_QUESTIONING,
-      elapsedSeconds: 120,
-    });
-
-    const callArg = mockGenerateContent.mock.calls[0][0];
-    const ts = callArg.config.responseSchema.properties.topicSuggestions;
-
-    // Top-level array
-    expect(ts.type).toBe(Type.ARRAY);
-
-    // Each item is an object
-    expect(ts.items.type).toBe(Type.OBJECT);
-
-    // Item properties include topic and examples
-    expect(ts.items.properties).toHaveProperty('topic');
-    expect(ts.items.properties).toHaveProperty('examples');
-
-    // Item required fields include topic and examples
-    expect(ts.items.required).toContain('topic');
-    expect(ts.items.required).toContain('examples');
-
-    // examples is an array
-    expect(ts.items.properties.examples.type).toBe(Type.ARRAY);
-
-    // Each example has french and english properties
-    expect(ts.items.properties.examples.items.properties).toHaveProperty('french');
-    expect(ts.items.properties.examples.items.properties).toHaveProperty('english');
-
-    // Example required fields include french and english
-    expect(ts.items.properties.examples.items.required).toContain('french');
-    expect(ts.items.properties.examples.items.required).toContain('english');
-  });
-
-  it('encodes the full nested topicSuggestions shape in the response schema for persuasion type', async () => {
-    await generateTefReview({
-      exerciseType: 'persuasion',
-      messages: SAMPLE_MESSAGES_PERSUASION,
-      elapsedSeconds: 90,
-      adSummary: 'A car ad.',
-    });
+  it.each([
+    {
+      label: 'questioning type',
+      args: {
+        exerciseType: 'questioning' as const,
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      },
+    },
+    {
+      label: 'persuasion type',
+      args: {
+        exerciseType: 'persuasion' as const,
+        messages: SAMPLE_MESSAGES_PERSUASION,
+        elapsedSeconds: 90,
+        adSummary: 'A car ad.',
+      },
+    },
+  ])('encodes the full nested topicSuggestions shape in the response schema for $label', async ({ args }) => {
+    mockGenerateContent.mockClear();
+    await generateTefReview(args);
 
     const callArg = mockGenerateContent.mock.calls[0][0];
     const ts = callArg.config.responseSchema.properties.topicSuggestions;
@@ -1268,6 +1246,22 @@ describe('generateTefReview · topicSuggestions runtime validation', () => {
         exerciseType: 'questioning',
         messages: SAMPLE_MESSAGES_QUESTIONING,
         elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when topicSuggestions is not an array (persuasion type)', async () => {
+    const malformed = { ...SAMPLE_REVIEW, topicSuggestions: 'not an array' };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'persuasion',
+        messages: SAMPLE_MESSAGES_PERSUASION,
+        elapsedSeconds: 90,
+        adSummary: 'A car ad.',
       })
     ).rejects.toThrow(/topicSuggestions/);
   });

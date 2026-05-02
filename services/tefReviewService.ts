@@ -195,7 +195,7 @@ Based on the conversation above, provide a structured CEFR evaluation. Assess th
 3. Grammatical/lexical mistakes with corrections and explanations
 4. Vocabulary improvements: suggest at least 5 more precise or higher-register alternatives
 5. Topic suggestions: suggest at least 5 additional relevant topics/angles the user could have mentioned
-   - For EACH suggested topic, provide exactly 2 short spoken examples in French.
+   - For EACH suggested topic, provide at least 2 short spoken examples in French.
    - Include an English translation for each French example.
 
 Return ONLY valid JSON matching the required schema. Do not include any markdown or explanation outside the JSON.`;
