@@ -16,6 +16,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { Type } from '@google/genai';
 
 // ---------------------------------------------------------------------------
 // Module-level mocks — must be hoisted before the subject-under-test import
@@ -603,7 +604,7 @@ describe('generateTefReview · criteriaEvaluation in response schema', () => {
 // ---------------------------------------------------------------------------
 
 describe('generateTefReview · topicSuggestions schema and response', () => {
-  it('includes topicSuggestions in the API response schema for questioning type', async () => {
+  it('encodes the full nested topicSuggestions shape in the response schema for questioning type', async () => {
     await generateTefReview({
       exerciseType: 'questioning',
       messages: SAMPLE_MESSAGES_QUESTIONING,
@@ -611,10 +612,35 @@ describe('generateTefReview · topicSuggestions schema and response', () => {
     });
 
     const callArg = mockGenerateContent.mock.calls[0][0];
-    expect(JSON.stringify(callArg)).toContain('topicSuggestions');
+    const ts = callArg.config.responseSchema.properties.topicSuggestions;
+
+    // Top-level array
+    expect(ts.type).toBe(Type.ARRAY);
+
+    // Each item is an object
+    expect(ts.items.type).toBe(Type.OBJECT);
+
+    // Item properties include topic and examples
+    expect(ts.items.properties).toHaveProperty('topic');
+    expect(ts.items.properties).toHaveProperty('examples');
+
+    // Item required fields include topic and examples
+    expect(ts.items.required).toContain('topic');
+    expect(ts.items.required).toContain('examples');
+
+    // examples is an array
+    expect(ts.items.properties.examples.type).toBe(Type.ARRAY);
+
+    // Each example has french and english properties
+    expect(ts.items.properties.examples.items.properties).toHaveProperty('french');
+    expect(ts.items.properties.examples.items.properties).toHaveProperty('english');
+
+    // Example required fields include french and english
+    expect(ts.items.properties.examples.items.required).toContain('french');
+    expect(ts.items.properties.examples.items.required).toContain('english');
   });
 
-  it('includes topicSuggestions in the API response schema for persuasion type', async () => {
+  it('encodes the full nested topicSuggestions shape in the response schema for persuasion type', async () => {
     await generateTefReview({
       exerciseType: 'persuasion',
       messages: SAMPLE_MESSAGES_PERSUASION,
@@ -623,7 +649,32 @@ describe('generateTefReview · topicSuggestions schema and response', () => {
     });
 
     const callArg = mockGenerateContent.mock.calls[0][0];
-    expect(JSON.stringify(callArg)).toContain('topicSuggestions');
+    const ts = callArg.config.responseSchema.properties.topicSuggestions;
+
+    // Top-level array
+    expect(ts.type).toBe(Type.ARRAY);
+
+    // Each item is an object
+    expect(ts.items.type).toBe(Type.OBJECT);
+
+    // Item properties include topic and examples
+    expect(ts.items.properties).toHaveProperty('topic');
+    expect(ts.items.properties).toHaveProperty('examples');
+
+    // Item required fields include topic and examples
+    expect(ts.items.required).toContain('topic');
+    expect(ts.items.required).toContain('examples');
+
+    // examples is an array
+    expect(ts.items.properties.examples.type).toBe(Type.ARRAY);
+
+    // Each example has french and english properties
+    expect(ts.items.properties.examples.items.properties).toHaveProperty('french');
+    expect(ts.items.properties.examples.items.properties).toHaveProperty('english');
+
+    // Example required fields include french and english
+    expect(ts.items.properties.examples.items.required).toContain('french');
+    expect(ts.items.properties.examples.items.required).toContain('english');
   });
 
   it('preserves topicSuggestions array values from the model response', async () => {
@@ -641,21 +692,6 @@ describe('generateTefReview · topicSuggestions schema and response', () => {
     expect(result!.topicSuggestions[0].examples[0]).toHaveProperty('english');
   });
 
-  it('accepts an empty topicSuggestions array without throwing', async () => {
-    const reviewEmptyTopics = { ...SAMPLE_REVIEW, topicSuggestions: [] };
-    mockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify(reviewEmptyTopics),
-    });
-
-    const result = await generateTefReview({
-      exerciseType: 'questioning',
-      messages: SAMPLE_MESSAGES_QUESTIONING,
-      elapsedSeconds: 120,
-    });
-
-    expect(result).not.toBeNull();
-    expect(result!.topicSuggestions).toEqual([]);
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -974,5 +1010,265 @@ describe('generateTefReview · error handling (malformed response)', () => {
         elapsedSeconds: 120,
       })
     ).rejects.toThrow('API quota exceeded');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// topicSuggestions runtime shape validation
+// ---------------------------------------------------------------------------
+
+describe('generateTefReview · topicSuggestions runtime validation', () => {
+  it('throws when topicSuggestions is not an array (e.g. a string)', async () => {
+    const malformed = { ...SAMPLE_REVIEW, topicSuggestions: 'not an array' };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when topicSuggestions array has fewer than 5 items', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: SAMPLE_REVIEW.topicSuggestions.slice(0, 3),
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when a topicSuggestions item is a bare string instead of an object', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        'bare string',
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when a topicSuggestions item is missing the topic field', async () => {
+    const { topic: _omitted, ...itemWithoutTopic } = SAMPLE_REVIEW.topicSuggestions[0];
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        itemWithoutTopic,
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when a topicSuggestions item has an empty string for topic', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        { ...SAMPLE_REVIEW.topicSuggestions[0], topic: '' },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when a topicSuggestions item has examples that is not an array', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        { ...SAMPLE_REVIEW.topicSuggestions[0], examples: 'not an array' },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when a topicSuggestions item has fewer than 2 examples', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        {
+          ...SAMPLE_REVIEW.topicSuggestions[0],
+          examples: SAMPLE_REVIEW.topicSuggestions[0].examples.slice(0, 1),
+        },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when an example is missing the french field', async () => {
+    const { french: _omitted, ...exampleWithoutFrench } =
+      SAMPLE_REVIEW.topicSuggestions[0].examples[0];
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        {
+          ...SAMPLE_REVIEW.topicSuggestions[0],
+          examples: [
+            exampleWithoutFrench,
+            SAMPLE_REVIEW.topicSuggestions[0].examples[1],
+          ],
+        },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when an example has an empty string for french', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        {
+          ...SAMPLE_REVIEW.topicSuggestions[0],
+          examples: [
+            { ...SAMPLE_REVIEW.topicSuggestions[0].examples[0], french: '' },
+            SAMPLE_REVIEW.topicSuggestions[0].examples[1],
+          ],
+        },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when an example is missing the english field', async () => {
+    const { english: _omitted, ...exampleWithoutEnglish } =
+      SAMPLE_REVIEW.topicSuggestions[0].examples[0];
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        {
+          ...SAMPLE_REVIEW.topicSuggestions[0],
+          examples: [
+            exampleWithoutEnglish,
+            SAMPLE_REVIEW.topicSuggestions[0].examples[1],
+          ],
+        },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when an example has an empty string for english', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        {
+          ...SAMPLE_REVIEW.topicSuggestions[0],
+          examples: [
+            { ...SAMPLE_REVIEW.topicSuggestions[0].examples[0], english: '' },
+            SAMPLE_REVIEW.topicSuggestions[0].examples[1],
+          ],
+        },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
   });
 });
