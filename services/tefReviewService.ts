@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { getApiKeyOrEnv } from './apiKeyService';
+import { isAbortLikeError } from '../utils/isAbortLikeError';
 import type { Message, TefReview } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -308,9 +309,7 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
       },
     });
   } catch (err) {
-    // Treat intentional aborts as graceful cancellations — return null instead of throwing
-    if (err instanceof DOMException && err.name === 'AbortError') return null;
-    if (err instanceof Error && err.name === 'AbortError') return null;
+    if (isAbortLikeError(err)) return null;
     throw err;
   }
 

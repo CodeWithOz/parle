@@ -989,6 +989,41 @@ describe('generateTefReview · error handling (malformed response)', () => {
       })
     ).rejects.toThrow('API quota exceeded');
   });
+
+  it('returns null when the SDK throws a real abort error (not an Error with name AbortError)', async () => {
+    // The @google/genai SDK (v1.37.0) throws Error { name: 'Error', message: 'exception AbortError: ...' }
+    // when a request is aborted — its .name is 'Error', NOT 'AbortError', so the current
+    // catch block checks miss it and the error re-throws.
+    const sdkAbortError = new Error(
+      'exception AbortError: The operation was aborted. sending request'
+    );
+    // Confirm the shape: name is the default 'Error', not 'AbortError'
+    expect(sdkAbortError.name).toBe('Error');
+    mockGenerateContent.mockRejectedValueOnce(sdkAbortError);
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).resolves.toBeNull();
+  });
+
+  it('returns null when the SDK throws an APIUserAbortError-style error (name set to APIUserAbortError)', async () => {
+    // Another abort shape the current checks miss: Error { name: 'APIUserAbortError', message: 'Request was aborted.' }
+    const apiUserAbortError = new Error('Request was aborted.');
+    apiUserAbortError.name = 'APIUserAbortError';
+    mockGenerateContent.mockRejectedValueOnce(apiUserAbortError);
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).resolves.toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
