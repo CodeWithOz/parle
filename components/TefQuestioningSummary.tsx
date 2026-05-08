@@ -8,6 +8,7 @@ interface TefQuestioningSummaryProps {
   repeatCount: number;
   elapsedSeconds: number;
   adImage: string | null;
+  onRestart: () => void;
   onDismiss: () => void;
   // Review props
   reviews: TefReview[];
@@ -73,6 +74,7 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
   repeatCount,
   elapsedSeconds,
   adImage,
+  onRestart,
   onDismiss,
   reviews,
   reviewIndex,
@@ -258,12 +260,21 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
 
         {/* Done button — pinned outside the scroll area */}
         <div className="p-6 pt-4 border-t border-slate-700">
-          <button
-            onClick={onDismiss}
-            className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors"
-          >
-            Done
-          </button>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              onClick={onRestart}
+              disabled={isReviewLoading}
+              className="py-3 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Restart Exercise
+            </button>
+            <button
+              onClick={onDismiss}
+              className="py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors"
+            >
+              Done
+            </button>
+          </div>
         </div>
       </div>
     </div>

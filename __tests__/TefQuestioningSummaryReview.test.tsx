@@ -53,6 +53,73 @@ const SAMPLE_REVIEW: TefReview = {
       reason: '"Considérable" is more precise in academic or formal contexts.',
     },
   ],
+  topicSuggestions: [
+    {
+      topic: 'Les conditions de paiement',
+      examples: [
+        {
+          french: 'Peut-on payer en plusieurs fois ?',
+          english: 'Can we pay in installments?',
+        },
+        {
+          french: 'Y a-t-il des reductions pour paiement immediat ?',
+          english: 'Are there discounts for immediate payment?',
+        },
+      ],
+    },
+    {
+      topic: 'Les delais de livraison',
+      examples: [
+        {
+          french: 'Quel est le delai moyen de livraison ?',
+          english: 'What is the average delivery time?',
+        },
+        {
+          french: 'La livraison express est-elle possible ?',
+          english: 'Is express delivery possible?',
+        },
+      ],
+    },
+    {
+      topic: 'La politique de retour',
+      examples: [
+        {
+          french: 'Puis-je retourner le produit si je change d avis ?',
+          english: 'Can I return the product if I change my mind?',
+        },
+        {
+          french: 'Combien de jours ai-je pour faire un retour ?',
+          english: 'How many days do I have to return it?',
+        },
+      ],
+    },
+    {
+      topic: 'Les services apres-vente',
+      examples: [
+        {
+          french: 'Proposez-vous un service apres-vente en francais ?',
+          english: 'Do you offer after-sales support in French?',
+        },
+        {
+          french: 'Qui contacter en cas de probleme technique ?',
+          english: 'Who should I contact in case of a technical issue?',
+        },
+      ],
+    },
+    {
+      topic: 'Les options de personnalisation',
+      examples: [
+        {
+          french: 'Peut-on personnaliser ce service selon mes besoins ?',
+          english: 'Can this service be customized to my needs?',
+        },
+        {
+          french: 'Quelles options supplementaires sont disponibles ?',
+          english: 'What additional options are available?',
+        },
+      ],
+    },
+  ],
 };
 
 const FAKE_AD_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
@@ -65,6 +132,7 @@ function renderSummary(overrides: {
   elapsedSeconds?: number;
   adImage?: string | null;
   onDismiss?: () => void;
+  onRestart?: () => void;
   reviews?: TefReview[];
   reviewIndex?: number;
   onNavigateReview?: (i: number) => void;
@@ -80,6 +148,7 @@ function renderSummary(overrides: {
     elapsedSeconds: 300,
     adImage: null,
     onDismiss: vi.fn(),
+    onRestart: vi.fn(),
     reviews: [],
     reviewIndex: 0,
     onNavigateReview: vi.fn(),
@@ -126,6 +195,23 @@ describe('TefQuestioningSummary · existing stats (regression)', () => {
   it('renders a "Done" button', () => {
     renderSummary();
     expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument();
+  });
+
+  it('renders a "Restart Exercise" button', () => {
+    renderSummary();
+    expect(screen.getByRole('button', { name: /restart exercise/i })).toBeInTheDocument();
+  });
+
+  it('calls onRestart when "Restart Exercise" is clicked', () => {
+    const onRestart = vi.fn();
+    renderSummary({ onRestart });
+    fireEvent.click(screen.getByRole('button', { name: /restart exercise/i }));
+    expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables "Restart Exercise" while review is loading', () => {
+    renderSummary({ isReviewLoading: true });
+    expect(screen.getByRole('button', { name: /restart exercise/i })).toBeDisabled();
   });
 
   it('calls onDismiss when "Done" is clicked', () => {
@@ -205,6 +291,7 @@ describe('TefQuestioningSummary · TefReviewPanel integration', () => {
       wentWell: [],
       mistakes: [],
       vocabularySuggestions: [],
+      topicSuggestions: [],
     };
     const onNavigateReview = vi.fn();
     renderSummary({
@@ -214,6 +301,25 @@ describe('TefQuestioningSummary · TefReviewPanel integration', () => {
     });
     fireEvent.click(screen.getAllByRole('button', { name: /next|→/i })[0]);
     expect(onNavigateReview).toHaveBeenCalledWith(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Topic suggestions (via TefReviewPanel)
+// ---------------------------------------------------------------------------
+
+describe('TefQuestioningSummary · topic suggestions', () => {
+  it('renders the "Topics You Could Have Mentioned" heading when review has topics', () => {
+    renderSummary({ reviews: [SAMPLE_REVIEW], reviewIndex: 0 });
+    expect(screen.getByText(/topics you could have mentioned/i)).toBeInTheDocument();
+  });
+
+  it('renders individual topic suggestion items from the review', () => {
+    renderSummary({ reviews: [SAMPLE_REVIEW], reviewIndex: 0 });
+    expect(screen.getByText('Les conditions de paiement')).toBeInTheDocument();
+    expect(screen.getByText('Les delais de livraison')).toBeInTheDocument();
+    expect(screen.getByText(/peut-on payer en plusieurs fois/i)).toBeInTheDocument();
+    expect(screen.getByText(/can we pay in installments/i)).toBeInTheDocument();
   });
 });
 

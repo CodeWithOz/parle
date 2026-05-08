@@ -1,5 +1,6 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { getApiKeyOrEnv } from './apiKeyService';
+import { isAbortLikeError } from '../utils/isAbortLikeError';
 import type { Message, TefReview } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -194,6 +195,9 @@ Based on the conversation above, provide a structured CEFR evaluation. Assess th
 2. What the user did well (concrete positive observations)
 3. Grammatical/lexical mistakes with corrections and explanations
 4. Vocabulary improvements: suggest at least 5 more precise or higher-register alternatives
+5. Topic suggestions: suggest at least 5 additional relevant topics/angles the user could have mentioned
+   - For EACH suggested topic, provide at least 2 short spoken examples in French.
+   - Include an English translation for each French example.
 
 Return ONLY valid JSON matching the required schema. Do not include any markdown or explanation outside the JSON.`;
 
@@ -253,6 +257,29 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
               },
               description: 'Vocabulary improvements — provide at least 5 suggestions',
             },
+            topicSuggestions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  topic: { type: Type.STRING },
+                  examples: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        french: { type: Type.STRING },
+                        english: { type: Type.STRING },
+                      },
+                      required: ['french', 'english'],
+                    },
+                    description: 'Exactly 2 French examples with English translations',
+                  },
+                },
+                required: ['topic', 'examples'],
+              },
+              description: 'Additional relevant topics/angles the user could have mentioned, each with 2 bilingual examples',
+            },
             ...(exerciseType === 'persuasion' ? {
               criteriaEvaluation: {
                 type: Type.ARRAY,
@@ -275,15 +302,14 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
             'wentWell',
             'mistakes',
             'vocabularySuggestions',
+            'topicSuggestions',
             ...(exerciseType === 'persuasion' ? ['criteriaEvaluation'] : []),
           ],
         },
       },
     });
   } catch (err) {
-    // Treat intentional aborts as graceful cancellations — return null instead of throwing
-    if (err instanceof DOMException && err.name === 'AbortError') return null;
-    if (err instanceof Error && err.name === 'AbortError') return null;
+    if (isAbortLikeError(err)) return null;
     throw err;
   }
 
@@ -313,6 +339,7 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
     'wentWell',
     'mistakes',
     'vocabularySuggestions',
+    'topicSuggestions',
   ] as const;
 
   for (const field of required) {
@@ -329,6 +356,63 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
     throw new Error(
       `Review response field "vocabularySuggestions" has invalid type: expected array, got ${typeof obj['vocabularySuggestions']}`
     );
+  }
+
+  // Validate topicSuggestions: TefTopicSuggestion[]
+  const topicSuggestions = obj['topicSuggestions'];
+  if (!Array.isArray(topicSuggestions)) {
+    throw new Error(
+      `Review response field "topicSuggestions" has invalid type: expected array, got ${typeof topicSuggestions}`
+    );
+  }
+  if (topicSuggestions.length < 5) {
+    throw new Error(
+      `Review response field "topicSuggestions" has insufficient length: expected at least 5, got ${topicSuggestions.length}`
+    );
+  }
+  for (let i = 0; i < topicSuggestions.length; i++) {
+    const item = topicSuggestions[i];
+    if (typeof item !== 'object' || item === null) {
+      throw new Error(
+        `Review response field "topicSuggestions[${i}]" must be an object, got ${typeof item}`
+      );
+    }
+    const itemObj = item as Record<string, unknown>;
+    if (typeof itemObj['topic'] !== 'string' || itemObj['topic'].trim() === '') {
+      throw new Error(
+        `Review response field "topicSuggestions[${i}].topic" must be a non-empty string`
+      );
+    }
+    const examples = itemObj['examples'];
+    if (!Array.isArray(examples)) {
+      throw new Error(
+        `Review response field "topicSuggestions[${i}].examples" has invalid type: expected array, got ${typeof examples}`
+      );
+    }
+    if (examples.length < 2) {
+      throw new Error(
+        `Review response field "topicSuggestions[${i}].examples" has insufficient length: expected at least 2, got ${examples.length}`
+      );
+    }
+    for (let j = 0; j < examples.length; j++) {
+      const example = examples[j];
+      if (typeof example !== 'object' || example === null) {
+        throw new Error(
+          `Review response field "topicSuggestions[${i}].examples[${j}]" must be an object, got ${typeof example}`
+        );
+      }
+      const exObj = example as Record<string, unknown>;
+      if (typeof exObj['french'] !== 'string' || exObj['french'].trim() === '') {
+        throw new Error(
+          `Review response field "topicSuggestions[${i}].examples[${j}].french" must be a non-empty string`
+        );
+      }
+      if (typeof exObj['english'] !== 'string' || exObj['english'].trim() === '') {
+        throw new Error(
+          `Review response field "topicSuggestions[${i}].examples[${j}].english" must be a non-empty string`
+        );
+      }
+    }
   }
 
   return obj as unknown as TefReview;

@@ -39,6 +39,7 @@ const SAMPLE_REVIEW: TefReview = {
   wentWell: ['Strong argumentation'],
   mistakes: [],
   vocabularySuggestions: [],
+  topicSuggestions: [],
 };
 
 const REVIEW_WITH_CRITERIA: TefReview = {
@@ -59,6 +60,7 @@ function renderSummary(overrides: {
   reviewError?: string | null;
   onRetryReview?: () => void;
   onRegenerateReview?: () => void;
+  onRestart?: () => void;
   onDismiss?: () => void;
 } = {}) {
   const props = {
@@ -72,6 +74,7 @@ function renderSummary(overrides: {
     reviewError: null,
     onRetryReview: vi.fn(),
     onRegenerateReview: vi.fn(),
+    onRestart: vi.fn(),
     onDismiss: vi.fn(),
     ...overrides,
   };
@@ -238,6 +241,7 @@ describe('TefAdSummary · TefReviewPanel integration', () => {
       wentWell: [],
       mistakes: [],
       vocabularySuggestions: [],
+      topicSuggestions: [],
     };
     const onNavigateReview = vi.fn();
     renderSummary({
@@ -251,10 +255,91 @@ describe('TefAdSummary · TefReviewPanel integration', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Topic suggestions (via TefReviewPanel)
+// ---------------------------------------------------------------------------
+
+describe('TefAdSummary · topic suggestions', () => {
+  const REVIEW_WITH_TOPICS: TefReview = {
+    ...SAMPLE_REVIEW,
+    topicSuggestions: [
+      {
+        topic: 'Le budget annuel',
+        examples: [
+          {
+            french: 'Quel budget annuel faut-il prevoir pour ce projet ?',
+            english: 'What annual budget should be planned for this project?',
+          },
+          {
+            french: 'Ce budget inclut-il tous les frais annexes ?',
+            english: 'Does this budget include all additional costs?',
+          },
+        ],
+      },
+      {
+        topic: 'Les conditions de garantie',
+        examples: [
+          {
+            french: 'Quelles conditions doivent etre respectees pour la garantie ?',
+            english: 'What conditions must be met for the warranty?',
+          },
+          {
+            french: 'La garantie couvre-t-elle les reparations principales ?',
+            english: 'Does the warranty cover major repairs?',
+          },
+        ],
+      },
+      {
+        topic: 'Les frais de livraison',
+        examples: [
+          {
+            french: 'Les frais de livraison sont-ils inclus dans le prix ?',
+            english: 'Are delivery fees included in the price?',
+          },
+          {
+            french: 'Y a-t-il un surcout pour une livraison rapide ?',
+            english: 'Is there an extra fee for fast delivery?',
+          },
+        ],
+      },
+    ],
+  };
+
+  it('renders the "Topics You Could Have Mentioned" heading when topics exist', () => {
+    renderSummary({ reviews: [REVIEW_WITH_TOPICS], reviewIndex: 0 });
+    expect(screen.getByText(/topics you could have mentioned/i)).toBeInTheDocument();
+  });
+
+  it('renders individual topic suggestion items', () => {
+    renderSummary({ reviews: [REVIEW_WITH_TOPICS], reviewIndex: 0 });
+    expect(screen.getByText('Le budget annuel')).toBeInTheDocument();
+    expect(screen.getByText('Les conditions de garantie')).toBeInTheDocument();
+    expect(screen.getByText(/quel budget annuel faut-il prevoir/i)).toBeInTheDocument();
+    expect(screen.getByText(/what annual budget should be planned/i)).toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Done button
 // ---------------------------------------------------------------------------
 
 describe('TefAdSummary · Done button', () => {
+  it('renders a "Restart Exercise" button', () => {
+    renderSummary();
+    expect(screen.getByRole('button', { name: /restart exercise/i })).toBeInTheDocument();
+  });
+
+  it('calls onRestart when the "Restart Exercise" button is clicked', () => {
+    const onRestart = vi.fn();
+    renderSummary({ onRestart });
+    fireEvent.click(screen.getByRole('button', { name: /restart exercise/i }));
+    expect(onRestart).toHaveBeenCalledTimes(1);
+  });
+
+  it('disables "Restart Exercise" while review is loading', () => {
+    renderSummary({ isReviewLoading: true });
+    expect(screen.getByRole('button', { name: /restart exercise/i })).toBeDisabled();
+  });
+
   it('renders a "Done" button', () => {
     renderSummary();
     expect(screen.getByRole('button', { name: /done/i })).toBeInTheDocument();

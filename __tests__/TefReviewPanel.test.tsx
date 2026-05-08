@@ -44,6 +44,73 @@ const SAMPLE_REVIEW: TefReview = {
     { used: 'faire', better: 'effectuer', reason: 'Formal verb preferred in writing.' },
     { used: 'voir', better: 'constater', reason: 'More precise observation verb.' },
   ],
+  topicSuggestions: [
+    {
+      topic: 'Le budget total',
+      examples: [
+        {
+          french: "Quel budget total dois-je prevoir avec les frais inclus ?",
+          english: "What total budget should I plan for with all fees included?",
+        },
+        {
+          french: "Est-ce qu'il y a des frais supplementaires apres l'achat ?",
+          english: "Are there additional fees after the purchase?",
+        },
+      ],
+    },
+    {
+      topic: 'Les options de garantie',
+      examples: [
+        {
+          french: 'Quelle garantie est incluse dans cette offre ?',
+          english: 'What warranty is included in this offer?',
+        },
+        {
+          french: 'Peut-on etendre la garantie pour plus de securite ?',
+          english: 'Can we extend the warranty for extra security?',
+        },
+      ],
+    },
+    {
+      topic: 'Les services inclus',
+      examples: [
+        {
+          french: 'Quels services sont compris dans le prix ?',
+          english: 'Which services are included in the price?',
+        },
+        {
+          french: 'Y a-t-il un service apres-vente disponible ?',
+          english: 'Is there after-sales service available?',
+        },
+      ],
+    },
+    {
+      topic: 'Les conditions de remboursement',
+      examples: [
+        {
+          french: 'Quelles sont les conditions pour obtenir un remboursement ?',
+          english: 'What are the conditions for getting a refund?',
+        },
+        {
+          french: "Dans quel delai peut-on annuler sans penalite ?",
+          english: 'Within what timeframe can we cancel without penalty?',
+        },
+      ],
+    },
+    {
+      topic: 'La disponibilite',
+      examples: [
+        {
+          french: 'Ce produit est-il disponible tout de suite ?',
+          english: 'Is this product available right away?',
+        },
+        {
+          french: 'Combien de temps faut-il attendre pour la livraison ?',
+          english: 'How long does delivery take?',
+        },
+      ],
+    },
+  ],
 };
 
 const SECOND_REVIEW: TefReview = {
@@ -52,6 +119,7 @@ const SECOND_REVIEW: TefReview = {
   wentWell: ['Strong argumentation', 'Complex sentence structures'],
   mistakes: [],
   vocabularySuggestions: [],
+  topicSuggestions: [],
 };
 
 function renderPanel(overrides: {
@@ -208,6 +276,55 @@ describe('TefReviewPanel · review content', () => {
     expect(screen.getByText(/\bgrand\b/i)).toBeInTheDocument();
     expect(screen.getByText(/\bfaire\b/i)).toBeInTheDocument();
     expect(screen.getByText(/\bvoir\b/i)).toBeInTheDocument();
+  });
+
+  it('renders a "Topics You Could Have Mentioned" section', () => {
+    renderPanel({ reviews: [SAMPLE_REVIEW], currentIndex: 0 });
+    expect(screen.getByText(/topics you could have mentioned/i)).toBeInTheDocument();
+  });
+
+  it('renders each individual topic suggestion item text', () => {
+    renderPanel({ reviews: [SAMPLE_REVIEW], currentIndex: 0 });
+    expect(screen.getByText('Le budget total')).toBeInTheDocument();
+    expect(screen.getByText('Les options de garantie')).toBeInTheDocument();
+    expect(screen.getByText('Les services inclus')).toBeInTheDocument();
+  });
+
+  it('renders bilingual French and English examples for a topic', () => {
+    renderPanel({ reviews: [SAMPLE_REVIEW], currentIndex: 0 });
+    expect(screen.getByText(/quel budget total dois-je prevoir/i)).toBeInTheDocument();
+    expect(screen.getByText(/what total budget should i plan for/i)).toBeInTheDocument();
+  });
+
+  it('renders fallback text when topicSuggestions is an empty array', () => {
+    const reviewNoTopics: TefReview = { ...SAMPLE_REVIEW, topicSuggestions: [] };
+    renderPanel({ reviews: [reviewNoTopics], currentIndex: 0 });
+    expect(screen.getByText(/no additional topic suggestions were generated/i)).toBeInTheDocument();
+  });
+
+  it('renders topic suggestions for a second review at currentIndex 1', () => {
+    const reviewWithTopics: TefReview = {
+      ...SECOND_REVIEW,
+      topicSuggestions: [
+        {
+          topic: 'Les frais supplementaires',
+          examples: [
+            { french: 'Y a-t-il des frais caches ?', english: 'Are there hidden fees?' },
+            { french: 'Le prix final inclut-il tout ?', english: 'Does the final price include everything?' },
+          ],
+        },
+        {
+          topic: 'La politique de retour',
+          examples: [
+            { french: 'Puis-je retourner le produit si besoin ?', english: 'Can I return the product if needed?' },
+            { french: 'Quel est le delai de retour ?', english: 'What is the return window?' },
+          ],
+        },
+      ],
+    };
+    renderPanel({ reviews: [SAMPLE_REVIEW, reviewWithTopics], currentIndex: 1 });
+    expect(screen.getByText('Les frais supplementaires')).toBeInTheDocument();
+    expect(screen.getByText('La politique de retour')).toBeInTheDocument();
   });
 });
 

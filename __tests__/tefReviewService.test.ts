@@ -16,6 +16,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { Type } from '@google/genai';
 
 // ---------------------------------------------------------------------------
 // Module-level mocks — must be hoisted before the subject-under-test import
@@ -79,6 +80,73 @@ const SAMPLE_REVIEW: TefReview = {
     { used: 'grand', better: 'considérable', reason: 'Stronger academic adjective.' },
     { used: 'faire', better: 'effectuer', reason: 'Formal verb preferred in professional contexts.' },
     { used: 'voir', better: 'constater', reason: 'More precise observation verb in formal French.' },
+  ],
+  topicSuggestions: [
+    {
+      topic: 'Conditions de paiement',
+      examples: [
+        {
+          french: 'Peut-on payer en plusieurs fois ?',
+          english: 'Can we pay in installments?',
+        },
+        {
+          french: 'Y a-t-il des frais pour le paiement en ligne ?',
+          english: 'Are there fees for paying online?',
+        },
+      ],
+    },
+    {
+      topic: 'Garanties incluses',
+      examples: [
+        {
+          french: 'Quelle garantie est incluse avec ce service ?',
+          english: 'What warranty is included with this service?',
+        },
+        {
+          french: 'La garantie couvre-t-elle les pannes majeures ?',
+          english: 'Does the warranty cover major breakdowns?',
+        },
+      ],
+    },
+    {
+      topic: 'Frais supplementaires',
+      examples: [
+        {
+          french: 'Y a-t-il des couts caches a prevoir ?',
+          english: 'Are there hidden costs to expect?',
+        },
+        {
+          french: 'Le prix final inclut-il tous les frais ?',
+          english: 'Does the final price include all fees?',
+        },
+      ],
+    },
+    {
+      topic: 'Comparaison avec la concurrence',
+      examples: [
+        {
+          french: 'En quoi cette offre est-elle meilleure que les autres ?',
+          english: 'How is this offer better than the others?',
+        },
+        {
+          french: 'Quels avantages concrets avez-vous par rapport aux concurrents ?',
+          english: 'What concrete advantages do you have over competitors?',
+        },
+      ],
+    },
+    {
+      topic: 'Flexibilite des horaires',
+      examples: [
+        {
+          french: 'Les horaires sont-ils flexibles en semaine ?',
+          english: 'Are schedules flexible during the week?',
+        },
+        {
+          french: 'Peut-on modifier l horaire apres reservation ?',
+          english: 'Can we change the schedule after booking?',
+        },
+      ],
+    },
   ],
   // criteriaEvaluation is included so this fixture is valid for persuasion-type calls
   criteriaEvaluation: [
@@ -189,6 +257,7 @@ describe('generateTefReview · happy path', () => {
     expect(result).toHaveProperty('wentWell');
     expect(result).toHaveProperty('mistakes');
     expect(result).toHaveProperty('vocabularySuggestions');
+    expect(result).toHaveProperty('topicSuggestions');
     // tipsForC1 has been removed from the schema — it must NOT appear on the result
     expect(result).not.toHaveProperty('tipsForC1');
   });
@@ -531,6 +600,79 @@ describe('generateTefReview · criteriaEvaluation in response schema', () => {
 });
 
 // ---------------------------------------------------------------------------
+// topicSuggestions field: schema presence and response preservation
+// ---------------------------------------------------------------------------
+
+describe('generateTefReview · topicSuggestions schema and response', () => {
+  it.each([
+    {
+      label: 'questioning type',
+      args: {
+        exerciseType: 'questioning' as const,
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      },
+    },
+    {
+      label: 'persuasion type',
+      args: {
+        exerciseType: 'persuasion' as const,
+        messages: SAMPLE_MESSAGES_PERSUASION,
+        elapsedSeconds: 90,
+        adSummary: 'A car ad.',
+      },
+    },
+  ])('encodes the full nested topicSuggestions shape in the response schema for $label', async ({ args }) => {
+    mockGenerateContent.mockClear();
+    await generateTefReview(args);
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    const ts = callArg.config.responseSchema.properties.topicSuggestions;
+
+    // Top-level array
+    expect(ts.type).toBe(Type.ARRAY);
+
+    // Each item is an object
+    expect(ts.items.type).toBe(Type.OBJECT);
+
+    // Item properties include topic and examples
+    expect(ts.items.properties).toHaveProperty('topic');
+    expect(ts.items.properties).toHaveProperty('examples');
+
+    // Item required fields include topic and examples
+    expect(ts.items.required).toContain('topic');
+    expect(ts.items.required).toContain('examples');
+
+    // examples is an array
+    expect(ts.items.properties.examples.type).toBe(Type.ARRAY);
+
+    // Each example has french and english properties
+    expect(ts.items.properties.examples.items.properties).toHaveProperty('french');
+    expect(ts.items.properties.examples.items.properties).toHaveProperty('english');
+
+    // Example required fields include french and english
+    expect(ts.items.properties.examples.items.required).toContain('french');
+    expect(ts.items.properties.examples.items.required).toContain('english');
+  });
+
+  it('preserves topicSuggestions array values from the model response', async () => {
+    const result = await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.topicSuggestions).toEqual(SAMPLE_REVIEW.topicSuggestions);
+    expect(result!.topicSuggestions).toHaveLength(5);
+    expect(result!.topicSuggestions[0].examples).toHaveLength(2);
+    expect(result!.topicSuggestions[0].examples[0]).toHaveProperty('french');
+    expect(result!.topicSuggestions[0].examples[0]).toHaveProperty('english');
+  });
+
+});
+
+// ---------------------------------------------------------------------------
 // objectionState is no longer a parameter
 // ---------------------------------------------------------------------------
 
@@ -786,6 +928,21 @@ describe('generateTefReview · error handling (malformed response)', () => {
     ).rejects.toThrow();
   });
 
+  it('throws when response is missing topicSuggestions', async () => {
+    const { topicSuggestions: _omitted, ...withoutTopics } = SAMPLE_REVIEW;
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(withoutTopics),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow();
+  });
+
   it('does NOT throw when tipsForC1 is absent from the response (field is no longer required)', async () => {
     // tipsForC1 is not part of the schema anymore — omitting it must be valid
     const withoutTips = { ...SAMPLE_REVIEW } as Record<string, unknown>;
@@ -831,5 +988,316 @@ describe('generateTefReview · error handling (malformed response)', () => {
         elapsedSeconds: 120,
       })
     ).rejects.toThrow('API quota exceeded');
+  });
+
+  it('returns null when the SDK throws a real abort error (not an Error with name AbortError)', async () => {
+    // The @google/genai SDK (v1.37.0) throws Error { name: 'Error', message: 'exception AbortError: ...' }
+    // when a request is aborted — its .name is 'Error', NOT 'AbortError', so the current
+    // catch block checks miss it and the error re-throws.
+    const sdkAbortError = new Error(
+      'exception AbortError: The operation was aborted. sending request'
+    );
+    // Confirm the shape: name is the default 'Error', not 'AbortError'
+    expect(sdkAbortError.name).toBe('Error');
+    mockGenerateContent.mockRejectedValueOnce(sdkAbortError);
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).resolves.toBeNull();
+  });
+
+  it('returns null when the SDK throws an APIUserAbortError-style error (name set to APIUserAbortError)', async () => {
+    // Another abort shape the current checks miss: Error { name: 'APIUserAbortError', message: 'Request was aborted.' }
+    const apiUserAbortError = new Error('Request was aborted.');
+    apiUserAbortError.name = 'APIUserAbortError';
+    mockGenerateContent.mockRejectedValueOnce(apiUserAbortError);
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).resolves.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// topicSuggestions runtime shape validation
+// ---------------------------------------------------------------------------
+
+describe('generateTefReview · topicSuggestions runtime validation', () => {
+  it('throws when topicSuggestions is not an array (e.g. a string)', async () => {
+    const malformed = { ...SAMPLE_REVIEW, topicSuggestions: 'not an array' };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when topicSuggestions array has fewer than 5 items', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: SAMPLE_REVIEW.topicSuggestions.slice(0, 3),
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when a topicSuggestions item is a bare string instead of an object', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        'bare string',
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when a topicSuggestions item is missing the topic field', async () => {
+    const { topic: _omitted, ...itemWithoutTopic } = SAMPLE_REVIEW.topicSuggestions[0];
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        itemWithoutTopic,
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when a topicSuggestions item has an empty string for topic', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        { ...SAMPLE_REVIEW.topicSuggestions[0], topic: '' },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when a topicSuggestions item has examples that is not an array', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        { ...SAMPLE_REVIEW.topicSuggestions[0], examples: 'not an array' },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when a topicSuggestions item has fewer than 2 examples', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        {
+          ...SAMPLE_REVIEW.topicSuggestions[0],
+          examples: SAMPLE_REVIEW.topicSuggestions[0].examples.slice(0, 1),
+        },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when an example is missing the french field', async () => {
+    const { french: _omitted, ...exampleWithoutFrench } =
+      SAMPLE_REVIEW.topicSuggestions[0].examples[0];
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        {
+          ...SAMPLE_REVIEW.topicSuggestions[0],
+          examples: [
+            exampleWithoutFrench,
+            SAMPLE_REVIEW.topicSuggestions[0].examples[1],
+          ],
+        },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when an example has an empty string for french', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        {
+          ...SAMPLE_REVIEW.topicSuggestions[0],
+          examples: [
+            { ...SAMPLE_REVIEW.topicSuggestions[0].examples[0], french: '' },
+            SAMPLE_REVIEW.topicSuggestions[0].examples[1],
+          ],
+        },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when an example is missing the english field', async () => {
+    const { english: _omitted, ...exampleWithoutEnglish } =
+      SAMPLE_REVIEW.topicSuggestions[0].examples[0];
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        {
+          ...SAMPLE_REVIEW.topicSuggestions[0],
+          examples: [
+            exampleWithoutEnglish,
+            SAMPLE_REVIEW.topicSuggestions[0].examples[1],
+          ],
+        },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when an example has an empty string for english', async () => {
+    const malformed = {
+      ...SAMPLE_REVIEW,
+      topicSuggestions: [
+        {
+          ...SAMPLE_REVIEW.topicSuggestions[0],
+          examples: [
+            { ...SAMPLE_REVIEW.topicSuggestions[0].examples[0], english: '' },
+            SAMPLE_REVIEW.topicSuggestions[0].examples[1],
+          ],
+        },
+        ...SAMPLE_REVIEW.topicSuggestions.slice(1),
+      ],
+    };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'questioning',
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      })
+    ).rejects.toThrow(/topicSuggestions/);
+  });
+
+  it('throws when topicSuggestions is not an array (persuasion type)', async () => {
+    const malformed = { ...SAMPLE_REVIEW, topicSuggestions: 'not an array' };
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(malformed),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'persuasion',
+        messages: SAMPLE_MESSAGES_PERSUASION,
+        elapsedSeconds: 90,
+        adSummary: 'A car ad.',
+      })
+    ).rejects.toThrow(/topicSuggestions/);
   });
 });
