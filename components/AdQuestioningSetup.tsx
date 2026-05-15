@@ -298,12 +298,14 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
               </div>
               <div className="flex gap-3 w-full">
                 <button
+                  type="button"
                   onClick={handleChangeImage}
                   className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-medium transition-colors"
                 >
                   Change Image
                 </button>
                 <button
+                  type="button"
                   onClick={handleRetry}
                   className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors"
                 >
