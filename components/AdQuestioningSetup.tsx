@@ -1,6 +1,7 @@
 import React, { useState, useRef, useCallback } from 'react';
 import { confirmTefAdImageForQuestioning } from '../services/geminiService';
 import { hasApiKeyOrEnv } from '../services/apiKeyService';
+import { useAnalyzeAdImageWithRetry } from '../hooks/useAnalyzeAdImageWithRetry';
 
 interface AdQuestioningSetupProps {
   onStartConversation: (
@@ -13,20 +14,16 @@ interface AdQuestioningSetupProps {
   onOpenApiKeyModal?: () => void;
 }
 
-type SetupStep = 'upload' | 'processing' | 'confirm';
-
 export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
   onStartConversation,
   onClose,
   geminiKeyMissing = false,
   onOpenApiKeyModal,
 }) => {
-  const [step, setStep] = useState<SetupStep>('upload');
+  const { step, setStep, confirmation, setConfirmation, error, setError, analyze } = useAnalyzeAdImageWithRetry(confirmTefAdImageForQuestioning);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [imageMimeType, setImageMimeType] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{ summary: string; roleSummary: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -66,17 +63,8 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
       setImageDataUrl(dataUrl);
       setImageBase64(base64);
       setImageMimeType(mimeType);
-      setStep('processing');
 
-      try {
-        const result = await confirmTefAdImageForQuestioning(base64, mimeType);
-        setConfirmation(result);
-        setStep('confirm');
-      } catch (err) {
-        console.error('Error analyzing image:', err);
-        setError('Failed to analyze the advertisement. Please try again.');
-        setStep('upload');
-      }
+      await analyze(base64, mimeType);
     };
 
     reader.onerror = () => {
@@ -85,7 +73,7 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
     };
 
     reader.readAsDataURL(file);
-  }, [onOpenApiKeyModal]);
+  }, [onOpenApiKeyModal, analyze]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -117,6 +105,13 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
     setImageMimeType(null);
     setConfirmation(null);
     setError(null);
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    if (imageBase64 && imageMimeType) {
+      analyze(imageBase64, imageMimeType);
+    }
   };
 
   const handleStart = () => {
@@ -239,6 +234,38 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
               <p className="text-slate-500 text-sm text-center">
                 The AI is reading your ad to prepare for the conversation.
               </p>
+            </div>
+          )}
+
+          {/* Step: Error */}
+          {step === 'error' && (
+            <div className="flex flex-col items-center gap-6 py-4">
+              {imageDataUrl && (
+                <img
+                  src={imageDataUrl}
+                  alt="Advertisement"
+                  className="w-24 h-24 object-cover rounded-xl border border-slate-600"
+                />
+              )}
+              <div className="p-3 bg-red-900/30 border border-red-600/50 rounded-lg w-full">
+                <p className="text-red-300 text-sm">{error || 'Failed to analyze the advertisement. Please try again.'}</p>
+              </div>
+              <div className="flex gap-3 w-full">
+                <button
+                  type="button"
+                  onClick={handleChangeImage}
+                  className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-medium transition-colors"
+                >
+                  Change Image
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRetry}
+                  className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
             </div>
           )}
 
