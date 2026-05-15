@@ -19,8 +19,8 @@
  * both components are covered in a single file.
  */
 
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import * as React from 'react';
 import * as apiKeyService from '../services/apiKeyService';
 import * as geminiService from '../services/geminiService';
@@ -100,14 +100,38 @@ function renderFixture(fixture: ComponentFixture) {
 // Parameterized tests
 // ---------------------------------------------------------------------------
 
+// Cumulative backoff to advance through all automatic retry delays:
+// attempt 0→1: 300ms, attempt 1→2: 900ms
+const TOTAL_BACKOFF_MS = 300 + 900;
+
+/**
+ * Waits for the component to enter the 'processing' step (confirming FileReader
+ * has fired and the first service call is in-flight), then advances fake timers
+ * past all retry backoff delays (300ms + 900ms) so the error state is reached
+ * without waiting real time for the backoffs.
+ */
+async function drainRetries() {
+  // Confirm FileReader has fired by waiting for the processing spinner
+  await waitFor(() =>
+    expect(screen.getByText('Analyzing the advertisement...')).toBeInTheDocument()
+  );
+  // At this point the first service call has started; once it rejects, the 300ms
+  // backoff setTimeout will be queued. Advance past all retry delays.
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(TOTAL_BACKOFF_MS + 50);
+  });
+}
+
 for (const fixture of fixtures) {
   describe(`${fixture.label} · image-analysis retry`, () => {
     afterEach(() => {
+      vi.useRealTimers();
       vi.restoreAllMocks();
     });
 
     // -----------------------------------------------------------------------
     // Scenario 3 — Happy path: first-call success reaches 'confirm' step
+    // (no retries involved — real timers are fine)
     // -----------------------------------------------------------------------
 
     it('happy path: calls confirm service exactly once and reaches confirm step on first success', async () => {
@@ -132,6 +156,10 @@ for (const fixture of fixtures) {
     // -----------------------------------------------------------------------
 
     it('automatic retry: calls confirm service 3 times total when every attempt fails', async () => {
+      // Only fake setTimeout so JSDOM's FileReader still works
+      // shouldAdvanceTime keeps real-time progression so waitFor polling works,
+      // while still intercepting the backoff setTimeouts so we can skip them.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
       const confirmSpy = vi
         .spyOn(geminiService, fixture.serviceFn)
@@ -140,15 +168,11 @@ for (const fixture of fixtures) {
       renderFixture(fixture);
       selectFile(pngFile);
 
-      // Wait until the component has exhausted all automatic attempts and
-      // surfaced the error state (Retry button must appear).
-      await waitFor(
-        () => {
-          expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
-        },
-        { timeout: 10_000 }
-      );
+      await drainRetries();
 
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      });
       expect(confirmSpy).toHaveBeenCalledTimes(3);
     });
 
@@ -157,18 +181,20 @@ for (const fixture of fixtures) {
     // -----------------------------------------------------------------------
 
     it('error state: image preview is still rendered after all automatic retries fail', async () => {
+      // shouldAdvanceTime keeps real-time progression so waitFor polling works,
+      // while still intercepting the backoff setTimeouts so we can skip them.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
       vi.spyOn(geminiService, fixture.serviceFn).mockRejectedValue(new Error('fail'));
 
       renderFixture(fixture);
       selectFile(pngFile);
 
-      await waitFor(
-        () => {
-          expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
-        },
-        { timeout: 10_000 }
-      );
+      await drainRetries();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      });
 
       // The image element must still be in the DOM
       const images = screen.getAllByRole('img');
@@ -181,18 +207,20 @@ for (const fixture of fixtures) {
     // -----------------------------------------------------------------------
 
     it('error state: upload dropzone is NOT shown after all automatic retries fail', async () => {
+      // shouldAdvanceTime keeps real-time progression so waitFor polling works,
+      // while still intercepting the backoff setTimeouts so we can skip them.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
       vi.spyOn(geminiService, fixture.serviceFn).mockRejectedValue(new Error('fail'));
 
       renderFixture(fixture);
       selectFile(pngFile);
 
-      await waitFor(
-        () => {
-          expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
-        },
-        { timeout: 10_000 }
-      );
+      await drainRetries();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      });
 
       // The upload dropzone has this aria-label; it must be gone
       expect(
@@ -205,18 +233,20 @@ for (const fixture of fixtures) {
     // -----------------------------------------------------------------------
 
     it('error state: shows a "Change Image" button that resets to the upload step', async () => {
+      // shouldAdvanceTime keeps real-time progression so waitFor polling works,
+      // while still intercepting the backoff setTimeouts so we can skip them.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
       vi.spyOn(geminiService, fixture.serviceFn).mockRejectedValue(new Error('fail'));
 
       renderFixture(fixture);
       selectFile(pngFile);
 
-      await waitFor(
-        () => {
-          expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
-        },
-        { timeout: 10_000 }
-      );
+      await drainRetries();
+
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      });
 
       const changeImageBtn = screen.getByRole('button', { name: /change image/i });
       expect(changeImageBtn).toBeInTheDocument();
@@ -235,6 +265,9 @@ for (const fixture of fixtures) {
     // -----------------------------------------------------------------------
 
     it('manual retry: clicking Retry re-invokes the confirm service (same image cached)', async () => {
+      // shouldAdvanceTime keeps real-time progression so waitFor polling works,
+      // while still intercepting the backoff setTimeouts so we can skip them.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
       const confirmSpy = vi
         .spyOn(geminiService, fixture.serviceFn)
@@ -243,25 +276,22 @@ for (const fixture of fixtures) {
       renderFixture(fixture);
       selectFile(pngFile);
 
-      await waitFor(
-        () => {
-          expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
-        },
-        { timeout: 10_000 }
-      );
+      await drainRetries();
 
-      // Reset the mock to track fresh calls from the manual retry
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      });
+
+      // Capture call count before manual retry, then click Retry
       const callsBeforeManualRetry = confirmSpy.mock.calls.length;
-
-      // Clicking Retry should trigger at least one additional call
       fireEvent.click(screen.getByRole('button', { name: /retry/i }));
 
-      await waitFor(
-        () => {
-          expect(confirmSpy.mock.calls.length).toBeGreaterThan(callsBeforeManualRetry);
-        },
-        { timeout: 10_000 }
-      );
+      // Advance past the backoff delays of the fresh retry round
+      await drainRetries();
+
+      await waitFor(() => {
+        expect(confirmSpy.mock.calls.length).toBeGreaterThan(callsBeforeManualRetry);
+      });
     });
 
     // -----------------------------------------------------------------------
@@ -269,6 +299,9 @@ for (const fixture of fixtures) {
     // -----------------------------------------------------------------------
 
     it('manual retry on success: clicking Retry when service resolves reaches confirm step', async () => {
+      // shouldAdvanceTime keeps real-time progression so waitFor polling works,
+      // while still intercepting the backoff setTimeouts so we can skip them.
+      vi.useFakeTimers({ shouldAdvanceTime: true });
       vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
 
       // First 3 calls fail (exhausting automatic retries), then the next call
@@ -283,24 +316,19 @@ for (const fixture of fixtures) {
       renderFixture(fixture);
       selectFile(pngFile);
 
-      // Wait for error state to appear
-      await waitFor(
-        () => {
-          expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
-        },
-        { timeout: 10_000 }
-      );
+      // Drain the automatic retry delays so the error state appears
+      await drainRetries();
 
-      // Click Retry — the mock now resolves successfully
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
+      });
+
+      // Click Retry — the mock now resolves successfully (no more delays needed)
       fireEvent.click(screen.getByRole('button', { name: /retry/i }));
 
-      // Should eventually reach the confirm step
-      await waitFor(
-        () => {
-          expect(screen.getByText('Start Conversation')).toBeInTheDocument();
-        },
-        { timeout: 10_000 }
-      );
+      await waitFor(() => {
+        expect(screen.getByText('Start Conversation')).toBeInTheDocument();
+      });
 
       expect(screen.getByText(sampleConfirmation.summary)).toBeInTheDocument();
     });

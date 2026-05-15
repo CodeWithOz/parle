@@ -1,6 +1,7 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { confirmTefAdImageForQuestioning } from '../services/geminiService';
 import { hasApiKeyOrEnv } from '../services/apiKeyService';
+import { useAnalyzeAdImageWithRetry } from '../hooks/useAnalyzeAdImageWithRetry';
 
 interface AdQuestioningSetupProps {
   onStartConversation: (
@@ -13,65 +14,18 @@ interface AdQuestioningSetupProps {
   onOpenApiKeyModal?: () => void;
 }
 
-type SetupStep = 'upload' | 'processing' | 'confirm' | 'error';
-
 export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
   onStartConversation,
   onClose,
   geminiKeyMissing = false,
   onOpenApiKeyModal,
 }) => {
-  const [step, setStep] = useState<SetupStep>('upload');
+  const { step, setStep, confirmation, setConfirmation, error, setError, analyze } = useAnalyzeAdImageWithRetry(confirmTefAdImageForQuestioning);
   const [imageDataUrl, setImageDataUrl] = useState<string | null>(null);
   const [imageMimeType, setImageMimeType] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
-  const [confirmation, setConfirmation] = useState<{ summary: string; roleSummary: string } | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const mountedRef = useRef(true);
-  const generationRef = useRef(0);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
-
-  const analyzeWithRetry = useCallback(async (base64: string, mimeType: string) => {
-    const MAX_ATTEMPTS = 3;
-    const DELAYS = [300, 900];
-
-    generationRef.current += 1;
-    const myGen = generationRef.current;
-
-    setStep('processing');
-
-    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-      if (!mountedRef.current) return;
-      try {
-        const result = await confirmTefAdImageForQuestioning(base64, mimeType);
-        if (generationRef.current !== myGen) return;
-        if (!mountedRef.current) return;
-        setConfirmation(result);
-        setStep('confirm');
-        return;
-      } catch (err) {
-        console.error(`Error analyzing image (attempt ${attempt + 1}):`, err);
-        if (attempt < MAX_ATTEMPTS - 1) {
-          await new Promise(r => setTimeout(r, DELAYS[attempt]));
-          if (generationRef.current !== myGen) return;
-        }
-      }
-    }
-
-    if (!mountedRef.current) return;
-    if (generationRef.current !== myGen) return;
-    // All attempts failed
-    setError('Failed to analyze the advertisement. Please try again.');
-    setStep('error');
-  }, []);
 
   const processFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -110,7 +64,7 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
       setImageBase64(base64);
       setImageMimeType(mimeType);
 
-      await analyzeWithRetry(base64, mimeType);
+      await analyze(base64, mimeType);
     };
 
     reader.onerror = () => {
@@ -119,7 +73,7 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
     };
 
     reader.readAsDataURL(file);
-  }, [onOpenApiKeyModal, analyzeWithRetry]);
+  }, [onOpenApiKeyModal, analyze]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -156,7 +110,7 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
   const handleRetry = () => {
     setError(null);
     if (imageBase64 && imageMimeType) {
-      analyzeWithRetry(imageBase64, imageMimeType);
+      analyze(imageBase64, imageMimeType);
     }
   };
 
