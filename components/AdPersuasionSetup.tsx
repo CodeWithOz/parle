@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { confirmTefAdImage } from '../services/geminiService';
 import { hasApiKeyOrEnv } from '../services/apiKeyService';
 
@@ -13,7 +13,7 @@ interface AdPersuasionSetupProps {
   onOpenApiKeyModal?: () => void;
 }
 
-type SetupStep = 'upload' | 'processing' | 'confirm';
+type SetupStep = 'upload' | 'processing' | 'confirm' | 'error';
 
 export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
   onStartConversation,
@@ -29,6 +29,42 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  const analyzeWithRetry = useCallback(async (base64: string, mimeType: string) => {
+    const MAX_ATTEMPTS = 3;
+    const DELAYS = [300, 900];
+
+    setStep('processing');
+
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      if (!mountedRef.current) return;
+      try {
+        const result = await confirmTefAdImage(base64, mimeType);
+        if (!mountedRef.current) return;
+        setConfirmation(result);
+        setStep('confirm');
+        return;
+      } catch (err) {
+        console.error(`Error analyzing image (attempt ${attempt + 1}):`, err);
+        if (attempt < MAX_ATTEMPTS - 1) {
+          await new Promise(r => setTimeout(r, DELAYS[attempt]));
+        }
+      }
+    }
+
+    if (!mountedRef.current) return;
+    // All attempts failed
+    setError('Failed to analyze the advertisement. Please try again.');
+    setStep('error');
+  }, []);
 
   const processFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -66,17 +102,8 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
       setImageDataUrl(dataUrl);
       setImageBase64(base64);
       setImageMimeType(mimeType);
-      setStep('processing');
 
-      try {
-        const result = await confirmTefAdImage(base64, mimeType);
-        setConfirmation(result);
-        setStep('confirm');
-      } catch (err) {
-        console.error('Error analyzing image:', err);
-        setError('Failed to analyze the advertisement. Please try again.');
-        setStep('upload');
-      }
+      await analyzeWithRetry(base64, mimeType);
     };
 
     reader.onerror = () => {
@@ -85,7 +112,7 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
     };
 
     reader.readAsDataURL(file);
-  }, [onOpenApiKeyModal]);
+  }, [onOpenApiKeyModal, analyzeWithRetry]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -117,6 +144,12 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
     setImageMimeType(null);
     setConfirmation(null);
     setError(null);
+  };
+
+  const handleRetry = () => {
+    if (imageBase64 && imageMimeType) {
+      analyzeWithRetry(imageBase64, imageMimeType);
+    }
   };
 
   const handleStart = () => {
@@ -239,6 +272,36 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
               <p className="text-slate-500 text-sm text-center">
                 The AI is reading your ad to prepare for the conversation.
               </p>
+            </div>
+          )}
+
+          {/* Step: Error */}
+          {step === 'error' && (
+            <div className="flex flex-col items-center gap-6 py-4">
+              {imageDataUrl && (
+                <img
+                  src={imageDataUrl}
+                  alt="Advertisement"
+                  className="w-24 h-24 object-cover rounded-xl border border-slate-600"
+                />
+              )}
+              <div className="p-3 bg-red-900/30 border border-red-600/50 rounded-lg w-full">
+                <p className="text-red-300 text-sm">{error || 'Failed to analyze the advertisement. Please try again.'}</p>
+              </div>
+              <div className="flex gap-3 w-full">
+                <button
+                  onClick={handleChangeImage}
+                  className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-medium transition-colors"
+                >
+                  Change Image
+                </button>
+                <button
+                  onClick={handleRetry}
+                  className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
             </div>
           )}
 
