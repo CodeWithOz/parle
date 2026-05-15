@@ -67,6 +67,7 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
     }
 
     if (!mountedRef.current) return;
+    if (generationRef.current !== myGen) return;
     // All attempts failed
     setError('Failed to analyze the advertisement. Please try again.');
     setStep('error');
