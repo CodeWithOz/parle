@@ -30,6 +30,7 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mountedRef = useRef(true);
+  const generationRef = useRef(0);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -42,12 +43,16 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
     const MAX_ATTEMPTS = 3;
     const DELAYS = [300, 900];
 
+    generationRef.current += 1;
+    const myGen = generationRef.current;
+
     setStep('processing');
 
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       if (!mountedRef.current) return;
       try {
         const result = await confirmTefAdImage(base64, mimeType);
+        if (generationRef.current !== myGen) return;
         if (!mountedRef.current) return;
         setConfirmation(result);
         setStep('confirm');
@@ -56,6 +61,7 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
         console.error(`Error analyzing image (attempt ${attempt + 1}):`, err);
         if (attempt < MAX_ATTEMPTS - 1) {
           await new Promise(r => setTimeout(r, DELAYS[attempt]));
+          if (generationRef.current !== myGen) return;
         }
       }
     }
@@ -147,6 +153,7 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
   };
 
   const handleRetry = () => {
+    setError(null);
     if (imageBase64 && imageMimeType) {
       analyzeWithRetry(imageBase64, imageMimeType);
     }
