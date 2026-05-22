@@ -582,18 +582,15 @@ if (tefQuestioningIsFirstMessage) {
 
 `components/TefQuestioningSummary.tsx` exports a named function `groupRepeatedConcepts(messages: Message[])` that is used internally by `TefQuestioningSummary` to build the "Repeated Concepts" section of the post-exercise review. It is an exported function (not a private helper) to make it independently testable. Do **not** flag the export as unnecessary or suggest inlining it into the component.
 
-### Simulation Context: Caller Already On Call; Invent Plausible Answers
+### Simulation Context: Caller Already On Call; Tiered Answer Strategy
 
-The `generateTefQuestioningSystemInstruction` prompt contains an explicit simulation-fidelity block:
+The `generateTefQuestioningSystemInstruction` prompt contains an explicit `SIMULATION CONTEXT` block with a **tiered answer strategy**:
 
-> The caller is already on the phone call. Do not tell them to call the phone number on the ad, do not direct them to the phone number listed, do not use *téléphoner* or *rappeler* to redirect them to the ad's number. If the information they ask about is not explicitly stated in the ad, invent plausible details or a sensible in-character answer rather than refusing or redirecting.
+1. **Default — reassuring invented answers:** For most questions, the agent gives short answers that put the caller at ease. Missing ad details are filled with plausible invented information (ballpark prices, typical policies, etc.). No redirect on the first question about a topic.
+2. **Last resort — website or email only:** When the caller **persists** and pushes for precise information the agent cannot answer simply, the agent may direct them to the company **website** OR provide a **customer-service email** for a written follow-up (invent plausible URLs/emails from the ad if none are listed). Never the ad's phone number.
+3. **Never phone redirects:** The caller is already on the call. Do not ask the user to call the number on the ad or redirect them to it. The prompt intentionally avoids banning specific French verbs — those may be appropriate for other meanings in conversation.
 
-Two deliberate decisions here:
-
-1. **Caller already on the phone** — The exam simulation starts with the call already in progress. Redirecting the user to the ad's phone number breaks the fiction and derails the practice session; the AI must never do this.
-2. **Invent plausible answers** — Real customer service agents fill gaps with reasonable judgements rather than stalling with "I don't have that information." The AI is explicitly instructed to fabricate a plausible, in-character answer for any detail not stated in the ad, because that is more realistic exam preparation.
-
-Do **not** remove the `SIMULATION CONTEXT` block or replace "invent plausible details" with "say you don't have that information". Do **not** flag invented answers as hallucinations — they are intentional exam-simulation behavior by design.
+Do **not** remove the `SIMULATION CONTEXT` block or replace the default strategy with "say you don't have that information" or "call this number". Do **not** flag invented answers or invented website/email as hallucinations — they are intentional exam-simulation behavior by design. Do **not** suggest offering website/email on every unanswered question — redirects are last-resort only after persistence.
 
 ### Related Files
 
@@ -651,5 +648,5 @@ If you believe you've found a genuine bug in one of these areas, please:
 - 2026-03-14: Added TEF Ad Questioning mode patterns (isTefQuestioning schema selection, isRepeat flag, no per-turn context injection, first-message skip); added persuasion first-message skip note; updated credentials table
 - 2026-04-04: Added deferred audio URL revocation pattern and `generateTefReview` null-on-abort convention (TEF post-exercise review feature)
 - 2026-05-01: Added restart handlers to deferred URL revocation section; documented `topicSuggestions` required field on `TefReview` (both exercise types)
-- 2026-05-22: Documented TEF review user-only evaluation scope (`[Agent said: ...]` context-only pattern); documented questioning simulation context (caller already on call, no phone-number redirects, invent plausible answers)
+- 2026-05-22: Documented TEF review user-only evaluation scope (`[Agent said: ...]` context-only pattern); documented questioning simulation context (caller already on call, tiered answer strategy: reassuring invented answers default, website/email last resort when user persists, never phone redirects)
 - See git history for detailed implementation timeline
