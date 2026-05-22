@@ -314,6 +314,44 @@ Do **not** change `null` returns to throws. Do **not** flag the `if (r)` null-ch
 
 ---
 
+## TEF Post-Exercise Review: Evaluation Scope — User French Only
+
+**Location:** `services/tefReviewService.ts` — `generateTefReview()` prompt construction
+
+### Pattern
+
+The review prompt explicitly scopes all evaluation to the **user's French**. Agent/model turns are provided as plain-text context (`[Agent said: ...]`) and are never passed as audio or scored.
+
+```typescript
+// Prompt preamble injected before the transcript:
+preamble += `
+EVALUATION SCOPE — IMPORTANT:
+Evaluate only the user's French. The [Agent said: ...] lines in the transcript are
+provided for context only, not for grading. Do not assess the agent, do not grade
+the agent's French, and do not criticize the agent's performance.`;
+
+// Agent turns → context-only text; user turns → inline audio blob (primary) or transcript fallback
+parts.push({ text: `[Agent said: ${agentText}]` });                                    // context, not scored
+parts.push({ inlineData: { data: audioData.base64, mimeType: audioData.mimeType } });  // user, scored
+```
+
+### Why This Is Intentional
+
+The TEF review service exists to give the **user** actionable feedback on their spoken French. The AI agent is an exam-simulation tool, not a learner. Evaluating agent lines would dilute the feedback and confuse CEFR scoring.
+
+Concretely:
+- Agent audio is never fetched or forwarded to the review model
+- The `[Agent said: ...]` prefix signals to the evaluator that these lines are context, not performance to grade
+- All `criteriaEvaluation`, CEFR level, `wentWell`, and `mistakes` fields refer exclusively to what the user said
+
+Do **not** remove the `[Agent said: ...]` prefix or pass agent audio to the review model — it would cause the evaluator to mix agent and user performance in its feedback.
+
+### Related Files
+
+- `services/tefReviewService.ts` — `generateTefReview` prompt construction (EVALUATION SCOPE block and message loop)
+
+---
+
 ## Missing AI Credentials Handling
 
 **Location:** `App.tsx` handlers, `components/ScenarioSetup.tsx`, `components/AdPersuasionSetup.tsx`
@@ -544,6 +582,19 @@ if (tefQuestioningIsFirstMessage) {
 
 `components/TefQuestioningSummary.tsx` exports a named function `groupRepeatedConcepts(messages: Message[])` that is used internally by `TefQuestioningSummary` to build the "Repeated Concepts" section of the post-exercise review. It is an exported function (not a private helper) to make it independently testable. Do **not** flag the export as unnecessary or suggest inlining it into the component.
 
+### Simulation Context: Caller Already On Call; Invent Plausible Answers
+
+The `generateTefQuestioningSystemInstruction` prompt contains an explicit simulation-fidelity block:
+
+> The caller is already on the phone call. Do not tell them to call the phone number on the ad, do not direct them to the phone number listed, do not use *téléphoner* or *rappeler* to redirect them to the ad's number. If the information they ask about is not explicitly stated in the ad, invent plausible details or a sensible in-character answer rather than refusing or redirecting.
+
+Two deliberate decisions here:
+
+1. **Caller already on the phone** — The exam simulation starts with the call already in progress. Redirecting the user to the ad's phone number breaks the fiction and derails the practice session; the AI must never do this.
+2. **Invent plausible answers** — Real customer service agents fill gaps with reasonable judgements rather than stalling with "I don't have that information." The AI is explicitly instructed to fabricate a plausible, in-character answer for any detail not stated in the ad, because that is more realistic exam preparation.
+
+Do **not** remove the `SIMULATION CONTEXT` block or replace "invent plausible details" with "say you don't have that information". Do **not** flag invented answers as hallucinations — they are intentional exam-simulation behavior by design.
+
 ### Related Files
 
 - `types.ts` — `isTefQuestioning?: boolean` on `Scenario`; `isRepeat?: boolean` and `conceptLabels?: string[]` on both `Message` and `VoiceResponse`
@@ -572,6 +623,8 @@ When reviewing this codebase:
 10. **Don't add per-turn context injection to the questioning mode path** - Unlike persuasion mode, questioning mode needs no external sequencing signal; its system prompt is self-sufficient
 11. **Don't add `URL.revokeObjectURL` calls to `handleExitTefAd` or `handleExitTefQuestioning`** - Revocation is intentionally deferred to the dismiss or restart handlers so the review service can fetch audio blob URLs for evaluation (see "Deferred Audio URL Revocation" section)
 12. **Don't flag the `if (r)` null-checks on `generateTefReview` results as redundant** - `null` is the documented return value for an aborted review request; the check is required (see "TEF Post-Exercise Review: `generateTefReview` Returns `null` on Abort" section)
+13. **Don't flag `[Agent said: ...]` text-only formatting in `tefReviewService.ts` as incomplete** - Agent turns are intentionally context-only; the review evaluates the user's French exclusively and must never score agent lines (see "TEF Post-Exercise Review: Evaluation Scope" section)
+14. **Don't flag "invent plausible details" in the questioning system prompt as a hallucination risk** - The AI agent is deliberately instructed to fabricate realistic in-character answers for details not stated in the ad; this is intentional exam-simulation behavior (see "Simulation Context: Caller Already On Call" in the TEF Ad Questioning section)
 
 If you believe you've found a genuine bug in one of these areas, please:
 - Reference this document in your review
@@ -598,4 +651,5 @@ If you believe you've found a genuine bug in one of these areas, please:
 - 2026-03-14: Added TEF Ad Questioning mode patterns (isTefQuestioning schema selection, isRepeat flag, no per-turn context injection, first-message skip); added persuasion first-message skip note; updated credentials table
 - 2026-04-04: Added deferred audio URL revocation pattern and `generateTefReview` null-on-abort convention (TEF post-exercise review feature)
 - 2026-05-01: Added restart handlers to deferred URL revocation section; documented `topicSuggestions` required field on `TefReview` (both exercise types)
+- 2026-05-22: Documented TEF review user-only evaluation scope (`[Agent said: ...]` context-only pattern); documented questioning simulation context (caller already on call, no phone-number redirects, invent plausible answers)
 - See git history for detailed implementation timeline
