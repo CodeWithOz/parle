@@ -109,6 +109,7 @@ vi.mock('vaul', () => {
 
   const Title: React.FC<{ asChild?: boolean; children?: React.ReactNode }> = ({ children }) => <>{children}</>;
   const Description: React.FC<{ children?: React.ReactNode; className?: string }> = ({ children }) => <>{children}</>;
+  const Handle: React.FC<{ className?: string }> = () => null;
 
   return {
     Drawer: {
@@ -118,6 +119,7 @@ vi.mock('vaul', () => {
       Content,
       Title,
       Description,
+      Handle,
     },
   };
 });
