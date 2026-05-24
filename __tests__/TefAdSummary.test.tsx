@@ -319,6 +319,42 @@ describe('TefAdSummary · topic suggestions', () => {
 });
 
 // ---------------------------------------------------------------------------
+// topicArchiveSaved banner
+// ---------------------------------------------------------------------------
+
+const BASE_SUMMARY_PROPS = {
+  elapsedSeconds: 180,
+  turnCount: 5,
+  adImage: null,
+  reviews: [],
+  reviewIndex: 0,
+  onNavigateReview: vi.fn(),
+  isReviewLoading: false,
+  reviewError: null,
+  onRetryReview: vi.fn(),
+  onRegenerateReview: vi.fn(),
+  onRestart: vi.fn(),
+  onDismiss: vi.fn(),
+};
+
+describe('TefAdSummary · topicArchiveSaved banner', () => {
+  it('shows "Saved to your topic library" when topicArchiveSaved is true and review is not loading', () => {
+    render(<TefAdSummary {...BASE_SUMMARY_PROPS} topicArchiveSaved={true} isReviewLoading={false} />);
+    expect(screen.getByText(/saved to your topic library/i)).toBeInTheDocument();
+  });
+
+  it('does NOT show the banner when topicArchiveSaved is false (default)', () => {
+    render(<TefAdSummary {...BASE_SUMMARY_PROPS} topicArchiveSaved={false} />);
+    expect(screen.queryByText(/saved to your topic library/i)).not.toBeInTheDocument();
+  });
+
+  it('does NOT show the banner when topicArchiveSaved is true but review is loading', () => {
+    render(<TefAdSummary {...BASE_SUMMARY_PROPS} topicArchiveSaved={true} isReviewLoading={true} />);
+    expect(screen.queryByText(/saved to your topic library/i)).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Done button
 // ---------------------------------------------------------------------------
 

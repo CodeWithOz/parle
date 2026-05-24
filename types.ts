@@ -120,3 +120,23 @@ export interface TefReview {
   topicSuggestions: TefTopicSuggestion[];      // Topics + bilingual example utterances
   criteriaEvaluation?: TefCriterionEvaluation[]; // Persuasion-specific criteria scoring
 }
+
+export type TefExerciseType = 'persuasion' | 'questioning';
+
+export interface TefSavedAd {
+  id: string;
+  exerciseType: TefExerciseType;
+  imageDataUrl: string;
+  mimeType: string;
+  confirmation: { summary: string; roleSummary: string };
+  createdAt: number;
+  lastUsedAt: number;
+}
+
+export interface TefTopicArchive {
+  id: string;
+  adId: string;
+  exerciseType: TefExerciseType;
+  createdAt: number;
+  topicSuggestions: TefTopicSuggestion[];
+}

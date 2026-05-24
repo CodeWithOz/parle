@@ -324,6 +324,44 @@ describe('TefQuestioningSummary · topic suggestions', () => {
 });
 
 // ---------------------------------------------------------------------------
+// topicArchiveSaved banner
+// ---------------------------------------------------------------------------
+
+const BASE_QUESTIONING_PROPS = {
+  questionCount: 8,
+  questionGoal: 10,
+  repeatCount: 0,
+  elapsedSeconds: 300,
+  adImage: null,
+  onDismiss: vi.fn(),
+  onRestart: vi.fn(),
+  reviews: [],
+  reviewIndex: 0,
+  onNavigateReview: vi.fn(),
+  isReviewLoading: false,
+  reviewError: null,
+  onRetryReview: vi.fn(),
+  onRegenerateReview: vi.fn(),
+};
+
+describe('TefQuestioningSummary · topicArchiveSaved banner', () => {
+  it('shows "Saved to your topic library" when topicArchiveSaved is true and not loading', () => {
+    render(<TefQuestioningSummary {...BASE_QUESTIONING_PROPS} topicArchiveSaved={true} isReviewLoading={false} />);
+    expect(screen.getByText(/saved to your topic library/i)).toBeInTheDocument();
+  });
+
+  it('does NOT show the banner when topicArchiveSaved is false', () => {
+    render(<TefQuestioningSummary {...BASE_QUESTIONING_PROPS} topicArchiveSaved={false} />);
+    expect(screen.queryByText(/saved to your topic library/i)).not.toBeInTheDocument();
+  });
+
+  it('does NOT show the banner when topicArchiveSaved is true but review is loading', () => {
+    render(<TefQuestioningSummary {...BASE_QUESTIONING_PROPS} topicArchiveSaved={true} isReviewLoading={true} />);
+    expect(screen.queryByText(/saved to your topic library/i)).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Container sizing (smoke test for CSS class presence)
 // ---------------------------------------------------------------------------
 

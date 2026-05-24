@@ -145,6 +145,58 @@ describe('PracticeModeSheet · onSelectMode callback', () => {
 });
 
 // ---------------------------------------------------------------------------
+// onOpenTopicHistory prop
+// ---------------------------------------------------------------------------
+
+describe('PracticeModeSheet · onOpenTopicHistory prop', () => {
+  it('does NOT render the "Past topic suggestions" link when prop is absent', () => {
+    renderSheet(true);
+    expect(screen.queryByText(/past topic suggestions/i)).not.toBeInTheDocument();
+  });
+
+  it('renders a "Past topic suggestions" link when onOpenTopicHistory is provided', () => {
+    render(
+      <PracticeModeSheet
+        open={true}
+        onOpenChange={vi.fn()}
+        onSelectMode={vi.fn()}
+        onOpenTopicHistory={vi.fn()}
+      />
+    );
+    expect(screen.getByText(/past topic suggestions/i)).toBeInTheDocument();
+  });
+
+  it('calls onOpenTopicHistory when the link is clicked', () => {
+    const onOpenTopicHistory = vi.fn();
+    render(
+      <PracticeModeSheet
+        open={true}
+        onOpenChange={vi.fn()}
+        onSelectMode={vi.fn()}
+        onOpenTopicHistory={onOpenTopicHistory}
+      />
+    );
+    fireEvent.click(screen.getByText(/past topic suggestions/i).closest('button')!);
+    expect(onOpenTopicHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not call onSelectMode when the topic history link is clicked', () => {
+    const onSelectMode = vi.fn();
+    const onOpenTopicHistory = vi.fn();
+    render(
+      <PracticeModeSheet
+        open={true}
+        onOpenChange={vi.fn()}
+        onSelectMode={onSelectMode}
+        onOpenTopicHistory={onOpenTopicHistory}
+      />
+    );
+    fireEvent.click(screen.getByText(/past topic suggestions/i).closest('button')!);
+    expect(onSelectMode).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Closed state — content should not be present
 // ---------------------------------------------------------------------------
 

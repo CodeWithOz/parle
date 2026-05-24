@@ -2,6 +2,8 @@ import React, { useState, useRef, useCallback } from 'react';
 import { confirmTefAdImageForQuestioning } from '../services/geminiService';
 import { hasApiKeyOrEnv } from '../services/apiKeyService';
 import { useAnalyzeAdImageWithRetry } from '../hooks/useAnalyzeAdImageWithRetry';
+import type { TefSavedAd } from '../types';
+import { TefRecentAdsCarousel } from './TefRecentAdsCarousel';
 
 interface AdQuestioningSetupProps {
   onStartConversation: (
@@ -9,6 +11,10 @@ interface AdQuestioningSetupProps {
     mimeType: string,
     confirmation: { summary: string; roleSummary: string }
   ) => void;
+  onStartFromSaved: (ad: TefSavedAd) => void;
+  onTopicsForAd: (ad: TefSavedAd) => void;
+  onDeleteSavedAd: (ad: TefSavedAd) => void;
+  recentAdsRefreshToken?: number;
   onClose: () => void;
   geminiKeyMissing?: boolean;
   onOpenApiKeyModal?: () => void;
@@ -16,6 +22,10 @@ interface AdQuestioningSetupProps {
 
 export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
   onStartConversation,
+  onStartFromSaved,
+  onTopicsForAd,
+  onDeleteSavedAd,
+  recentAdsRefreshToken = 0,
   onClose,
   geminiKeyMissing = false,
   onOpenApiKeyModal,
@@ -211,6 +221,14 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
               >
                 Select Image
               </button>
+
+              <TefRecentAdsCarousel
+                exerciseType="questioning"
+                refreshToken={recentAdsRefreshToken}
+                onStart={onStartFromSaved}
+                onTopics={onTopicsForAd}
+                onDelete={onDeleteSavedAd}
+              />
             </>
           )}
 

@@ -633,10 +633,17 @@ If you believe you've found a genuine bug in one of these areas, please:
 ## Learned User Preferences
 
 - Remove temporary debug instrumentation (e.g. NDJSON ingest / `#region agent log` blocks) only after the user has confirmed the fix in the UI, unless they explicitly ask to clean up earlier.
+- For significant new UI, produce or request mockups and get approval before implementation; reference mockups (e.g. Topic History v2) define new feature surfaces only—not a wholesale redesign of Parle.
+- When adapting approved mockups, keep Parle’s existing layout, colors, typography, and component stack; do not import mock-repo design systems (e.g. shadcn/theme from a reference zip).
+- In `PracticeModeSheet`, keep the existing single-column stack for the three practice modes; only add utility rows (e.g. “Past topic suggestions”) unless the user explicitly asks to change mode-card layout.
+- Hide `ConversationHint` during TEF Ad Persuasion and TEF Ad Questioning practice only; keep hints for role-play scenario practice and free conversation.
+- TEF in-session practice guide: per-topic accordions; on start/restart auto-attach the latest topic archive for the current ad (`latest_auto`).
+- In LLM system prompts, prefer short behavioral rules over hardcoded lists of French verbs or phrases that may be appropriate in other conversational contexts.
 
 ## Learned Workspace Facts
 
 - Continual-learning transcript processing for this project uses an index file under the main checkout: `01-projects/parle/.cursor/hooks/state/continual-learning-index.json`. `AGENTS.md` may be edited from a Cursor worktree (e.g. `worktrees/parle/<branch>/AGENTS.md`), so hook state and agent memory paths are not always the same directory.
+- Approved UI reference mockups for Parle may be extracted under `.mockup-ref/` (e.g. `TopicHistoryV2Demo.tsx`); treat as implementation reference only, not production dependencies.
 
 ---
 

@@ -5,12 +5,14 @@ interface PracticeModeSheetProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectMode: (modeId: 'ad-persuasion' | 'role-play' | 'ad-questioning') => void;
+  onOpenTopicHistory?: () => void;
 }
 
 export const PracticeModeSheet: React.FC<PracticeModeSheetProps> = ({
   open,
   onOpenChange,
   onSelectMode,
+  onOpenTopicHistory,
 }) => {
   return (
     <Drawer.Root open={open} onOpenChange={onOpenChange}>
@@ -88,6 +90,35 @@ export const PracticeModeSheet: React.FC<PracticeModeSheetProps> = ({
                 </div>
               </div>
             </button>
+
+            {onOpenTopicHistory && (
+              <>
+                <div className="h-px bg-slate-800 mx-4 mt-2" />
+                <div className="px-4 pt-4 pb-2">
+                  <button
+                    type="button"
+                    onClick={onOpenTopicHistory}
+                    className="w-full text-left p-4 rounded-xl border border-violet-500/40 bg-violet-500/5 flex items-center gap-3 hover:bg-violet-500/10 transition-colors"
+                  >
+                    <div className="h-10 w-10 rounded-lg bg-violet-500/15 flex items-center justify-center flex-shrink-0">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-violet-300" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+                        <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clipRule="evenodd" />
+                      </svg>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-violet-300">Past topic suggestions</div>
+                      <div className="text-xs text-slate-400 mt-0.5">
+                        Review topics and example phrases from previous sessions
+                      </div>
+                    </div>
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-violet-300/70 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </Drawer.Content>
       </Drawer.Portal>
