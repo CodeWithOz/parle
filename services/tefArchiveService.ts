@@ -225,8 +225,8 @@ export async function touchSavedAdLastUsed(id: string): Promise<void> {
 }
 
 export async function deleteSavedAd(id: string): Promise<void> {
-  deleteTopicArchivesForAd(id);
   await runWriteTransaction((store) => idbDelete(store, id));
+  deleteTopicArchivesForAd(id);
 }
 
 export function createSavedAdId(): string {
