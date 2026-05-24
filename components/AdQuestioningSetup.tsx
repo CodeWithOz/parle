@@ -2,6 +2,8 @@ import React, { useState, useRef, useCallback } from 'react';
 import { confirmTefAdImageForQuestioning } from '../services/geminiService';
 import { hasApiKeyOrEnv } from '../services/apiKeyService';
 import { useAnalyzeAdImageWithRetry } from '../hooks/useAnalyzeAdImageWithRetry';
+import type { TefSavedAd } from '../types';
+import { TefRecentAdsCarousel } from './TefRecentAdsCarousel';
 
 interface AdQuestioningSetupProps {
   onStartConversation: (
@@ -9,6 +11,10 @@ interface AdQuestioningSetupProps {
     mimeType: string,
     confirmation: { summary: string; roleSummary: string }
   ) => void;
+  onStartFromSaved: (ad: TefSavedAd) => void;
+  onTopicsForAd: (ad: TefSavedAd) => void;
+  onDeleteSavedAd: (ad: TefSavedAd) => void;
+  recentAdsRefreshToken?: number;
   onClose: () => void;
   geminiKeyMissing?: boolean;
   onOpenApiKeyModal?: () => void;
@@ -16,6 +22,10 @@ interface AdQuestioningSetupProps {
 
 export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
   onStartConversation,
+  onStartFromSaved,
+  onTopicsForAd,
+  onDeleteSavedAd,
+  recentAdsRefreshToken = 0,
   onClose,
   geminiKeyMissing = false,
   onOpenApiKeyModal,
@@ -120,11 +130,19 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
     }
   };
 
+  const handleStartFromSaved = (ad: TefSavedAd) => {
+    if (!hasApiKeyOrEnv('gemini')) {
+      onOpenApiKeyModal?.();
+      return;
+    }
+    onStartFromSaved(ad);
+  };
+
   return (
-    <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4 overscroll-none">
+      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[min(90dvh,100%)] flex flex-col min-h-0">
         {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-slate-700">
+        <div className="flex-shrink-0 flex justify-between items-center p-6 border-b border-slate-700">
           <h2 className="text-xl font-bold text-slate-100">Practice Ad Questioning</h2>
           <button
             onClick={onClose}
@@ -154,6 +172,7 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
           </div>
         )}
 
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain">
         <div className="p-6 space-y-6">
           {/* Step 1: Upload */}
           {step === 'upload' && (
@@ -211,6 +230,14 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
               >
                 Select Image
               </button>
+
+              <TefRecentAdsCarousel
+                exerciseType="questioning"
+                refreshToken={recentAdsRefreshToken}
+                onStart={handleStartFromSaved}
+                onTopics={onTopicsForAd}
+                onDelete={onDeleteSavedAd}
+              />
             </>
           )}
 
@@ -316,6 +343,7 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
               </p>
             </>
           )}
+        </div>
         </div>
       </div>
     </div>

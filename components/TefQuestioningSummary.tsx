@@ -19,6 +19,7 @@ interface TefQuestioningSummaryProps {
   onRetryReview: () => void;
   onRegenerateReview: () => void;
   messages?: Message[];
+  topicArchiveSaved?: boolean;
 }
 
 function formatTime(seconds: number): string {
@@ -84,6 +85,7 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
   onRetryReview,
   onRegenerateReview,
   messages = [],
+  topicArchiveSaved = false,
 }) => {
   const goalMet = questionCount >= questionGoal;
   const repeatedConcepts = groupRepeatedConcepts(messages);
@@ -103,14 +105,14 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 overscroll-none"
       role="dialog"
       aria-modal="true"
       aria-labelledby="questioning-summary-title"
     >
-      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[85vh] flex flex-col text-center">
+      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[min(85dvh,100%)] flex flex-col min-h-0 text-center">
         {/* Scrollable content area */}
-        <div className="overflow-y-auto p-8 flex-1 min-h-0">
+        <div className="overflow-y-auto overscroll-y-contain p-8 flex-1 min-h-0">
           {/* Icon */}
           <div className="w-16 h-16 bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-blue-700/50">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
@@ -256,6 +258,15 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
             onRetry={onRetryReview}
             onRegenerate={onRegenerateReview}
           />
+
+          {topicArchiveSaved && !isReviewLoading && (
+            <div className="flex items-center gap-1.5 mt-4 text-xs text-slate-500">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-green-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              Saved to your topic library
+            </div>
+          )}
         </div>
 
         {/* Done button — pinned outside the scroll area */}

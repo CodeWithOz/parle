@@ -86,4 +86,65 @@ describe('generateTefQuestioningSystemInstruction', () => {
     const lower = result.toLowerCase();
     expect(lower).not.toMatch(/skeptic|raise objection|persuad/);
   });
+
+  // -----------------------------------------------------------------------
+  // Phone-number / already-on-call behaviour
+  // -----------------------------------------------------------------------
+
+  it('states that the user is already on the phone call (not someone who needs to be directed to call)', () => {
+    const result = generateTefQuestioningSystemInstruction(adSummary, roleConfirmation);
+    const lower = result.toLowerCase();
+    // Must tell the agent that the caller is ALREADY on the phone, e.g.
+    // "the user is already on the phone call", "caller is already calling",
+    // "the caller has already called", "already on this call", etc.
+    expect(lower).toMatch(
+      /already.*on.*the.*call|already.*calling|already.*on.*the.*phone|caller.*already|the user.*already.*call/
+    );
+  });
+
+  it('explicitly forbids asking the user to call the phone number on the ad', () => {
+    const result = generateTefQuestioningSystemInstruction(adSummary, roleConfirmation);
+    const lower = result.toLowerCase();
+    expect(lower).toMatch(
+      /do not ask.*to call|do not ask them to call|never.*ask.*to call|do not.*redirect.*phone number|do not.*redirect them to that number/
+    );
+  });
+
+  it('instructs the agent to invent sensible in-character answers instead of redirecting to the phone number', () => {
+    const result = generateTefQuestioningSystemInstruction(adSummary, roleConfirmation);
+    const lower = result.toLowerCase();
+    // Must tell the agent to make up / invent plausible details rather than
+    // refusing or redirecting — phrasing like "invent", "make up", "create",
+    // "plausible details", "realistic answer", "sensible", etc.
+    expect(lower).toMatch(
+      /invent.*answer|make.*up.*answer|invent.*detail|make.*up.*detail|plausible.*detail|realistic.*answer|sensible.*detail|invent.*plausible|reasonable.*detail|create.*plausible|invent.*plausible|put.*caller.*at ease|reassuring/
+    );
+  });
+
+  it('prefers simple reassuring answers as the default before any redirect', () => {
+    const result = generateTefQuestioningSystemInstruction(adSummary, roleConfirmation);
+    const lower = result.toLowerCase();
+    expect(lower).toMatch(/default|first|most questions|majority|without redirecting/);
+    expect(lower).toMatch(/at ease|reassuring|simple/);
+  });
+
+  it('allows website redirect only as a last resort when the user persists', () => {
+    const result = generateTefQuestioningSystemInstruction(adSummary, roleConfirmation);
+    const lower = result.toLowerCase();
+    expect(lower).toMatch(/website|site web|site internet/);
+    expect(lower).toMatch(/last resort|only when|persist|push/);
+  });
+
+  it('allows email redirect only as a last resort when the user persists', () => {
+    const result = generateTefQuestioningSystemInstruction(adSummary, roleConfirmation);
+    const lower = result.toLowerCase();
+    expect(lower).toMatch(/email|e-mail|courriel/);
+    expect(lower).toMatch(/last resort|only when|persist|push|written/);
+  });
+
+  it('does not offer website or email redirect on the first question about a topic', () => {
+    const result = generateTefQuestioningSystemInstruction(adSummary, roleConfirmation);
+    const lower = result.toLowerCase();
+    expect(lower).toMatch(/do not offer website|first question|first ask|try a simple/);
+  });
 });

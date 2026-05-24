@@ -1301,3 +1301,84 @@ describe('generateTefReview · topicSuggestions runtime validation', () => {
     ).rejects.toThrow(/topicSuggestions/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// User-only evaluation scope: prompt must not grade the agent
+// ---------------------------------------------------------------------------
+
+describe('generateTefReview · user-only evaluation scope', () => {
+  it('prompt explicitly instructs to evaluate ONLY the user\'s French, not the agent', async () => {
+    await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    const promptText = JSON.stringify(callArg);
+    // The prompt must explicitly restrict grading to the user — phrasing like
+    // "evaluate only the user", "assess only the user's French", "do not assess the agent",
+    // "only the user's", etc.
+    expect(promptText.toLowerCase()).toMatch(
+      /evaluate only the user|assess only the user|only the user.{0,20}french|do not.*assess.*agent|do not.*evaluate.*agent|evaluate.*the user.*only/
+    );
+  });
+
+  it('prompt explicitly states agent turns are provided for context only, not for grading', async () => {
+    await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    const promptText = JSON.stringify(callArg).toLowerCase();
+    // The prompt must contain a specific statement that agent turns are "context only"
+    // (e.g. "context only", "for context only", "agent turns are context", etc.).
+    // Checked as a substring to avoid false-positive regex matches on distant words.
+    const hasContextOnly =
+      promptText.includes('context only') ||
+      promptText.includes('agent turns are context') ||
+      promptText.includes('agent.*for context') ||
+      promptText.includes('context, not for grading') ||
+      promptText.includes('context, not for evaluat');
+    expect(hasContextOnly).toBe(true);
+  });
+
+  it('prompt explicitly says do not grade or criticize the agent\'s French or performance', async () => {
+    await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    const promptText = JSON.stringify(callArg).toLowerCase();
+    // Must explicitly forbid grading/criticising the agent — checked with bounded
+    // patterns to avoid matching "agent" and "not/do not" from unrelated sentences.
+    const hasForbiddenGrading =
+      promptText.includes("do not grade the agent") ||
+      promptText.includes("do not assess the agent") ||
+      promptText.includes("do not evaluate the agent") ||
+      promptText.includes("do not criticise the agent") ||
+      promptText.includes("do not criticize the agent") ||
+      promptText.includes("not grade the agent") ||
+      promptText.includes("not assess the agent") ||
+      promptText.includes("agent's french is not");
+    expect(hasForbiddenGrading).toBe(true);
+  });
+
+  it('agent transcript lines are still present in the prompt for conversational context', async () => {
+    await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    const promptText = JSON.stringify(callArg);
+    // Agent turns must still appear in the prompt so the model has conversational context
+    expect(promptText).toContain('[Agent said:');
+  });
+});

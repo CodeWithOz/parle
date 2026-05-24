@@ -149,6 +149,9 @@ PERSUASION CRITERIA TO EVALUATE (assess each explicitly in the criteriaEvaluatio
   }
 
   preamble += `
+EVALUATION SCOPE — IMPORTANT:
+Evaluate only the user's French. The [Agent said: ...] lines in the transcript are provided for context only, not for grading. Do not assess the agent, do not grade the agent's French, and do not criticize the agent's performance. Focus all feedback exclusively on what the user said.
+
 AUDIO NOTE: Audio recordings are the primary source for evaluating speech quality (pronunciation, fluency, spontaneous grammar). Use the transcript as a reference guide. Where they conflict, trust the audio.
 
 CONVERSATION TRANSCRIPT:

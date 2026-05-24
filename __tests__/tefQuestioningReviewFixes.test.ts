@@ -50,36 +50,7 @@ const b4MockAi = {
 
 vi.mocked(GoogleGenAI).mockReturnValue(b4MockAi as unknown as GoogleGenAI);
 
-// ---------------------------------------------------------------------------
-// B1 — Hint not set in questioning mode
-//
-// App.tsx line 393 only sets currentHint when
-//   scenarioMode === 'practice' || tefAdMode === 'practice'
-// When tefQuestioningMode === 'practice' a hint returned by the AI is silently
-// dropped.  The fix should extend that condition to include questioning mode.
-// ---------------------------------------------------------------------------
-
-describe('B1 · hint set in TEF questioning mode (App.tsx source-text)', () => {
-  it('includes tefQuestioningMode in the condition that calls setCurrentHint', async () => {
-    const src = await import('../App?raw');
-    // After fix: the condition guarding setCurrentHint must cover tefQuestioningMode === 'practice'
-    // Pattern: the OR clause or a separate check appears near the setCurrentHint call
-    expect(src.default).toMatch(
-      /tefQuestioningMode\s*===\s*['"]practice['"][\s\S]{0,200}setCurrentHint|setCurrentHint[\s\S]{0,200}tefQuestioningMode\s*===\s*['"]practice['"]/
-    );
-  });
-
-  it('does NOT set hint when tefQuestioningIsFirstMessage is true (greeting turn)', async () => {
-    const src = await import('../App?raw');
-    // The hint update block must be guarded so that it only fires after the
-    // first message (same first-message skip pattern used for question counting).
-    // After fix: setCurrentHint inside the tefQuestioningMode branch should be
-    // conditioned on !tefQuestioningIsFirstMessage or inside the else branch.
-    expect(src.default).toMatch(
-      /tefQuestioningIsFirstMessage[\s\S]{0,400}setCurrentHint|setCurrentHint[\s\S]{0,400}tefQuestioningIsFirstMessage/
-    );
-  });
-});
+// B1 hint visibility is covered by conversationHintVisibility.test.ts
 
 // ---------------------------------------------------------------------------
 // B2 — showLightbox not reset in exit / dismiss handlers

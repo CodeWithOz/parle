@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdMode, TefQuestioningMode, TefReview } from './types';
+import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdMode, TefQuestioningMode, TefReview, TefSavedAd, TefTopicSuggestion } from './types';
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
 import { useConversationTimer } from './hooks/useConversationTimer';
@@ -10,6 +10,14 @@ import { hasApiKeyOrEnv } from './services/apiKeyService';
 import { assignVoicesToCharacters } from './services/voiceService';
 import { generateId, generateTefAdSystemInstruction, generateTefQuestioningSystemInstruction } from './services/scenarioService';
 import { generateTefReview } from './services/tefReviewService';
+import {
+  createSavedAdId,
+  deleteSavedAd,
+  getLatestTopicArchive,
+  saveTopicArchive,
+  touchSavedAdLastUsed,
+  upsertSavedAd,
+} from './services/tefArchiveService';
 import { Orb } from './components/Orb';
 import { Controls } from './components/Controls';
 import { ConversationHistory } from './components/ConversationHistory';
@@ -25,7 +33,13 @@ import { ImageLightbox } from './components/ImageLightbox';
 import { ApiKeySetup } from './components/ApiKeySetup';
 import { GearIcon } from './components/icons/GearIcon';
 import { ConversationHint } from './components/ConversationHint';
+import {
+  isConversationHintVisible,
+  shouldSetHintFromResponse,
+} from './utils/conversationHintVisibility';
+import { PracticeGuidePanel } from './components/PracticeGuidePanel';
 import { PracticeModeSheet } from './components/PracticeModeSheet';
+import { TefTopicHistorySheet } from './components/TefTopicHistorySheet';
 import { combineAbortSignals } from './utils/combineAbortSignals';
 import { isAbortLikeError } from './utils/isAbortLikeError';
 
@@ -99,6 +113,15 @@ const App: React.FC = () => {
   const [tefAdReviewLoading, setTefAdReviewLoading] = useState(false);
   const [tefAdReviewError, setTefAdReviewError] = useState<string | null>(null);
 
+  const [practiceGuide, setPracticeGuide] = useState<TefTopicSuggestion[] | null>(null);
+  const [showTopicHistory, setShowTopicHistory] = useState(false);
+  const [topicHistoryFilterAdId, setTopicHistoryFilterAdId] = useState<string | null>(null);
+  const [topicHistoryInitialArchiveId, setTopicHistoryInitialArchiveId] = useState<string | null>(null);
+  const [recentAdsRefreshToken, setRecentAdsRefreshToken] = useState(0);
+  const [tefAdTopicArchiveSaved, setTefAdTopicArchiveSaved] = useState(false);
+  const [tefQuestioningTopicArchiveSaved, setTefQuestioningTopicArchiveSaved] = useState(false);
+  const currentTefAdIdRef = useRef<string | null>(null);
+
   // Snapshot refs for retry/regenerate after messages state is cleared
   const tefQuestioningMessagesSnapshotRef = useRef<Message[]>([]);
   const tefAdMessagesSnapshotRef = useRef<Message[]>([]);
@@ -108,6 +131,51 @@ const App: React.FC = () => {
   const tefQuestioningElapsedRef = useRef(0);
   const activeScenarioRef = useRef<Scenario | null>(null);
   activeScenarioRef.current = activeScenario;
+  const loadPracticeGuideForAd = useCallback((adId: string) => {
+    const latest = getLatestTopicArchive(adId);
+    setPracticeGuide(latest?.topicSuggestions ?? null);
+  }, []);
+
+  const openTopicHistory = useCallback(
+    (filterAdId: string | null = null, options?: { archiveId?: string | null }) => {
+      setTopicHistoryFilterAdId(filterAdId);
+      setTopicHistoryInitialArchiveId(options?.archiveId ?? null);
+      setShowTopicHistory(true);
+    },
+    []
+  );
+
+  const openTopicsForSavedAd = useCallback(
+    (ad: TefSavedAd) => {
+      const latest = getLatestTopicArchive(ad.id);
+      openTopicHistory(ad.id, { archiveId: latest?.id ?? null });
+    },
+    [openTopicHistory]
+  );
+
+  const closeTopicHistory = useCallback(() => {
+    setShowTopicHistory(false);
+    setTopicHistoryFilterAdId(null);
+    setTopicHistoryInitialArchiveId(null);
+  }, []);
+
+  const persistReviewTopics = useCallback(
+    (adId: string, exerciseType: 'persuasion' | 'questioning', review: TefReview): boolean => {
+      if (!adId || review.topicSuggestions.length === 0) return false;
+      try {
+        saveTopicArchive({
+          adId,
+          exerciseType,
+          topicSuggestions: review.topicSuggestions,
+        });
+        return true;
+      } catch (err) {
+        console.error('Failed to persist topic archive:', err);
+        return false;
+      }
+    },
+    []
+  );
 
   // AbortController for cancelling in-flight requests (declared here so timer callback can use it)
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -117,6 +185,7 @@ const App: React.FC = () => {
   // ---------------------------------------------------------------------------
 
   const startTefQuestioningReview = (snapshot: Message[]) => {
+    const adId = currentTefAdIdRef.current;
     const adSummary = activeScenarioRef.current?.aiSummary;
     setTefQuestioningReviews([]);
     setTefQuestioningReviewIndex(0);
@@ -132,6 +201,10 @@ const App: React.FC = () => {
         if (r) {
           setTefQuestioningReviews([r]);
           setTefQuestioningReviewIndex(0);
+          if (adId && persistReviewTopics(adId, 'questioning', r)) {
+            setTefQuestioningTopicArchiveSaved(true);
+            loadPracticeGuideForAd(adId);
+          }
         }
       })
       .catch((e) => {
@@ -141,6 +214,7 @@ const App: React.FC = () => {
   };
 
   const regenerateTefQuestioningReview = (snapshot: Message[]) => {
+    const adId = currentTefAdIdRef.current;
     const adSummary = activeScenarioRef.current?.aiSummary;
     setTefQuestioningReviewError(null);
     setTefQuestioningReviewLoading(true);
@@ -157,6 +231,10 @@ const App: React.FC = () => {
             setTefQuestioningReviewIndex(next.length - 1);
             return next;
           });
+          if (adId && persistReviewTopics(adId, 'questioning', r)) {
+            setTefQuestioningTopicArchiveSaved(true);
+            loadPracticeGuideForAd(adId);
+          }
         }
       })
       .catch((e) => {
@@ -170,6 +248,7 @@ const App: React.FC = () => {
   // ---------------------------------------------------------------------------
 
   const startTefAdReview = (snapshot: Message[]) => {
+    const adId = currentTefAdIdRef.current;
     const adSummary = activeScenario?.aiSummary;
     setTefAdReviews([]);
     setTefAdReviewIndex(0);
@@ -185,6 +264,10 @@ const App: React.FC = () => {
         if (r) {
           setTefAdReviews([r]);
           setTefAdReviewIndex(0);
+          if (adId && persistReviewTopics(adId, 'persuasion', r)) {
+            setTefAdTopicArchiveSaved(true);
+            loadPracticeGuideForAd(adId);
+          }
         }
       })
       .catch((e) => {
@@ -194,6 +277,7 @@ const App: React.FC = () => {
   };
 
   const regenerateTefAdReview = (snapshot: Message[]) => {
+    const adId = currentTefAdIdRef.current;
     const adSummary = activeScenario?.aiSummary;
     setTefAdReviewError(null);
     setTefAdReviewLoading(true);
@@ -210,6 +294,10 @@ const App: React.FC = () => {
             setTefAdReviewIndex(next.length - 1);
             return next;
           });
+          if (adId && persistReviewTopics(adId, 'persuasion', r)) {
+            setTefAdTopicArchiveSaved(true);
+            loadPracticeGuideForAd(adId);
+          }
         }
       })
       .catch((e) => {
@@ -552,8 +640,8 @@ const App: React.FC = () => {
 
         setMessages(prev => [...prev, userMessage, ...modelMessages]);
 
-        // Update current hint (only in scenario mode, from last character)
-        if ((scenarioMode === 'practice' || tefAdMode === 'practice') && response.hint) {
+        // Update current hint (role-play scenario practice only)
+        if (shouldSetHintFromResponse(scenarioMode, response.hint)) {
           setCurrentHint(response.hint);
         }
 
@@ -599,11 +687,8 @@ const App: React.FC = () => {
           },
         ]);
 
-        // Update current hint (only in scenario/ad/questioning practice mode)
-        if ((scenarioMode === 'practice' || tefAdMode === 'practice') && hint) {
-          setCurrentHint(hint);
-        }
-        if (tefQuestioningMode === 'practice' && !tefQuestioningIsFirstMessage && hint) {
+        // Update current hint (role-play scenario practice only)
+        if (shouldSetHintFromResponse(scenarioMode, hint)) {
           setCurrentHint(hint);
         }
 
@@ -1170,10 +1255,27 @@ const App: React.FC = () => {
     setTefAdImage(null);
   };
 
+  const handleDeleteSavedAd = async (ad: TefSavedAd) => {
+    if (
+      !window.confirm(
+        'Delete this saved advertisement? Topic history for this ad will also be removed. This cannot be undone.'
+      )
+    ) {
+      return;
+    }
+    await deleteSavedAd(ad.id);
+    if (currentTefAdIdRef.current === ad.id) {
+      currentTefAdIdRef.current = null;
+      setPracticeGuide(null);
+    }
+    setRecentAdsRefreshToken((t) => t + 1);
+  };
+
   const handleStartTefConversation = async (
     image: string,
     mimeType: string,
-    confirmation: { summary: string; roleSummary: string }
+    confirmation: { summary: string; roleSummary: string },
+    existingAdId?: string
   ) => {
     if (!hasApiKeyOrEnv('gemini')) {
       setShowApiKeyModal(true);
@@ -1232,7 +1334,33 @@ const App: React.FC = () => {
     // Reset turn count for the new session
     setTefAdTurnCount(0);
 
+    setTefAdTopicArchiveSaved(false);
+    const adId = existingAdId ?? createSavedAdId();
+    try {
+      await upsertSavedAd({
+        id: adId,
+        exerciseType: 'persuasion',
+        imageDataUrl: image,
+        mimeType,
+        confirmation,
+      });
+      currentTefAdIdRef.current = adId;
+      loadPracticeGuideForAd(adId);
+      setRecentAdsRefreshToken((t) => t + 1);
+    } catch (error) {
+      console.error('Failed to save TEF ad:', error);
+      currentTefAdIdRef.current = adId;
+      loadPracticeGuideForAd(adId);
+    }
+
     setTefAdMode('practice');
+  };
+
+  const handleStartTefConversationFromSaved = async (ad: TefSavedAd) => {
+    void touchSavedAdLastUsed(ad.id).catch((err) => {
+      console.error('Failed to update saved ad last-used time:', err);
+    });
+    await handleStartTefConversation(ad.imageDataUrl, ad.mimeType, ad.confirmation, ad.id);
   };
 
   const handleExitTefAd = () => {
@@ -1305,6 +1433,9 @@ const App: React.FC = () => {
     setTefTimedUp(false);
     setTefAdTurnCount(0);
     setTefAdIsFirstMessage(true);
+    setPracticeGuide(null);
+    currentTefAdIdRef.current = null;
+    setTefAdTopicArchiveSaved(false);
 
     // Reset review state
     setTefAdReviews([]);
@@ -1363,6 +1494,9 @@ const App: React.FC = () => {
     setTefAdReviewLoading(false);
     setTefAdReviewError(null);
     setShowTefAdSummary(false);
+    setTefAdTopicArchiveSaved(false);
+    const adId = currentTefAdIdRef.current;
+    if (adId) loadPracticeGuideForAd(adId);
     setAppState(AppState.IDLE);
   };
 
@@ -1370,7 +1504,8 @@ const App: React.FC = () => {
   const handleStartTefQuestioningConversation = async (
     image: string,
     mimeType: string,
-    confirmation: { summary: string; roleSummary: string }
+    confirmation: { summary: string; roleSummary: string },
+    existingAdId?: string
   ) => {
     if (!hasApiKeyOrEnv('gemini')) {
       setShowApiKeyModal(true);
@@ -1429,8 +1564,34 @@ const App: React.FC = () => {
     setScenarioMode('none');
     setTefAdMode('none');
 
+    setTefQuestioningTopicArchiveSaved(false);
+    const adId = existingAdId ?? createSavedAdId();
+    try {
+      await upsertSavedAd({
+        id: adId,
+        exerciseType: 'questioning',
+        imageDataUrl: image,
+        mimeType,
+        confirmation,
+      });
+      currentTefAdIdRef.current = adId;
+      loadPracticeGuideForAd(adId);
+      setRecentAdsRefreshToken((t) => t + 1);
+    } catch (error) {
+      console.error('Failed to save TEF ad:', error);
+      currentTefAdIdRef.current = adId;
+      loadPracticeGuideForAd(adId);
+    }
+
     // Enter practice mode
     setTefQuestioningMode('practice');
+  };
+
+  const handleStartTefQuestioningFromSaved = async (ad: TefSavedAd) => {
+    void touchSavedAdLastUsed(ad.id).catch((err) => {
+      console.error('Failed to update saved ad last-used time:', err);
+    });
+    await handleStartTefQuestioningConversation(ad.imageDataUrl, ad.mimeType, ad.confirmation, ad.id);
   };
 
   const handleExitTefQuestioning = () => {
@@ -1494,6 +1655,9 @@ const App: React.FC = () => {
     setTefQuestioningReviewIndex(0);
     setTefQuestioningReviewLoading(false);
     setTefQuestioningReviewError(null);
+    setPracticeGuide(null);
+    currentTefAdIdRef.current = null;
+    setTefQuestioningTopicArchiveSaved(false);
 
     setAppState(AppState.IDLE);
   };
@@ -1545,6 +1709,9 @@ const App: React.FC = () => {
     setTefQuestioningReviewLoading(false);
     setTefQuestioningReviewError(null);
     setShowTefQuestioningSummary(false);
+    setTefQuestioningTopicArchiveSaved(false);
+    const adId = currentTefAdIdRef.current;
+    if (adId) loadPracticeGuideForAd(adId);
     setAppState(AppState.IDLE);
   };
 
@@ -1716,11 +1883,18 @@ const App: React.FC = () => {
               onRetryAudio={handleRetryAudioGeneration}
               retryingMessageTimestamps={retryingMessageTimestamps}
             />
-            {/* Conversation hint - shown in scenario practice when idle or recording; flex-shrink-0 keeps it visible below the scrollable history */}
+            {(tefAdMode === 'practice' || tefQuestioningMode === 'practice') &&
+              practiceGuide &&
+              practiceGuide.length > 0 && (
+              <div className="flex-shrink-0 px-4 pb-2 max-w-2xl mx-auto w-full">
+                <PracticeGuidePanel topics={practiceGuide} />
+              </div>
+            )}
+            {/* Conversation hint - role-play scenario practice only */}
             <div className="flex-shrink-0">
               <ConversationHint
                 hint={currentHint}
-                isVisible={(scenarioMode === 'practice' || tefAdMode === 'practice' || tefQuestioningMode === 'practice') && (appState === AppState.IDLE || appState === AppState.RECORDING)}
+                isVisible={isConversationHintVisible(scenarioMode, appState)}
               />
             </div>
           </main>
@@ -1787,6 +1961,10 @@ const App: React.FC = () => {
       {tefAdMode === 'setup' && (
         <AdPersuasionSetup
           onStartConversation={handleStartTefConversation}
+          onStartFromSaved={handleStartTefConversationFromSaved}
+          onTopicsForAd={openTopicsForSavedAd}
+          onDeleteSavedAd={handleDeleteSavedAd}
+          recentAdsRefreshToken={recentAdsRefreshToken}
           onClose={handleCloseTefAdSetup}
           geminiKeyMissing={geminiKeyMissing}
           onOpenApiKeyModal={() => setShowApiKeyModal(true)}
@@ -1797,6 +1975,10 @@ const App: React.FC = () => {
       {tefQuestioningMode === 'setup' && (
         <AdQuestioningSetup
           onStartConversation={handleStartTefQuestioningConversation}
+          onStartFromSaved={handleStartTefQuestioningFromSaved}
+          onTopicsForAd={openTopicsForSavedAd}
+          onDeleteSavedAd={handleDeleteSavedAd}
+          recentAdsRefreshToken={recentAdsRefreshToken}
           onClose={() => setTefQuestioningMode('none')}
           geminiKeyMissing={geminiKeyMissing}
           onOpenApiKeyModal={() => setShowApiKeyModal(true)}
@@ -1820,6 +2002,7 @@ const App: React.FC = () => {
           reviewError={tefQuestioningReviewError}
           onRetryReview={() => startTefQuestioningReview(tefQuestioningMessagesSnapshotRef.current)}
           onRegenerateReview={() => regenerateTefQuestioningReview(tefQuestioningMessagesSnapshotRef.current)}
+          topicArchiveSaved={tefQuestioningTopicArchiveSaved}
         />
       )}
 
@@ -1838,8 +2021,24 @@ const App: React.FC = () => {
           onRegenerateReview={() => regenerateTefAdReview(tefAdMessagesSnapshotRef.current)}
           onRestart={handleRestartTefAdFromSummary}
           onDismiss={handleDismissTefAdSummary}
+          topicArchiveSaved={tefAdTopicArchiveSaved}
         />
       )}
+
+      <TefTopicHistorySheet
+        open={showTopicHistory}
+        onClose={closeTopicHistory}
+        filterAdId={topicHistoryFilterAdId}
+        initialArchiveId={topicHistoryInitialArchiveId}
+        onRestartSavedAd={async (ad) => {
+          closeTopicHistory();
+          if (ad.exerciseType === 'persuasion') {
+            await handleStartTefConversationFromSaved(ad);
+          } else {
+            await handleStartTefQuestioningFromSaved(ad);
+          }
+        }}
+      />
 
       {/* TEF Ad Time's Up Overlay */}
       {tefTimedUp && tefAdMode === 'practice' && !showTefAdSummary && (
@@ -1924,6 +2123,10 @@ const App: React.FC = () => {
         open={showModeSheet}
         onOpenChange={setShowModeSheet}
         onSelectMode={handleSelectMode}
+        onOpenTopicHistory={() => {
+          setShowModeSheet(false);
+          openTopicHistory(null);
+        }}
       />
     </div>
   );

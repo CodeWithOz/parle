@@ -15,6 +15,7 @@ interface TefAdSummaryProps {
   onRegenerateReview: () => void;
   onRestart: () => void;
   onDismiss: () => void;
+  topicArchiveSaved?: boolean;
 }
 
 function formatTime(seconds: number): string {
@@ -36,12 +37,14 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
   onRegenerateReview,
   onRestart,
   onDismiss,
+  topicArchiveSaved = false,
 }) => {
   const currentReview = reviews[reviewIndex];
 
   return (
-    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full p-8 text-center overflow-y-auto max-h-[85vh]">
+    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 overscroll-none">
+      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[min(85dvh,100%)] flex flex-col min-h-0 text-center">
+        <div className="overflow-y-auto overscroll-y-contain flex-1 min-h-0 p-8">
         {/* Icon */}
         <div className="w-16 h-16 bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-700/50">
           <svg
@@ -125,6 +128,15 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
           onRegenerate={onRegenerateReview}
         />
 
+        {topicArchiveSaved && !isReviewLoading && (
+          <div className="flex items-center justify-center gap-1.5 mt-4 text-xs text-slate-500">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+              <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+            Saved to your topic library
+          </div>
+        )}
+
         <div className="flex-shrink-0 w-full mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
           <button
             onClick={onRestart}
@@ -139,6 +151,7 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
           >
             Done
           </button>
+        </div>
         </div>
       </div>
     </div>

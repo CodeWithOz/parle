@@ -35,3 +35,6 @@ workflow-report.md
 
 # Cursor
 .cursor/hooks/state/
+
+# Local UI mockup reference extracts (not production code)
+.mockup-ref/

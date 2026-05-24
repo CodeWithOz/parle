@@ -56,6 +56,10 @@ interface ComponentFixture {
   /** The component under test */
   Component: React.ComponentType<{
     onStartConversation: (image: string, mimeType: string, confirmation: { summary: string; roleSummary: string }) => void;
+    onStartFromSaved: (ad: unknown) => void;
+    onTopicsForAd: (ad: unknown) => void;
+    onDeleteSavedAd: (ad: unknown) => void;
+    recentAdsRefreshToken?: number;
     onClose: () => void;
     geminiKeyMissing?: boolean;
     onOpenApiKeyModal?: () => void;
@@ -83,11 +87,18 @@ const fixtures: ComponentFixture[] = [
 
 function renderFixture(fixture: ComponentFixture) {
   const onStartConversation = vi.fn();
+  const onStartFromSaved = vi.fn();
+  const onTopicsForAd = vi.fn();
+  const onDeleteSavedAd = vi.fn();
   const onClose = vi.fn();
   const onOpenApiKeyModal = vi.fn();
   const result = render(
     React.createElement(fixture.Component, {
       onStartConversation,
+      onStartFromSaved,
+      onTopicsForAd,
+      onDeleteSavedAd,
+      recentAdsRefreshToken: 0,
       onClose,
       geminiKeyMissing: false,
       onOpenApiKeyModal,

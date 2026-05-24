@@ -26,11 +26,18 @@ const sampleConfirmation = { summary: 'A luxury car ad.', roleSummary: 'I will b
  */
 function renderSetup(overrides: Partial<React.ComponentProps<typeof AdPersuasionSetup>> = {}) {
   const onStartConversation = vi.fn();
+  const onStartFromSaved = vi.fn();
+  const onTopicsForAd = vi.fn();
+  const onDeleteSavedAd = vi.fn();
   const onClose = vi.fn();
   const onOpenApiKeyModal = vi.fn();
   const result = render(
     React.createElement(AdPersuasionSetup, {
       onStartConversation,
+      onStartFromSaved,
+      onTopicsForAd,
+      onDeleteSavedAd,
+      recentAdsRefreshToken: 0,
       onClose,
       geminiKeyMissing: false,
       onOpenApiKeyModal,
