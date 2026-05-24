@@ -21,9 +21,17 @@ export const TefRecentAdsCarousel: React.FC<TefRecentAdsCarouselProps> = ({
   const [ads, setAds] = useState<TefSavedAd[]>([]);
 
   useEffect(() => {
+    let cancelled = false;
     void listSavedAds(exerciseType)
-      .then(setAds)
-      .catch(() => setAds([]));
+      .then((loaded) => {
+        if (!cancelled) setAds(loaded);
+      })
+      .catch(() => {
+        if (!cancelled) setAds([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [exerciseType, refreshToken]);
 
   if (ads.length === 0) {

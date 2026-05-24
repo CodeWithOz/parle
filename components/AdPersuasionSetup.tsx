@@ -130,11 +130,19 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
     }
   };
 
+  const handleStartFromSaved = (ad: TefSavedAd) => {
+    if (!hasApiKeyOrEnv('gemini')) {
+      onOpenApiKeyModal?.();
+      return;
+    }
+    onStartFromSaved(ad);
+  };
+
   return (
-    <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4 overscroll-none">
+      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[min(90dvh,100%)] flex flex-col min-h-0">
         {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-slate-700">
+        <div className="flex-shrink-0 flex justify-between items-center p-6 border-b border-slate-700">
           <h2 className="text-xl font-bold text-slate-100">Practice Ad Persuasion</h2>
           <button
             onClick={onClose}
@@ -164,6 +172,7 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
           </div>
         )}
 
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain">
         <div className="p-6 space-y-6">
           {/* Step 1: Upload */}
           {step === 'upload' && (
@@ -225,7 +234,7 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
               <TefRecentAdsCarousel
                 exerciseType="persuasion"
                 refreshToken={recentAdsRefreshToken}
-                onStart={onStartFromSaved}
+                onStart={handleStartFromSaved}
                 onTopics={onTopicsForAd}
                 onDelete={onDeleteSavedAd}
               />
@@ -334,6 +343,7 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
               </p>
             </>
           )}
+        </div>
         </div>
       </div>
     </div>

@@ -18,12 +18,12 @@ export const PracticeModeSheet: React.FC<PracticeModeSheetProps> = ({
     <Drawer.Root open={open} onOpenChange={onOpenChange}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-50 bg-black/80" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-w-lg flex-col rounded-t-2xl bg-slate-900 border-t border-slate-700/50 focus:outline-none">
+        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[min(96dvh,100%)] max-w-lg flex-col rounded-t-2xl bg-slate-900 border-t border-slate-700/50 focus:outline-none">
           {/* Drag handle */}
-          <div className="mx-auto mt-3 mb-1 h-1.5 w-12 rounded-full bg-slate-600" />
+          <div className="mx-auto mt-3 mb-1 h-1.5 w-12 flex-shrink-0 rounded-full bg-slate-600" />
 
           {/* Header */}
-          <div className="px-6 pt-4 pb-2">
+          <div className="flex-shrink-0 px-6 pt-4 pb-2">
             <Drawer.Title asChild>
               <h2 className="text-lg font-semibold text-slate-100">Choose a Practice Mode</h2>
             </Drawer.Title>
@@ -32,8 +32,11 @@ export const PracticeModeSheet: React.FC<PracticeModeSheetProps> = ({
             </Drawer.Description>
           </div>
 
-          {/* Mode cards */}
-          <div className="px-4 pb-8 pt-2 space-y-3">
+          {/* Mode cards — scrollable; data-vaul-no-drag prevents swipe-to-dismiss while scrolling */}
+          <div
+            className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-4 pb-8 pt-2 space-y-3"
+            data-vaul-no-drag
+          >
             {/* Ad Persuasion */}
             <button
               onClick={() => onSelectMode('ad-persuasion')}

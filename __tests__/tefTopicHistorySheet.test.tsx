@@ -67,6 +67,7 @@ beforeEach(() => {
   mockDelete.mockReset();
   mockList.mockReturnValue([]);
   mockGetSavedAd.mockResolvedValue(null);
+  vi.spyOn(window, 'confirm').mockReturnValue(true);
 });
 
 // ---------------------------------------------------------------------------

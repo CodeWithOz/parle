@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { TefExerciseType, TefSavedAd, TefTopicArchive } from '../types';
 import { deleteTopicArchive, getSavedAd, listTopicArchives } from '../services/tefArchiveService';
 import { ImageLightbox } from './ImageLightbox';
@@ -8,6 +8,7 @@ import {
   formatArchiveDateTime,
   groupArchivesByDate,
 } from '../utils/tefArchiveDisplay';
+import { confirmDelete } from '../utils/confirmDelete';
 
 interface TefTopicHistorySheetProps {
   open: boolean;
@@ -29,6 +30,7 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
   const [adCache, setAdCache] = useState<Record<string, TefSavedAd | null>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const adFetchTokenRef = useRef(0);
 
   const refresh = useCallback(() => {
     setArchives(listTopicArchives(filterAdId ?? undefined));
@@ -55,10 +57,12 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
       setAdCache({});
       return;
     }
+    const fetchToken = ++adFetchTokenRef.current;
     const adIds = [...new Set(archives.map((a) => a.adId))];
     void Promise.allSettled(
       adIds.map(async (id) => [id, await getSavedAd(id)] as const)
     ).then((results) => {
+      if (fetchToken !== adFetchTokenRef.current) return;
       const pairs = results
         .filter(
           (r): r is PromiseFulfilledResult<readonly [string, Awaited<ReturnType<typeof getSavedAd>>]> =>
@@ -67,6 +71,9 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
         .map((r) => r.value);
       setAdCache(Object.fromEntries(pairs));
     });
+    return () => {
+      adFetchTokenRef.current += 1;
+    };
   }, [open, archives]);
 
   if (!open) return null;
@@ -85,15 +92,22 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
 
   const handleDelete = () => {
     if (!selected) return;
+    if (
+      !confirmDelete(
+        'Delete this topic archive? This cannot be undone.'
+      )
+    ) {
+      return;
+    }
     deleteTopicArchive(selected.id);
     setSelectedId(null);
     refresh();
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/95 z-[60] flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-slate-900/95 z-[60] flex items-center justify-center p-4 overscroll-none">
       <div
-        className="bg-slate-800 border border-slate-700 rounded-2xl max-w-3xl w-full max-h-[88vh] flex flex-col"
+        className="bg-slate-800 border border-slate-700 rounded-2xl max-w-3xl w-full max-h-[min(88dvh,100%)] flex flex-col min-h-0"
         role="dialog"
         aria-modal="true"
         aria-labelledby="tef-topic-history-title"
@@ -119,7 +133,7 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
           </button>
         </div>
 
-        <div className="overflow-y-auto flex-1 p-5">
+        <div className="overflow-y-auto overscroll-y-contain flex-1 min-h-0 p-5">
           {!selected ? (
             <>
               {archives.length === 0 ? (

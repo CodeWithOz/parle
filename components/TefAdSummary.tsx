@@ -42,8 +42,9 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
   const currentReview = reviews[reviewIndex];
 
   return (
-    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full p-8 text-center overflow-y-auto max-h-[85vh]">
+    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 overscroll-none">
+      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[min(85dvh,100%)] flex flex-col min-h-0 text-center">
+        <div className="overflow-y-auto overscroll-y-contain flex-1 min-h-0 p-8">
         {/* Icon */}
         <div className="w-16 h-16 bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-700/50">
           <svg
@@ -150,6 +151,7 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
           >
             Done
           </button>
+        </div>
         </div>
       </div>
     </div>

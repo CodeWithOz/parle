@@ -50,31 +50,7 @@ const b4MockAi = {
 
 vi.mocked(GoogleGenAI).mockReturnValue(b4MockAi as unknown as GoogleGenAI);
 
-// ---------------------------------------------------------------------------
-// B1 — TEF exercises do not surface ConversationHint (practice guide instead)
-// ---------------------------------------------------------------------------
-
-describe('B1 · TEF modes exclude ConversationHint (App.tsx source-text)', () => {
-  it('setCurrentHint is guarded by scenarioMode practice only (not TEF modes)', async () => {
-    const src = await import('../App?raw');
-    expect(src.default).toMatch(
-      /if \(scenarioMode === 'practice' && hint\) \{\s*setCurrentHint\(hint\);/
-    );
-    expect(src.default).not.toMatch(
-      /if \(\(scenarioMode === 'practice' \|\| tefAdMode === 'practice'\) && hint\)/
-    );
-    expect(src.default).not.toMatch(
-      /tefQuestioningMode === 'practice' && !tefQuestioningIsFirstMessage && hint/
-    );
-  });
-
-  it('ConversationHint isVisible excludes TEF practice modes', async () => {
-    const src = await import('../App?raw');
-    expect(src.default).toMatch(
-      /isVisible=\{scenarioMode === 'practice' && \(appState === AppState\.IDLE \|\| appState === AppState\.RECORDING\)\}/
-    );
-  });
-});
+// B1 hint visibility is covered by conversationHintVisibility.test.ts
 
 // ---------------------------------------------------------------------------
 // B2 — showLightbox not reset in exit / dismiss handlers

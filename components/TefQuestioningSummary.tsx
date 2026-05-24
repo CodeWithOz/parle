@@ -105,14 +105,14 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 overscroll-none"
       role="dialog"
       aria-modal="true"
       aria-labelledby="questioning-summary-title"
     >
-      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[85vh] flex flex-col text-center">
+      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[min(85dvh,100%)] flex flex-col min-h-0 text-center">
         {/* Scrollable content area */}
-        <div className="overflow-y-auto p-8 flex-1 min-h-0">
+        <div className="overflow-y-auto overscroll-y-contain p-8 flex-1 min-h-0">
           {/* Icon */}
           <div className="w-16 h-16 bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-blue-700/50">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-400" viewBox="0 0 20 20" fill="currentColor">

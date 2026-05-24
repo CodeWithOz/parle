@@ -67,20 +67,18 @@ describe('TefTopicHistorySheet', () => {
 describe('App.tsx · TEF persistence integration', () => {
   it('calls persistReviewTopics after successful review in startTefAdReview', async () => {
     const src = await import('../App.tsx?raw');
-    expect(src.default).toMatch(/persistReviewTopics\('persuasion', r\)/);
-    expect(src.default).toMatch(/persistReviewTopics\('questioning', r\)/);
+    expect(src.default).toMatch(/persistReviewTopics\(adId, 'persuasion', r\)/);
+    expect(src.default).toMatch(/persistReviewTopics\(adId, 'questioning', r\)/);
     expect(src.default).toMatch(/upsertSavedAd/);
     expect(src.default).toMatch(/loadPracticeGuideForAd/);
   });
 });
 
 describe('App.tsx · TEF hint removal', () => {
-  it('ConversationHint isVisible excludes TEF modes', async () => {
+  it('ConversationHint uses isConversationHintVisible (role-play only)', async () => {
     const src = await import('../App.tsx?raw');
     const text = src.default as string;
-    expect(text).toMatch(
-      /isVisible=\{scenarioMode === 'practice' && \(appState === AppState\.IDLE \|\| appState === AppState\.RECORDING\)\}/
-    );
+    expect(text).toMatch(/isVisible=\{isConversationHintVisible\(scenarioMode, appState\)\}/);
     expect(text).not.toMatch(/tefAdMode === 'practice' \|\| tefQuestioningMode === 'practice'\)[\s\S]{0,80}ConversationHint/);
   });
 });
@@ -106,18 +104,25 @@ describe('App.tsx · persistReviewTopics calls saveTopicArchive', () => {
     expect(text).toMatch(/saveTopicArchive[\s\S]{0,200}topicSuggestions/);
   });
 
-  it('persistReviewTopics uses currentTefAdIdRef.current as adId', async () => {
+  it('captures adId when review starts and passes it to persistReviewTopics', async () => {
     const src = await import('../App.tsx?raw');
     const text = src.default as string;
-    expect(text).toMatch(/persistReviewTopics[\s\S]{0,200}currentTefAdIdRef\.current/);
+    expect(text).toMatch(/startTefAdReview[\s\S]{0,120}const adId = currentTefAdIdRef\.current/);
+    expect(text).toMatch(/persistReviewTopics\(adId,/);
   });
 
-  it('returns false (and does not save) when adId is null', async () => {
+  it('returns false (and does not save) when adId is missing', async () => {
     const src = await import('../App.tsx?raw');
     const text = src.default as string;
-    // Guard: if (!adId || ...) return false
     expect(text).toMatch(/persistReviewTopics[\s\S]{0,200}if\s*\(\s*!adId/);
     expect(text).toMatch(/return false/);
+  });
+
+  it('wraps saveTopicArchive in try/catch inside persistReviewTopics', async () => {
+    const src = await import('../App.tsx?raw');
+    const text = src.default as string;
+    expect(text).toMatch(/persistReviewTopics[\s\S]{0,400}try\s*\{[\s\S]{0,200}saveTopicArchive/);
+    expect(text).toMatch(/catch[\s\S]{0,120}return false/);
   });
 });
 
@@ -169,8 +174,7 @@ describe('App.tsx · practiceGuide state loaded from topic archive', () => {
     const src = await import('../App.tsx?raw');
     const text = src.default as string;
     expect(text).toMatch(/loadPracticeGuideForAd/);
-    // Called inside the review .then() callback when persistReviewTopics succeeds
-    expect(text).toMatch(/if \(persistReviewTopics[\s\S]{0,400}loadPracticeGuideForAd/);
+    expect(text).toMatch(/if \(adId && persistReviewTopics\(adId,[\s\S]{0,200}loadPracticeGuideForAd\(adId\)/);
   });
 });
 

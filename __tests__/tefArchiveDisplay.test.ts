@@ -41,10 +41,13 @@ describe('formatArchiveDateTime', () => {
     expect(result).toMatch(/15/);
   });
 
-  it('includes month name for a known date (Jan 15)', () => {
+  it('includes localized month for a known date (Jan 15)', () => {
     const ts = new Date(2025, 0, 15, 14, 30).getTime();
     const result = formatArchiveDateTime(ts);
-    expect(result).toMatch(/Jan/i);
+    const expectedMonth = new Intl.DateTimeFormat(undefined, { month: 'short' }).format(
+      new Date(ts)
+    );
+    expect(result).toContain(expectedMonth);
   });
 });
 
@@ -61,9 +64,13 @@ describe('formatLastUsedDate', () => {
     expect(formatLastUsedDate(Date.now())).not.toMatch(/:/);
   });
 
-  it('includes month name for a known date (Mar 7)', () => {
+  it('includes localized month for a known date (Mar 7)', () => {
     const ts = new Date(2025, 2, 7).getTime();
-    expect(formatLastUsedDate(ts)).toMatch(/Mar/i);
+    const result = formatLastUsedDate(ts);
+    const expectedMonth = new Intl.DateTimeFormat(undefined, { month: 'short' }).format(
+      new Date(ts)
+    );
+    expect(result).toContain(expectedMonth);
   });
 
   it('includes day number for a known date (Mar 7)', () => {

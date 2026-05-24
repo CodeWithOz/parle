@@ -18,8 +18,6 @@ function createIdbMock() {
 
   const mockStore = {
     getAll: () => ({
-      onsuccess: null as (() => void) | null,
-      onerror: null as (() => void) | null,
       result: [] as TefSavedAd[],
       get onsuccess() {
         return this._onsuccess;
@@ -34,8 +32,6 @@ function createIdbMock() {
       _onsuccess: null as (() => void) | null,
     }),
     get: (key: string) => ({
-      onsuccess: null as (() => void) | null,
-      onerror: null as (() => void) | null,
       result: undefined as TefSavedAd | undefined,
       get onsuccess() {
         return this._onsuccess;
@@ -50,8 +46,6 @@ function createIdbMock() {
       _onsuccess: null as (() => void) | null,
     }),
     put: (value: TefSavedAd) => ({
-      onsuccess: null as (() => void) | null,
-      onerror: null as (() => void) | null,
       get onsuccess() {
         return this._onsuccess;
       },
@@ -65,8 +59,6 @@ function createIdbMock() {
       _onsuccess: null as (() => void) | null,
     }),
     delete: (key: string) => ({
-      onsuccess: null as (() => void) | null,
-      onerror: null as (() => void) | null,
       get onsuccess() {
         return this._onsuccess;
       },
@@ -84,8 +76,6 @@ function createIdbMock() {
   const mockDb = {
     transaction: () => ({
       objectStore: () => mockStore,
-      oncomplete: null as (() => void) | null,
-      onerror: null as (() => void) | null,
       get oncomplete() {
         return this._oncomplete;
       },
@@ -101,8 +91,6 @@ function createIdbMock() {
 
   return {
     open: () => ({
-      onsuccess: null as (() => void) | null,
-      onerror: null as (() => void) | null,
       result: mockDb,
       get onsuccess() {
         return this._onsuccess;
