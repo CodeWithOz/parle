@@ -9,8 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers playwright test",
-    "test:e2e:install": "PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers playwright install",
-    "test:browser-screenshots": "PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers bash .browser-test-screenshots/run-browser-tests.sh"
+    "test:e2e:install": "PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers playwright install"
   },
   "dependencies": {
     "@google/genai": "^1.37.0",

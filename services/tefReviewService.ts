@@ -293,8 +293,8 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
                     },
                     description:
                       exerciseType === 'persuasion'
-                        ? 'Exactly 2 persuasive French statements (with English translations) the user could say to their friend'
-                        : 'Exactly 2 French questions (with English translations) the user could ask the agent',
+                        ? 'At least 2 persuasive French statements (with English translations) the user could say to their friend'
+                        : 'At least 2 French questions (with English translations) the user could ask the agent',
                   },
                 },
                 required: ['topic', 'examples'],

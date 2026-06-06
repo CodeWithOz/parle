@@ -54,6 +54,8 @@ const App: React.FC = () => {
   });
 
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
+  const appStateRef = useRef(appState);
+  appStateRef.current = appState;
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -405,6 +407,8 @@ const App: React.FC = () => {
   };
 
   // TEF Questioning conversation timer (5-minute limit)
+  const cancelRecordingRef = useRef<(() => void) | null>(null);
+
   const handleTefQuestioningTimeUp = useCallback(() => {
     // Treat this as an intentional abort so processAudioMessage doesn't
     // fall through into ERROR UI on AbortError.
@@ -412,6 +416,9 @@ const App: React.FC = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
+    }
+    if (appStateRef.current === AppState.RECORDING) {
+      cancelRecordingRef.current?.();
     }
     setTefQuestioningTimedUp(true);
     invalidateTefQuestioningReview();
@@ -493,6 +500,7 @@ const App: React.FC = () => {
     checkMicrophonePermission,
     requestMicrophonePermission
   } = useAudio();
+  cancelRecordingRef.current = cancelRecording;
 
   // Check for API keys on mount; never show modal on load so user can see the app first
   useEffect(() => {
@@ -1722,6 +1730,9 @@ const App: React.FC = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
+    }
+    if (appState === AppState.RECORDING) {
+      cancelRecording();
     }
     setShowLightbox(false);
     invalidateTefQuestioningReview();
