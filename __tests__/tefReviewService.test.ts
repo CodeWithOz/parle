@@ -552,6 +552,32 @@ describe('generateTefReview · persuasion criteria in prompt', () => {
     const promptText = JSON.stringify(callArg);
     expect(promptText).not.toMatch(/objectionState|isConvinced|currentDirection/);
   });
+
+  it('persuasion topic suggestions instruct user-perspective persuasive statements (not friend questions)', async () => {
+    await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    const promptText = JSON.stringify(callArg).toLowerCase();
+    expect(promptText).toMatch(/user could say|persuasive statements|persuader/);
+    expect(promptText).toMatch(/do not write questions the friend would ask|not questions the friend would ask/);
+  });
+
+  it('questioning topic suggestions instruct user questions to the agent', async () => {
+    await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+
+    const callArg = mockGenerateContent.mock.calls[0][0];
+    const promptText = JSON.stringify(callArg).toLowerCase();
+    expect(promptText).toMatch(/questions the user could ask/);
+  });
 });
 
 // ---------------------------------------------------------------------------
