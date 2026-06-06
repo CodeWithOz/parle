@@ -189,6 +189,17 @@ CONVERSATION TRANSCRIPT:
     }
   }
 
+  const topicSuggestionInstructions =
+    exerciseType === 'persuasion'
+      ? `5. Topic suggestions: suggest at least 5 additional persuasive angles/arguments the user could have used to convince their skeptical friend
+   - Each topic should describe an argument angle (e.g. "Le rapport qualité-prix", "La flexibilité des horaires")
+   - For EACH suggested topic, provide at least 2 short spoken examples in French that the USER could say TO their friend — persuasive statements from the user's perspective (e.g. "Je te conseille de...", "Tu devrais...", "C'est une super opportunité parce que...")
+   - Do NOT write questions the friend would ask — the examples must be convincing things the user (the persuader) could say
+   - Include an English translation for each French example`
+      : `5. Topic suggestions: suggest at least 5 additional relevant topics/angles the user could have asked about
+   - For EACH suggested topic, provide at least 2 short spoken examples in French as questions the user could ask the customer service agent
+   - Include an English translation for each French example`;
+
   // Epilogue with evaluation instructions
   const epilogue = `
 
@@ -198,9 +209,7 @@ Based on the conversation above, provide a structured CEFR evaluation. Assess th
 2. What the user did well (concrete positive observations)
 3. Grammatical/lexical mistakes with corrections and explanations
 4. Vocabulary improvements: suggest at least 5 more precise or higher-register alternatives
-5. Topic suggestions: suggest at least 5 additional relevant topics/angles the user could have mentioned
-   - For EACH suggested topic, provide at least 2 short spoken examples in French.
-   - Include an English translation for each French example.
+${topicSuggestionInstructions}
 
 Return ONLY valid JSON matching the required schema. Do not include any markdown or explanation outside the JSON.`;
 
@@ -271,17 +280,29 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
                     items: {
                       type: Type.OBJECT,
                       properties: {
-                        french: { type: Type.STRING },
+                        french: {
+                          type: Type.STRING,
+                          description:
+                            exerciseType === 'persuasion'
+                              ? 'Persuasive French statement the user could say to convince their friend (not a question from the friend)'
+                              : 'French question the user could ask the customer service agent',
+                        },
                         english: { type: Type.STRING },
                       },
                       required: ['french', 'english'],
                     },
-                    description: 'Exactly 2 French examples with English translations',
+                    description:
+                      exerciseType === 'persuasion'
+                        ? 'At least 2 persuasive French statements (with English translations) the user could say to their friend'
+                        : 'At least 2 French questions (with English translations) the user could ask the agent',
                   },
                 },
                 required: ['topic', 'examples'],
               },
-              description: 'Additional relevant topics/angles the user could have mentioned, each with 2 bilingual examples',
+              description:
+                exerciseType === 'persuasion'
+                  ? 'Additional persuasive argument angles the user could have mentioned, each with 2 bilingual example statements the user could say to their friend (not questions the friend would ask)'
+                  : 'Additional relevant topics/angles the user could have asked about, each with 2 bilingual example questions',
             },
             ...(exerciseType === 'persuasion' ? {
               criteriaEvaluation: {
@@ -417,6 +438,8 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
       }
     }
   }
+
+  if (signal?.aborted) return null;
 
   return obj as unknown as TefReview;
 }

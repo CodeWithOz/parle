@@ -186,3 +186,30 @@ describe('App.tsx · PracticeModeSheet receives onOpenTopicHistory prop', () => 
     expect(text).toMatch(/PracticeModeSheet[\s\S]{0,200}onOpenTopicHistory/);
   });
 });
+
+describe('App.tsx · post-exercise review abort and stale discard', () => {
+  it('uses per-request AbortController and request id guards for TEF reviews', async () => {
+    const src = await import('../App.tsx?raw');
+    const text = src.default as string;
+    expect(text).toMatch(/tefAdReviewAbortControllerRef/);
+    expect(text).toMatch(/tefAdReviewRequestIdRef/);
+    expect(text).toMatch(/tefQuestioningReviewAbortControllerRef/);
+    expect(text).toMatch(/tefQuestioningReviewRequestIdRef/);
+    expect(text).toMatch(/signal: abortController\.signal/);
+    expect(text).toMatch(/currentRequestId !== tefAdReviewRequestIdRef\.current/);
+    expect(text).toMatch(/isAbortLikeError\(e\)/);
+  });
+
+  it('invalidates in-flight review on dismiss, restart, and new session start (no exercise-active guard)', async () => {
+    const src = await import('../App.tsx?raw');
+    const text = src.default as string;
+    expect(text).toMatch(/invalidateTefAdReview/);
+    expect(text).toMatch(/invalidateTefQuestioningReview/);
+    expect(text).toMatch(/handleDismissTefAdSummary[\s\S]{0,200}invalidateTefAdReview/);
+    expect(text).toMatch(/handleRestartTefAdFromSummary[\s\S]{0,200}invalidateTefAdReview/);
+    expect(text).toMatch(/handleStartTefConversation[\s\S]{0,400}invalidateTefAdReview/);
+    expect(text).toMatch(/handleStartTefQuestioningConversation[\s\S]{0,400}invalidateTefQuestioningReview/);
+    expect(text).not.toMatch(/showTefAdSummary[\s\S]{0,80}persistReviewTopics/);
+    expect(text).not.toMatch(/tefAdMode[\s\S]{0,80}persistReviewTopics/);
+  });
+});

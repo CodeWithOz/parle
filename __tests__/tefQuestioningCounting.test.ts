@@ -123,21 +123,21 @@ describe('tefQuestioningCounting · counts reset on new questioning session', ()
     const src = await import('../App?raw');
     // The start handler must reset the question count
     expect(src.default).toMatch(
-      /handleStartTefQuestioning[\s\S]{0,600}setTefQuestioningQuestionCount\s*\(\s*0\s*\)/
+      /handleStartTefQuestioning[\s\S]{0,1000}setTefQuestioningQuestionCount\s*\(\s*0\s*\)/
     );
   });
 
   it('resets tefQuestioningRepeatCount to 0 when starting a new questioning session', async () => {
     const src = await import('../App?raw');
     expect(src.default).toMatch(
-      /handleStartTefQuestioning[\s\S]{0,600}setTefQuestioningRepeatCount\s*\(\s*0\s*\)/
+      /handleStartTefQuestioning[\s\S]{0,1000}setTefQuestioningRepeatCount\s*\(\s*0\s*\)/
     );
   });
 
   it('resets tefQuestioningIsFirstMessage to true when starting a new questioning session', async () => {
     const src = await import('../App?raw');
     expect(src.default).toMatch(
-      /handleStartTefQuestioning[\s\S]{0,600}setTefQuestioningIsFirstMessage\s*\(\s*true\s*\)/
+      /handleStartTefQuestioning[\s\S]{0,1000}setTefQuestioningIsFirstMessage\s*\(\s*true\s*\)/
     );
   });
 });

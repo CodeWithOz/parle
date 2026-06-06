@@ -630,6 +630,78 @@ If you believe you've found a genuine bug in one of these areas, please:
 
 ---
 
+## Browser Testing (Playwright CLI)
+
+Use this procedure when validating UI flows that are hard to cover with unit tests alone — especially TEF post-exercise review, summary dismiss/reopen, and stale-response discard. **Do not commit browser test scripts or screenshots to Git.** Artifacts live under `.browser-test-screenshots/` (gitignored).
+
+### When to browser-test
+
+- TEF Ad Persuasion or TEF Ad Questioning summary/review UI changes
+- Abort/stale-discard behavior for `generateTefReview` (dismiss before review completes, reopen session)
+- Saved-ad carousel / IndexedDB flows
+- Any change to post-exercise summary panels (`TefAdSummary`, `TefQuestioningSummary`, `TefReviewPanel`)
+
+### Prerequisites
+
+1. Read the Playwright CLI skill (`playwright-cli` skill) for command syntax.
+2. Install browsers if needed: `PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers npx playwright install`
+3. Start the dev server: `npm run dev` (default `http://localhost:3000`)
+
+### Session setup
+
+Use a named persistent session so state survives across commands:
+
+```bash
+export PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers
+SESSION=parle-dev
+pw() { playwright-cli -s="$SESSION" "$@"; }
+
+pw open http://localhost:3000
+pw localstorage-set parle_api_key_gemini browser-test-key-mock
+```
+
+### Mock Gemini API for TEF review flows
+
+Route `generativelanguage.googleapis.com` and return a JSON body shaped like the Gemini REST response, with review JSON in `candidates[0].content.parts[0].text`. Use `pw run-code` to call `page.route(...)` before triggering review.
+
+For stale-review testing, delay the **first two** review responses (~8s) so the user can dismiss the summary before the mock resolves; later calls can respond quickly (~500ms). After dismiss, wait ~9s and assert the summary heading does **not** reappear (stale response discarded).
+
+Store a reusable mock payload locally at `.browser-test-screenshots/mock-review.json` (gitignored). It must include `topicSuggestions` (≥5 topics, each with ≥2 bilingual examples) and, for persuasion, `criteriaEvaluation`.
+
+### Seed IndexedDB for saved ads
+
+Use `pw run-code` with `page.evaluate` to open IndexedDB database `parle-tef`, object store `savedAds` (keyPath `id`), and `put` a test ad:
+
+- `id`: e.g. `browser-test-ad-1`
+- `exerciseType`: `'persuasion'` or `'questioning'`
+- `imageDataUrl`: minimal PNG data URL
+- `confirmation`: `{ summary, roleSummary }`
+- `lastUsedAt`: `Date.now()`
+
+Reload or navigate to setup so the Recent carousel shows the seeded ad.
+
+### Stale review discard test approach
+
+1. Start practice from a saved ad → Exit → summary opens with review loading
+2. Click **Done** before review completes (while "Generating your review…" or spinner visible)
+3. Wait longer than the mock delay; verify **no** ghost "Session Complete" summary
+4. Reopen the same flow; wait for review; verify topic suggestions render (e.g. "Topics You Could Have Mentioned")
+
+### Screenshots and snapshots
+
+Save artifacts to `.browser-test-screenshots/` only:
+
+```bash
+pw screenshot --filename=.browser-test-screenshots/01-app-load.png
+pw snapshot --filename=.browser-test-screenshots/01-app-load.yml
+```
+
+Close the session when done: `pw close` (optionally `pw delete-data`).
+
+**Do not** add `run-browser-tests.sh`, `setup-browser-test.js`, or screenshot files to Git. Document ad-hoc steps in agent notes or this section — not in `workflow-report.md`.
+
+---
+
 ## Learned User Preferences
 
 - Remove temporary debug instrumentation (e.g. NDJSON ingest / `#region agent log` blocks) only after the user has confirmed the fix in the UI, unless they explicitly ask to clean up earlier.
@@ -656,4 +728,5 @@ If you believe you've found a genuine bug in one of these areas, please:
 - 2026-04-04: Added deferred audio URL revocation pattern and `generateTefReview` null-on-abort convention (TEF post-exercise review feature)
 - 2026-05-01: Added restart handlers to deferred URL revocation section; documented `topicSuggestions` required field on `TefReview` (both exercise types)
 - 2026-05-22: Documented TEF review user-only evaluation scope (`[Agent said: ...]` context-only pattern); documented questioning simulation context (caller already on call, tiered answer strategy: reassuring invented answers default, website/email last resort when user persists, never phone redirects)
+- 2026-06-06: Added browser testing procedure (Playwright CLI, Gemini mock, IndexedDB seeding, stale review discard); gitignore `.browser-test-screenshots/`
 - See git history for detailed implementation timeline

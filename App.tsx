@@ -54,6 +54,8 @@ const App: React.FC = () => {
   });
 
   const [appState, setAppState] = useState<AppState>(AppState.IDLE);
+  const appStateRef = useRef(appState);
+  appStateRef.current = appState;
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [hasStarted, setHasStarted] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -126,6 +128,12 @@ const App: React.FC = () => {
   const tefQuestioningMessagesSnapshotRef = useRef<Message[]>([]);
   const tefAdMessagesSnapshotRef = useRef<Message[]>([]);
 
+  // Abort + stale guarding for post-exercise review requests (same pattern as scenario description).
+  const tefAdReviewAbortControllerRef = useRef<AbortController | null>(null);
+  const tefAdReviewRequestIdRef = useRef(0);
+  const tefQuestioningReviewAbortControllerRef = useRef<AbortController | null>(null);
+  const tefQuestioningReviewRequestIdRef = useRef(0);
+
   // Refs to keep handleTefQuestioningTimeUp (useCallback with []) in sync with current state.
   // Sync assignments (.current = ...) happen after tefQuestioningElapsed is declared below.
   const tefQuestioningElapsedRef = useRef(0);
@@ -184,9 +192,27 @@ const App: React.FC = () => {
   // TEF Questioning review helpers
   // ---------------------------------------------------------------------------
 
+  const abortTefQuestioningReview = useCallback(() => {
+    if (tefQuestioningReviewAbortControllerRef.current) {
+      tefQuestioningReviewAbortControllerRef.current.abort();
+      tefQuestioningReviewAbortControllerRef.current = null;
+    }
+  }, []);
+
+  const invalidateTefQuestioningReview = useCallback(() => {
+    tefQuestioningReviewRequestIdRef.current += 1;
+    abortTefQuestioningReview();
+  }, [abortTefQuestioningReview]);
+
   const startTefQuestioningReview = (snapshot: Message[]) => {
     const adId = currentTefAdIdRef.current;
     const adSummary = activeScenarioRef.current?.aiSummary;
+    const currentRequestId = ++tefQuestioningReviewRequestIdRef.current;
+
+    abortTefQuestioningReview();
+    const abortController = new AbortController();
+    tefQuestioningReviewAbortControllerRef.current = abortController;
+
     setTefQuestioningReviews([]);
     setTefQuestioningReviewIndex(0);
     setTefQuestioningReviewError(null);
@@ -196,8 +222,10 @@ const App: React.FC = () => {
       messages: snapshot,
       adSummary,
       elapsedSeconds: tefQuestioningElapsedRef.current,
+      signal: abortController.signal,
     })
       .then((r) => {
+        if (currentRequestId !== tefQuestioningReviewRequestIdRef.current) return;
         if (r) {
           setTefQuestioningReviews([r]);
           setTefQuestioningReviewIndex(0);
@@ -208,14 +236,29 @@ const App: React.FC = () => {
         }
       })
       .catch((e) => {
+        if (currentRequestId !== tefQuestioningReviewRequestIdRef.current) return;
+        if (isAbortLikeError(e)) return;
         setTefQuestioningReviewError(e instanceof Error ? e.message : 'Review failed');
       })
-      .finally(() => setTefQuestioningReviewLoading(false));
+      .finally(() => {
+        if (currentRequestId === tefQuestioningReviewRequestIdRef.current) {
+          setTefQuestioningReviewLoading(false);
+        }
+        if (tefQuestioningReviewAbortControllerRef.current === abortController) {
+          tefQuestioningReviewAbortControllerRef.current = null;
+        }
+      });
   };
 
   const regenerateTefQuestioningReview = (snapshot: Message[]) => {
     const adId = currentTefAdIdRef.current;
     const adSummary = activeScenarioRef.current?.aiSummary;
+    const currentRequestId = ++tefQuestioningReviewRequestIdRef.current;
+
+    abortTefQuestioningReview();
+    const abortController = new AbortController();
+    tefQuestioningReviewAbortControllerRef.current = abortController;
+
     setTefQuestioningReviewError(null);
     setTefQuestioningReviewLoading(true);
     generateTefReview({
@@ -223,8 +266,10 @@ const App: React.FC = () => {
       messages: snapshot,
       adSummary,
       elapsedSeconds: tefQuestioningElapsedRef.current,
+      signal: abortController.signal,
     })
       .then((r) => {
+        if (currentRequestId !== tefQuestioningReviewRequestIdRef.current) return;
         if (r) {
           setTefQuestioningReviews((prev) => {
             const next = [...prev, r];
@@ -238,18 +283,45 @@ const App: React.FC = () => {
         }
       })
       .catch((e) => {
+        if (currentRequestId !== tefQuestioningReviewRequestIdRef.current) return;
+        if (isAbortLikeError(e)) return;
         setTefQuestioningReviewError(e instanceof Error ? e.message : 'Review failed');
       })
-      .finally(() => setTefQuestioningReviewLoading(false));
+      .finally(() => {
+        if (currentRequestId === tefQuestioningReviewRequestIdRef.current) {
+          setTefQuestioningReviewLoading(false);
+        }
+        if (tefQuestioningReviewAbortControllerRef.current === abortController) {
+          tefQuestioningReviewAbortControllerRef.current = null;
+        }
+      });
   };
 
   // ---------------------------------------------------------------------------
   // TEF Ad review helpers
   // ---------------------------------------------------------------------------
 
+  const abortTefAdReview = useCallback(() => {
+    if (tefAdReviewAbortControllerRef.current) {
+      tefAdReviewAbortControllerRef.current.abort();
+      tefAdReviewAbortControllerRef.current = null;
+    }
+  }, []);
+
+  const invalidateTefAdReview = useCallback(() => {
+    tefAdReviewRequestIdRef.current += 1;
+    abortTefAdReview();
+  }, [abortTefAdReview]);
+
   const startTefAdReview = (snapshot: Message[]) => {
     const adId = currentTefAdIdRef.current;
     const adSummary = activeScenario?.aiSummary;
+    const currentRequestId = ++tefAdReviewRequestIdRef.current;
+
+    abortTefAdReview();
+    const abortController = new AbortController();
+    tefAdReviewAbortControllerRef.current = abortController;
+
     setTefAdReviews([]);
     setTefAdReviewIndex(0);
     setTefAdReviewError(null);
@@ -259,8 +331,10 @@ const App: React.FC = () => {
       messages: snapshot,
       adSummary,
       elapsedSeconds: tefElapsed,
+      signal: abortController.signal,
     })
       .then((r) => {
+        if (currentRequestId !== tefAdReviewRequestIdRef.current) return;
         if (r) {
           setTefAdReviews([r]);
           setTefAdReviewIndex(0);
@@ -271,14 +345,29 @@ const App: React.FC = () => {
         }
       })
       .catch((e) => {
+        if (currentRequestId !== tefAdReviewRequestIdRef.current) return;
+        if (isAbortLikeError(e)) return;
         setTefAdReviewError(e instanceof Error ? e.message : 'Review failed');
       })
-      .finally(() => setTefAdReviewLoading(false));
+      .finally(() => {
+        if (currentRequestId === tefAdReviewRequestIdRef.current) {
+          setTefAdReviewLoading(false);
+        }
+        if (tefAdReviewAbortControllerRef.current === abortController) {
+          tefAdReviewAbortControllerRef.current = null;
+        }
+      });
   };
 
   const regenerateTefAdReview = (snapshot: Message[]) => {
     const adId = currentTefAdIdRef.current;
     const adSummary = activeScenario?.aiSummary;
+    const currentRequestId = ++tefAdReviewRequestIdRef.current;
+
+    abortTefAdReview();
+    const abortController = new AbortController();
+    tefAdReviewAbortControllerRef.current = abortController;
+
     setTefAdReviewError(null);
     setTefAdReviewLoading(true);
     generateTefReview({
@@ -286,8 +375,10 @@ const App: React.FC = () => {
       messages: snapshot,
       adSummary,
       elapsedSeconds: tefElapsed,
+      signal: abortController.signal,
     })
       .then((r) => {
+        if (currentRequestId !== tefAdReviewRequestIdRef.current) return;
         if (r) {
           setTefAdReviews((prev) => {
             const next = [...prev, r];
@@ -301,12 +392,23 @@ const App: React.FC = () => {
         }
       })
       .catch((e) => {
+        if (currentRequestId !== tefAdReviewRequestIdRef.current) return;
+        if (isAbortLikeError(e)) return;
         setTefAdReviewError(e instanceof Error ? e.message : 'Review failed');
       })
-      .finally(() => setTefAdReviewLoading(false));
+      .finally(() => {
+        if (currentRequestId === tefAdReviewRequestIdRef.current) {
+          setTefAdReviewLoading(false);
+        }
+        if (tefAdReviewAbortControllerRef.current === abortController) {
+          tefAdReviewAbortControllerRef.current = null;
+        }
+      });
   };
 
   // TEF Questioning conversation timer (5-minute limit)
+  const cancelRecordingRef = useRef<(() => void) | null>(null);
+
   const handleTefQuestioningTimeUp = useCallback(() => {
     // Treat this as an intentional abort so processAudioMessage doesn't
     // fall through into ERROR UI on AbortError.
@@ -315,7 +417,11 @@ const App: React.FC = () => {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    if (appStateRef.current === AppState.RECORDING) {
+      cancelRecordingRef.current?.();
+    }
     setTefQuestioningTimedUp(true);
+    invalidateTefQuestioningReview();
     setShowTefQuestioningSummary(true);
     const snapshot = messagesRef.current;
     tefQuestioningMessagesSnapshotRef.current = snapshot;
@@ -394,6 +500,7 @@ const App: React.FC = () => {
     checkMicrophonePermission,
     requestMicrophonePermission
   } = useAudio();
+  cancelRecordingRef.current = cancelRecording;
 
   // Check for API keys on mount; never show modal on load so user can see the app first
   useEffect(() => {
@@ -1282,6 +1389,14 @@ const App: React.FC = () => {
       return;
     }
 
+    // Abandon any in-flight post-exercise review from a prior session (no exercise-active guard).
+    invalidateTefAdReview();
+    setShowTefAdSummary(false);
+    setTefAdReviews([]);
+    setTefAdReviewIndex(0);
+    setTefAdReviewLoading(false);
+    setTefAdReviewError(null);
+
     // Reset first-message flag at the start of every new session
     setTefAdIsFirstMessage(true);
 
@@ -1391,6 +1506,8 @@ const App: React.FC = () => {
     setShowLightbox(false);
     setTefTimedUp(false);
 
+    invalidateTefAdReview();
+
     // Capture snapshot BEFORE clearing state — audio URLs must stay valid for review generation
     const snapshot = messagesRef.current;
     tefAdMessagesSnapshotRef.current = snapshot;
@@ -1406,6 +1523,9 @@ const App: React.FC = () => {
   };
 
   const handleDismissTefAdSummary = () => {
+    // Invalidate any in-flight review so late responses cannot be saved.
+    invalidateTefAdReview();
+
     // Revoke audio URLs from snapshot (safe now that review is done)
     for (const msg of tefAdMessagesSnapshotRef.current) {
       if (msg.audioUrl) {
@@ -1454,6 +1574,8 @@ const App: React.FC = () => {
       handleDismissTefAdSummary();
       return;
     }
+
+    invalidateTefAdReview();
 
     processingAbortedRef.current = true;
     if (abortControllerRef.current) {
@@ -1511,6 +1633,13 @@ const App: React.FC = () => {
       setShowApiKeyModal(true);
       return;
     }
+
+    invalidateTefQuestioningReview();
+    setShowTefQuestioningSummary(false);
+    setTefQuestioningReviews([]);
+    setTefQuestioningReviewIndex(0);
+    setTefQuestioningReviewLoading(false);
+    setTefQuestioningReviewError(null);
 
     // Reset counts and first-message flag immediately
     setTefQuestioningQuestionCount(0);
@@ -1602,7 +1731,11 @@ const App: React.FC = () => {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
+    if (appState === AppState.RECORDING) {
+      cancelRecording();
+    }
     setShowLightbox(false);
+    invalidateTefQuestioningReview();
     setShowTefQuestioningSummary(true);
     const snapshot = messagesRef.current;
     tefQuestioningMessagesSnapshotRef.current = snapshot;
@@ -1610,6 +1743,8 @@ const App: React.FC = () => {
   };
 
   const handleDismissTefQuestioningSummary = () => {
+    invalidateTefQuestioningReview();
+
     // Abort any in-flight processing or recording
     processingAbortedRef.current = true;
     if (abortControllerRef.current) {
@@ -1668,6 +1803,8 @@ const App: React.FC = () => {
       handleDismissTefQuestioningSummary();
       return;
     }
+
+    invalidateTefQuestioningReview();
 
     processingAbortedRef.current = true;
     if (abortControllerRef.current) {
