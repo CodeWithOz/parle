@@ -77,7 +77,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({ imageDataUrl, onCl
       role="dialog"
       aria-modal="true"
       aria-label="Image lightbox"
-      className="fixed inset-0 bg-black/90 z-[60] flex items-center justify-center"
+      className="fixed inset-0 bg-parle-navy-900/90 z-[60] flex items-center justify-center"
       onClick={handleBackdropClick}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
@@ -86,20 +86,20 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({ imageDataUrl, onCl
       {/* Close button */}
       <button
         onClick={onClose}
-        className="absolute top-4 right-4 p-2 bg-slate-800/80 hover:bg-slate-700 rounded-full transition-colors z-10"
+        className="absolute top-4 right-4 p-2 bg-parle-navy-900/80 hover:bg-parle-navy-700 rounded-full transition-colors z-10"
         aria-label="Close lightbox"
       >
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-slate-200" viewBox="0 0 20 20" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6 text-white" viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
         </svg>
       </button>
 
       {/* Zoom controls */}
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-800/90 rounded-xl px-4 py-2 z-10">
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-parle-navy-900/80 rounded-xl px-4 py-2 z-10">
         <button
           onClick={handleZoomOut}
           disabled={scale <= MIN_SCALE}
-          className="p-1.5 text-slate-300 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
+          className="p-1.5 text-parle-navy-100 hover:text-white disabled:text-parle-navy-500 disabled:cursor-not-allowed transition-colors"
           aria-label="Zoom out"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
@@ -110,7 +110,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({ imageDataUrl, onCl
 
         <button
           onClick={handleReset}
-          className="px-3 py-1 text-slate-300 hover:text-white text-xs font-mono transition-colors"
+          className="px-3 py-1 text-parle-navy-100 hover:text-white text-xs font-mono transition-colors"
           aria-label="Reset zoom"
         >
           {Math.round(scale * 100)}%
@@ -119,7 +119,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({ imageDataUrl, onCl
         <button
           onClick={handleZoomIn}
           disabled={scale >= MAX_SCALE}
-          className="p-1.5 text-slate-300 hover:text-white disabled:text-slate-600 disabled:cursor-not-allowed transition-colors"
+          className="p-1.5 text-parle-navy-100 hover:text-white disabled:text-parle-navy-500 disabled:cursor-not-allowed transition-colors"
           aria-label="Zoom in"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
