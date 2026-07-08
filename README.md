@@ -13,7 +13,7 @@ Parle is a web app for practicing French conversation using your microphone and 
 | Mode | Description |
 |------|-------------|
 | **Free conversation** | Open-ended French chat with the AI. Speak, get transcribed and answered, hear responses with TTS. |
-| **Scenario role-play** | Create or load scenarios (e.g. bakery, restaurant). Practice with one AI character or multiple (e.g. baker + cashier), each with a distinct voice. |
+| **Scenario role-play** | Create or load scenarios (e.g. bakery, restaurant). Practice with one AI character or multiple (e.g. baker + cashier), each with a distinct voice. Scenarios can include an editable, ordered **roadmap** of steps shown as a progress outline during practice; the AI reports which step the conversation currently reflects, and the displayed step only ever advances, never regresses. |
 | **TEF Ad Persuasion** | Practice the TEF “persuasion” task: upload an ad image, argue your position for 10 minutes while the AI coaches you through early, mid, and late-session phases. Post-session review scores you against the 5 official TEF criteria. |
 | **TEF Ad Questioning** | Practice the TEF “questioning” task: upload an ad, ask questions in French; the app tracks questions and repeated questions for review. |
 
@@ -23,7 +23,7 @@ Scenarios are stored in the browser. Conversation history, hints, and (where app
 
 ## Tech stack
 
-- **Frontend:** React 19, Vite 7, TypeScript, Tailwind CSS  
+- **Frontend:** React 19, Vite 7, TypeScript, Tailwind CSS (French-flag-inspired blue/white/red design tokens; responsive at `tablet` 760px / `desktop` 1200px breakpoints)  
 - **AI:** Google Gemini (transcription, chat, TTS); OpenAI optional for scenario creation from a description  
 - **Tests:** Vitest (unit), Playwright (e2e)
 
@@ -77,7 +77,7 @@ Scenarios are stored in the browser. Conversation history, hints, and (where app
 | Area | Contents |
 |------|----------|
 | `App.tsx` | Main UI and mode orchestration (free chat, scenario, TEF Ad persuasion/questioning) |
-| `components/` | UI (Orb, Controls, conversation history, setup flows, timers, summaries) |
+| `components/` | UI (Orb, Controls, conversation history, setup flows, timers, summaries); app shell (`NavRail`, `TopBar`) and `ScenarioRoadmap` (scenario step progress outline) |
 | `services/` | Gemini (session, voice message, TTS), OpenAI (scenario planning), scenario/voice/API-key helpers |
 | `hooks/` | Audio, conversation timer, document head |
 | `utils/` | Abort signal combiner, abort error helper, time helpers |
