@@ -28,6 +28,8 @@ interface ScenarioSetupProps {
   geminiKeyMissing: boolean;
   openaiKeyMissing: boolean;
   characters?: Character[]; // NEW: Characters for this scenario
+  roadmapSteps: string[]; // NEW: editable roadmap step texts, in order
+  onRoadmapStepsChange: (steps: string[]) => void;
 }
 
 export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
@@ -56,6 +58,8 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   geminiKeyMissing,
   openaiKeyMissing,
   characters,
+  roadmapSteps,
+  onRoadmapStepsChange,
 }) => {
   const [savedScenarios, setSavedScenarios] = useState<Scenario[]>([]);
   const [showSaved, setShowSaved] = useState(false);
@@ -119,7 +123,38 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     }
   };
 
+  // Roadmap editor handlers — controlled: every interaction calls
+  // onRoadmapStepsChange with a new array, never mutates roadmapSteps in place.
+  const handleRoadmapStepTextChange = (index: number, text: string) => {
+    const next = roadmapSteps.slice();
+    next[index] = text;
+    onRoadmapStepsChange(next);
+  };
+
+  const handleRoadmapStepRemove = (index: number) => {
+    const next = roadmapSteps.slice();
+    next.splice(index, 1);
+    onRoadmapStepsChange(next);
+  };
+
+  const handleRoadmapStepMove = (index: number, direction: -1 | 1) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= roadmapSteps.length) return;
+    const next = roadmapSteps.slice();
+    [next[index], next[targetIndex]] = [next[targetIndex], next[index]];
+    onRoadmapStepsChange(next);
+  };
+
+  const handleRoadmapAddStep = () => {
+    onRoadmapStepsChange([...roadmapSteps, '']);
+  };
+
   const handleStartPractice = () => {
+    const steps = roadmapSteps
+      .map((text) => text.trim())
+      .filter((text) => text.length > 0)
+      .map((text, idx) => ({ id: `${generateId()}_step${idx}`, text }));
+
     const scenario: Scenario = {
       id: generateId(),
       name: currentName,
@@ -128,6 +163,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
       createdAt: Date.now(),
       isActive: true,
       characters: characters, // Include characters data
+      steps,
     };
 
     try {
@@ -445,6 +481,81 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                   </div>
                 </div>
               )}
+
+              {/* Roadmap Editor — confirm + edit the scenario roadmap (wireframe 3d/4d) */}
+              <div>
+                <h4 className="text-sm font-medium text-slate-300 mb-1">Your Roadmap</h4>
+                <p className="text-xs text-slate-500 mb-3">
+                  Drag to reorder, edit or remove any step. This maps out the scenario so you always know what's next.
+                </p>
+                <div data-testid="roadmap-step-list" className="space-y-2">
+                  {roadmapSteps.map((stepText, index) => (
+                    <div
+                      key={index}
+                      data-testid={`roadmap-step-${index}`}
+                      className="flex items-center gap-2 p-2 bg-slate-800/50 rounded-lg border border-slate-700/50"
+                    >
+                      <span className="text-slate-500 cursor-grab select-none px-1" aria-hidden="true">⋮⋮</span>
+                      <input
+                        type="text"
+                        data-testid={`roadmap-step-input-${index}`}
+                        value={stepText}
+                        onChange={(e) => handleRoadmapStepTextChange(index, e.target.value)}
+                        placeholder={`Step ${index + 1}`}
+                        className="flex-1 min-w-0 px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      />
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          type="button"
+                          data-testid={`step-move-up-${index}`}
+                          onClick={() => handleRoadmapStepMove(index, -1)}
+                          disabled={index === 0}
+                          aria-label={`Move step ${index + 1} up`}
+                          className="p-1.5 rounded hover:bg-slate-600 text-slate-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 3a1 1 0 01.707.293l6 6a1 1 0 01-1.414 1.414L11 6.414V16a1 1 0 11-2 0V6.414l-4.293 4.293a1 1 0 01-1.414-1.414l6-6A1 1 0 0110 3z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`step-move-down-${index}`}
+                          onClick={() => handleRoadmapStepMove(index, 1)}
+                          disabled={index === roadmapSteps.length - 1}
+                          aria-label={`Move step ${index + 1} down`}
+                          className="p-1.5 rounded hover:bg-slate-600 text-slate-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M10 17a1 1 0 01-.707-.293l-6-6a1 1 0 111.414-1.414L9 13.586V4a1 1 0 112 0v9.586l4.293-4.293a1 1 0 111.414 1.414l-6 6A1 1 0 0110 17z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`step-remove-${index}`}
+                          onClick={() => handleRoadmapStepRemove(index)}
+                          aria-label={`Remove step ${index + 1}`}
+                          className="p-1.5 rounded hover:bg-slate-600 text-slate-400 hover:text-red-400 transition-colors"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                            <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  data-testid="roadmap-add-step"
+                  onClick={handleRoadmapAddStep}
+                  className="mt-2 text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1.5"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
+                  </svg>
+                  Add step
+                </button>
+              </div>
 
               {/* Action Buttons */}
               <div className="flex gap-4">
