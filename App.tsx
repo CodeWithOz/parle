@@ -8,7 +8,14 @@ import { processScenarioDescriptionOpenAI } from './services/openaiService';
 import { clearHistory } from './services/conversationHistory';
 import { hasApiKeyOrEnv } from './services/apiKeyService';
 import { assignVoicesToCharacters } from './services/voiceService';
-import { generateId, generateTefAdSystemInstruction, generateTefQuestioningSystemInstruction } from './services/scenarioService';
+import {
+  generateId,
+  generateTefAdSystemInstruction,
+  generateTefQuestioningSystemInstruction,
+  getScenarioSteps,
+  seedRoadmapStepsFromSummary,
+} from './services/scenarioService';
+import { advanceRoadmapStep } from './utils/roadmapStepStatus';
 import { generateTefReview } from './services/tefReviewService';
 import { generateScenarioStandardizationReview } from './services/scenarioStandardizationReviewService';
 import {
@@ -33,7 +40,6 @@ import { ScenarioReviewSummary } from './components/ScenarioReviewSummary';
 import { AdThumbnail } from './components/AdThumbnail';
 import { ImageLightbox } from './components/ImageLightbox';
 import { ApiKeySetup } from './components/ApiKeySetup';
-import { GearIcon } from './components/icons/GearIcon';
 import { ConversationHint } from './components/ConversationHint';
 import {
   isConversationHintVisible,
@@ -44,6 +50,10 @@ import { PracticeModeSheet } from './components/PracticeModeSheet';
 import { TefTopicHistorySheet } from './components/TefTopicHistorySheet';
 import { combineAbortSignals } from './utils/combineAbortSignals';
 import { isAbortLikeError } from './utils/isAbortLikeError';
+import { NavRail, NavMode } from './components/NavRail';
+import { TopBar } from './components/TopBar';
+import { ScenarioRoadmap } from './components/ScenarioRoadmap';
+import { Drawer } from 'vaul';
 
 const App: React.FC = () => {
   // SEO metadata - similar to Next.js metadata export
@@ -79,6 +89,10 @@ const App: React.FC = () => {
   const [rawTranscript, setRawTranscript] = useState<string | null>(null);
   const [cleanedTranscript, setCleanedTranscript] = useState<string | null>(null);
   const [scenarioCharacters, setScenarioCharacters] = useState<Character[]>([]); // NEW: Characters for scenario
+  // Scenario roadmap: editable step texts (setup flow) and AI auto-advanced current index (practice)
+  const [roadmapSteps, setRoadmapSteps] = useState<string[]>([]);
+  const [currentRoadmapStepIndex, setCurrentRoadmapStepIndex] = useState<number | undefined>(undefined);
+  const [showRoadmapDrawer, setShowRoadmapDrawer] = useState(false);
   const [showScenarioSummary, setShowScenarioSummary] = useState(false);
   const [scenarioReviews, setScenarioReviews] = useState<ScenarioStandardizationReview[]>([]);
   const [scenarioReviewIndex, setScenarioReviewIndex] = useState(0);
@@ -894,6 +908,14 @@ const App: React.FC = () => {
           setCurrentHint(hint);
         }
 
+        // Scenario roadmap auto-advance — "never regress" (like the hint already does).
+        if (response.currentStepIndex !== undefined) {
+          const stepsLength = getScenarioSteps(activeScenarioRef.current).length;
+          setCurrentRoadmapStepIndex((prev) =>
+            advanceRoadmapStep(prev, response.currentStepIndex, stepsLength)
+          );
+        }
+
         // Set the new model message to auto-play
         setAutoPlayMessageId(modelTimestamp);
       }
@@ -1124,6 +1146,7 @@ const App: React.FC = () => {
     setScenarioDescription('');
     setScenarioName('');
     setAiSummary(null);
+    setRoadmapSteps([]);
     setShowTranscriptOptions(false);
     setRawTranscript(null);
     setCleanedTranscript(null);
@@ -1139,6 +1162,7 @@ const App: React.FC = () => {
     setScenarioDescription('');
     setScenarioName('');
     setAiSummary(null);
+    setRoadmapSteps([]);
     setScenarioCharacters([]); // Clear characters
     setIsRecordingDescription(false);
     setIsTranscribingDescription(false);
@@ -1339,6 +1363,9 @@ const App: React.FC = () => {
       }
 
       setAiSummary(parsed.summary);
+      // Heuristic seed for the roadmap editor — see seedRoadmapStepsFromSummary
+      // for the "AI-generated step breakdown" follow-up deferred to a later pass.
+      setRoadmapSteps(seedRoadmapStepsFromSummary(parsed.summary));
 
       // Extract and assign voices to characters
       if (parsed.characters && parsed.characters.length > 0) {
@@ -1358,6 +1385,7 @@ const App: React.FC = () => {
     } catch (error) {
       console.error('Error processing scenario:', error);
       setAiSummary('I understand your scenario. Ready to begin when you are!');
+      setRoadmapSteps(['']);
       setScenarioCharacters([]); // Fallback to single-character
     } finally {
       setIsProcessingScenario(false);
@@ -1412,10 +1440,14 @@ const App: React.FC = () => {
     // Configure Gemini service with the scenario
     setScenario(enhancedScenario);
 
+    // Reset roadmap auto-advance tracking for the new session
+    setCurrentRoadmapStepIndex(undefined);
+
     // Close the setup modal
     setScenarioDescription('');
     setScenarioName('');
     setAiSummary(null);
+    setRoadmapSteps([]);
   };
 
   const handleExitScenario = async () => {
@@ -1430,6 +1462,7 @@ const App: React.FC = () => {
       setMessages([]);
       setAutoPlayMessageId(null);
       setCurrentHint(null);
+      setCurrentRoadmapStepIndex(undefined);
       return;
     }
 
@@ -1482,6 +1515,7 @@ const App: React.FC = () => {
     setMessages([]);
     setAutoPlayMessageId(null);
     setCurrentHint(null);
+    setCurrentRoadmapStepIndex(undefined);
 
     setShowScenarioSummary(false);
     setScenarioReviews([]);
@@ -1526,6 +1560,7 @@ const App: React.FC = () => {
     setMessages([]);
     setAutoPlayMessageId(null);
     setCurrentHint(null);
+    setCurrentRoadmapStepIndex(undefined);
     setScenario(scenarioToRestart);
     setActiveScenario(scenarioToRestart);
     setScenarioMode('practice');
@@ -2051,6 +2086,71 @@ const App: React.FC = () => {
     setAppState(AppState.IDLE);
   };
 
+  // ---------------------------------------------------------------------------
+  // App-shell nav rail — derives the current mode from existing mode state and
+  // routes selections into the existing setup/exit handlers (no forked logic).
+  // ---------------------------------------------------------------------------
+  const activeMode: NavMode =
+    tefAdMode !== 'none'
+      ? 'tef-ad'
+      : tefQuestioningMode !== 'none'
+      ? 'tef-questioning'
+      : scenarioMode !== 'none'
+      ? 'role-play'
+      : 'free-talk';
+
+  const handleNavSelect = (mode: NavMode) => {
+    if (mode === activeMode) return;
+
+    if (mode === 'free-talk') {
+      // Exit whichever mode is currently active, reusing the existing
+      // exit/cleanup handlers for each mode rather than duplicating them.
+      if (activeMode === 'role-play') {
+        if (scenarioMode === 'setup') {
+          handleCloseScenarioSetup();
+        } else {
+          void handleExitScenario();
+        }
+      } else if (activeMode === 'tef-ad') {
+        if (tefAdMode === 'setup') {
+          handleCloseTefAdSetup();
+        } else {
+          handleExitTefAd();
+        }
+      } else if (activeMode === 'tef-questioning') {
+        if (tefQuestioningMode === 'setup') {
+          setTefQuestioningMode('none');
+        } else {
+          handleExitTefQuestioning();
+        }
+      }
+      return;
+    }
+
+    // Entering a new mode's setup flow is only offered from Free Talk — while
+    // another mode is active/setting-up, that mode's own nav item is disabled
+    // (see NavRail's disabledModes) so this path is only reached from free-talk.
+    if (activeMode !== 'free-talk') return;
+
+    if (mode === 'role-play') {
+      handleOpenScenarioSetup();
+    } else if (mode === 'tef-ad') {
+      handleOpenTefAdSetup();
+    } else if (mode === 'tef-questioning') {
+      setTefQuestioningMode('setup');
+    }
+  };
+
+  const navDisabledModes: NavMode[] =
+    activeMode === 'free-talk'
+      ? []
+      : (['role-play', 'tef-ad', 'tef-questioning'] as NavMode[]).filter((m) => m !== activeMode);
+
+  // Scenario roadmap sidebar — role-play practice only, per the wireframe's
+  // explicit "no roadmap here" note on Free Talk / TEF Ad / TEF Questions screens.
+  const roadmapStepsList = getScenarioSteps(activeScenario);
+  const showRoadmap = scenarioMode === 'practice' && activeScenario !== null && roadmapStepsList.length > 0;
+
   // Status text for the landing view
   const getStatusText = () => {
     if (errorFlashVisible) {
@@ -2079,220 +2179,221 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-dvh h-dvh bg-slate-900 flex flex-col relative overflow-hidden">
+    <div className="h-dvh flex flex-col relative overflow-hidden bg-parle-cream text-parle-navy-900">
 
-      {/* Background Ambience */}
-      <div className="absolute top-0 left-0 w-full h-full overflow-hidden pointer-events-none z-0">
-        <div className="absolute top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-900/20 rounded-full blur-[120px]"></div>
-        <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-indigo-900/20 rounded-full blur-[120px]"></div>
+      <TopBar
+        activeMode={activeMode}
+        onSelectMode={handleNavSelect}
+        onOpenSettings={() => setShowApiKeyModal(true)}
+        rightSlot={
+          <>
+            {tefAdMode === 'practice' && tefAdImage && (
+              <>
+                <PersuasionTimer
+                  elapsed={tefElapsed}
+                  isPaused={appState === AppState.PROCESSING || appState === AppState.ERROR}
+                  turnCount={tefAdTurnCount}
+                />
+                <AdThumbnail
+                  imageDataUrl={tefAdImage}
+                  onOpenLightbox={() => setShowLightbox(true)}
+                />
+              </>
+            )}
+            {tefQuestioningMode === 'practice' && tefQuestioningImage && (
+              <>
+                <QuestioningTimer
+                  remainingSeconds={300 - tefQuestioningElapsed}
+                  isPaused={appState === AppState.PROCESSING || appState === AppState.ERROR}
+                  questionCount={tefQuestioningQuestionCount}
+                  isTimedUp={tefQuestioningTimedUp}
+                />
+                <AdThumbnail
+                  imageDataUrl={tefQuestioningImage}
+                  onOpenLightbox={() => setShowLightbox(true)}
+                />
+              </>
+            )}
+          </>
+        }
+      />
+
+      {/* Content row: nav rail (left) + main content (center) + roadmap sidebar (right, desktop) */}
+      <div className="flex-grow min-h-0 flex overflow-hidden relative">
+        <NavRail activeMode={activeMode} onSelect={handleNavSelect} disabledModes={navDisabledModes} />
+
+        <main className="flex-grow min-h-0 overflow-y-auto flex flex-col items-center w-full z-10">
+          {showRoadmap && (
+            /* Mobile roadmap chip — tappable, opens the bottom sheet with the full step list */
+            <div className="tablet:hidden w-full px-4 pt-3">
+              <button
+                type="button"
+                onClick={() => setShowRoadmapDrawer(true)}
+                className="w-full flex items-center justify-between gap-2 bg-parle-blue-100 border border-parle-blue-500 rounded-xl px-3 py-2 text-sm text-parle-navy-900 font-medium"
+              >
+                <span className="truncate">
+                  Step {(currentRoadmapStepIndex ?? 0) + 1}/{roadmapStepsList.length} · {roadmapStepsList[currentRoadmapStepIndex ?? 0]?.text}
+                </span>
+                <span aria-hidden="true">▾</span>
+              </button>
+            </div>
+          )}
+
+          {!hasMessages ? (
+            /* ============ LANDING VIEW ============ */
+            <div className="flex-grow flex flex-col items-center justify-center gap-3 w-full max-w-2xl mx-auto px-4 pb-8 text-center">
+              <div className="bg-white rounded-2xl border border-parle-navy-100 shadow-sm px-6 py-4 max-w-md">
+                <p className="text-parle-navy-700">Bonjour ! Tap the mic to start speaking French.</p>
+              </div>
+              <div className="h-8 my-1 text-center">
+                {getStatusText()}
+              </div>
+              <div className="pt-1 text-center text-parle-navy-300 text-xs">
+                <p>Built by <a href="https://www.linkedin.com/in/uchechukwu-ozoemena/" target="_blank" rel="noopener noreferrer" className="text-parle-blue-600 hover:underline">CodeWithOz</a></p>
+              </div>
+            </div>
+          ) : (
+            /* ============ CHAT VIEW ============ */
+            <div className="flex-grow flex flex-col w-full z-10 min-h-0">
+              <div className="flex-grow min-h-0 w-full max-w-2xl mx-auto flex flex-col">
+                <ConversationHistory
+                  messages={messages}
+                  onClear={handleClearHistory}
+                  playbackSpeed={playbackSpeed}
+                  autoPlayMessageId={autoPlayMessageId}
+                  onRetryAudio={handleRetryAudioGeneration}
+                  retryingMessageTimestamps={retryingMessageTimestamps}
+                  showUserAudioToggle={scenarioMode === 'practice'}
+                />
+                {(tefAdMode === 'practice' || tefQuestioningMode === 'practice') &&
+                  practiceGuide &&
+                  practiceGuide.length > 0 && (
+                  <div className="flex-shrink-0 px-4 pb-2 w-full">
+                    <PracticeGuidePanel topics={practiceGuide} />
+                  </div>
+                )}
+                {/* Conversation hint - role-play scenario practice only */}
+                <div className="flex-shrink-0">
+                  <ConversationHint
+                    hint={currentHint}
+                    isVisible={isConversationHintVisible(scenarioMode, appState)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </main>
+
+        {showRoadmap && (
+          <>
+            {/* Desktop — always-expanded static roadmap column */}
+            <div className="hidden desktop:flex flex-col w-[280px] flex-shrink-0 border-l border-parle-navy-100 bg-white/60 px-4 py-4 overflow-y-auto">
+              <h2 className="text-xs uppercase tracking-wide text-parle-navy-500 font-semibold mb-2">Scenario Roadmap</h2>
+              <ScenarioRoadmap steps={roadmapStepsList} currentStepIndex={currentRoadmapStepIndex} />
+            </div>
+
+            {/* Tablet — slim edge tab that opens a right-side drawer overlay; footer/mic stays reachable underneath */}
+            <button
+              type="button"
+              onClick={() => setShowRoadmapDrawer(true)}
+              className="hidden tablet:flex desktop:hidden absolute right-0 top-1/2 -translate-y-1/2 flex-col items-center gap-1 w-6 py-3 bg-parle-blue-100 border border-parle-blue-500 border-r-0 rounded-l-lg text-[10px] text-parle-navy-900 font-medium z-20"
+              aria-label="Open scenario roadmap"
+            >
+              <span>{(currentRoadmapStepIndex ?? 0) + 1}/{roadmapStepsList.length}</span>
+              <span aria-hidden="true">▸</span>
+            </button>
+
+            {/* Guarded by showRoadmapDrawer here (not left to Drawer.Root's
+                internal presence handling) so it's never mounted while closed. */}
+            {showRoadmapDrawer && (
+              <Drawer.Root
+                open={showRoadmapDrawer}
+                onOpenChange={setShowRoadmapDrawer}
+                direction={typeof window !== 'undefined' && window.innerWidth >= 760 ? 'right' : 'bottom'}
+              >
+                <Drawer.Portal>
+                  <Drawer.Overlay className="fixed inset-0 z-50 bg-parle-navy-900/30" />
+                  <Drawer.Content
+                    className="fixed z-50 bg-white border-parle-navy-100 focus:outline-none
+                      inset-x-0 bottom-0 max-h-[80dvh] rounded-t-2xl border-t p-4
+                      tablet:inset-y-0 tablet:right-0 tablet:left-auto tablet:bottom-auto tablet:max-h-none tablet:w-[280px] tablet:rounded-none tablet:rounded-l-2xl tablet:border-t-0 tablet:border-l"
+                  >
+                    <Drawer.Handle className="mx-auto mb-3 h-1.5 w-12 flex-shrink-0 rounded-full bg-parle-navy-200 tablet:hidden" />
+                    <div className="flex items-center justify-between mb-2">
+                      <Drawer.Title asChild>
+                        <h2 className="text-sm uppercase tracking-wide text-parle-navy-500 font-semibold">Scenario Roadmap</h2>
+                      </Drawer.Title>
+                      <button
+                        type="button"
+                        onClick={() => setShowRoadmapDrawer(false)}
+                        aria-label="Close roadmap"
+                        className="text-parle-navy-400 hover:text-parle-navy-700"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <ScenarioRoadmap steps={roadmapStepsList} currentStepIndex={currentRoadmapStepIndex} />
+                  </Drawer.Content>
+                </Drawer.Portal>
+              </Drawer.Root>
+            )}
+          </>
+        )}
       </div>
 
-      {/* Header */}
-      <header className="w-full p-4 sm:p-6 flex flex-row justify-between items-center z-10 flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-100">Parle</h1>
-        </div>
+      {/* Footer — pinned to the bottom at every breakpoint: exit/start (left) + mic orb (center) + speed (right) */}
+      <div className="w-full z-20 flex-shrink-0 border-t border-parle-navy-100 bg-white/95 backdrop-blur-xl">
+        {errorFlashVisible && (
+          <div className="px-4 py-2 text-center">
+            <p className="text-parle-red-600 text-xs font-medium animate-pulse">{errorFlashMessage}</p>
+          </div>
+        )}
 
-        <div className="flex items-center gap-2">
-          {/* TEF Ad practice header items */}
-          {tefAdMode === 'practice' && tefAdImage && (
-            <>
-              <PersuasionTimer
-                elapsed={tefElapsed}
-                isPaused={appState === AppState.PROCESSING || appState === AppState.ERROR}
-                turnCount={tefAdTurnCount}
-              />
-              <AdThumbnail
-                imageDataUrl={tefAdImage}
-                onOpenLightbox={() => setShowLightbox(true)}
-              />
-            </>
-          )}
+        {canRetryChatAudio && appState === AppState.ERROR && (
+          <div className="px-4 py-2 text-center">
+            <button
+              onClick={handleRetryChatAudio}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-parle-red-500 hover:bg-parle-red-600 text-white transition-colors rounded-lg"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+              </svg>
+              Retry
+            </button>
+          </div>
+        )}
 
-          {/* TEF Questioning practice header items */}
-          {tefQuestioningMode === 'practice' && tefQuestioningImage && (
-            <>
-              <QuestioningTimer
-                remainingSeconds={300 - tefQuestioningElapsed}
-                isPaused={appState === AppState.PROCESSING || appState === AppState.ERROR}
-                questionCount={tefQuestioningQuestionCount}
-                isTimedUp={tefQuestioningTimedUp}
-              />
-              <AdThumbnail
-                imageDataUrl={tefQuestioningImage}
-                onOpenLightbox={() => setShowLightbox(true)}
-              />
-            </>
-          )}
+        <div className="max-w-2xl mx-auto px-4 py-3 pb-6 flex items-center gap-3">
+          {/* Controls on the left */}
+          <div className="flex-grow min-w-0">
+            <Controls
+              appState={appState}
+              playbackSpeed={playbackSpeed}
+              onSpeedChange={handleSpeedChange}
+              onCancelRecording={handleCancelRecording}
+              scenarioMode={scenarioMode}
+              activeScenario={activeScenario}
+              onOpenModeSheet={() => setShowModeSheet(true)}
+              onExitScenario={handleExitScenario}
+              tefAdMode={tefAdMode}
+              onExitTefAd={handleExitTefAd}
+              tefQuestioningMode={tefQuestioningMode}
+              onExitTefQuestioning={handleExitTefQuestioning}
+              compact
+            />
+          </div>
 
-          <button
-            onClick={() => setShowApiKeyModal(true)}
-            className="p-2 text-slate-400 hover:text-white transition-colors bg-slate-800/50 rounded-full border border-slate-700/50"
-            title="Settings"
-            aria-label="Open API settings"
-          >
-            <GearIcon className="h-5 w-5" />
-          </button>
-        </div>
-      </header>
-
-      {/* Main Content Area - switches between landing and chat layouts */}
-      {!hasMessages ? (
-        /* ============ LANDING VIEW ============ */
-        <main className="flex-grow min-h-0 overflow-y-auto flex flex-col items-center w-full max-w-2xl mx-auto px-4 z-10 pb-8">
-
-          {/* Spacer pushes content to bottom; collapses when viewport is short to allow scrolling */}
-          <div className="flex-grow"></div>
-
-          {/* Controls (speed + scenario) — above the orb */}
-          <Controls
-            appState={appState}
-            playbackSpeed={playbackSpeed}
-            onSpeedChange={handleSpeedChange}
-            onCancelRecording={handleCancelRecording}
-            scenarioMode={scenarioMode}
-            activeScenario={activeScenario}
-            onOpenModeSheet={() => setShowModeSheet(true)}
-            onExitScenario={handleExitScenario}
-            tefAdMode={tefAdMode}
-            onExitTefAd={handleExitTefAd}
-            tefQuestioningMode={tefQuestioningMode}
-            onExitTefQuestioning={handleExitTefQuestioning}
-          />
-
-          {/* Orb-Mic — at the bottom, closest to thumb */}
-          <div className="mt-8">
+          {/* Orb-Mic — pinned in the footer at every breakpoint (never moved near the top) */}
+          <div className="flex-shrink-0">
             <Orb
               state={appState}
               volume={volume}
-              size="large"
+              size="small"
               onClick={handleOrbClick}
             />
           </div>
-
-          {/* Status Text — below the orb */}
-          <div className="h-8 my-2 text-center">
-            {getStatusText()}
-          </div>
-
-          {/* Action Buttons — between status text and footer */}
-          <div className="mt-2 flex items-center gap-3">
-            {/* Cancel Recording Button */}
-            <button
-              onClick={handleCancelRecording}
-              className={`px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors rounded-lg hover:bg-slate-800/50 border border-slate-700/50 ${appState === AppState.RECORDING ? '' : 'hidden'}`}
-              tabIndex={appState === AppState.RECORDING ? 0 : -1}
-            >
-              Cancel (Esc)
-            </button>
-
-            {/* Retry Button - visible when audio processing failed */}
-            {canRetryChatAudio && appState === AppState.ERROR && (
-              <button
-                onClick={handleRetryChatAudio}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white transition-colors rounded-lg"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-                </svg>
-                Retry
-              </button>
-            )}
-          </div>
-
-          {/* Footer Info */}
-          <div className="pt-1 text-center text-slate-600 text-xs">
-            <p>Built by <a href="https://www.linkedin.com/in/uchechukwu-ozoemena/" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">CodeWithOz</a></p>
-          </div>
-        </main>
-      ) : (
-        /* ============ CHAT VIEW ============ */
-        <>
-          {/* Chat area - fills available space */}
-          <main className="flex-grow flex flex-col w-full max-w-2xl mx-auto z-10 min-h-0">
-            <ConversationHistory
-              messages={messages}
-              onClear={handleClearHistory}
-              playbackSpeed={playbackSpeed}
-              autoPlayMessageId={autoPlayMessageId}
-              onRetryAudio={handleRetryAudioGeneration}
-              retryingMessageTimestamps={retryingMessageTimestamps}
-              showUserAudioToggle={scenarioMode === 'practice'}
-            />
-            {(tefAdMode === 'practice' || tefQuestioningMode === 'practice') &&
-              practiceGuide &&
-              practiceGuide.length > 0 && (
-              <div className="flex-shrink-0 px-4 pb-2 max-w-2xl mx-auto w-full">
-                <PracticeGuidePanel topics={practiceGuide} />
-              </div>
-            )}
-            {/* Conversation hint - role-play scenario practice only */}
-            <div className="flex-shrink-0">
-              <ConversationHint
-                hint={currentHint}
-                isVisible={isConversationHintVisible(scenarioMode, appState)}
-              />
-            </div>
-          </main>
-
-          {/* Sticky Footer - orb-mic + controls */}
-          <div className="w-full z-20 flex-shrink-0 border-t border-slate-800 bg-slate-900/95 backdrop-blur-xl">
-            {/* Error flash in footer */}
-            {errorFlashVisible && (
-              <div className="px-4 py-2 text-center">
-                <p className="text-red-400 text-xs font-medium animate-pulse">{errorFlashMessage}</p>
-              </div>
-            )}
-
-            {/* Retry Button - visible when audio processing failed */}
-            {canRetryChatAudio && appState === AppState.ERROR && (
-              <div className="px-4 py-2 text-center">
-                <button
-                  onClick={handleRetryChatAudio}
-                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white transition-colors rounded-lg"
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-                  </svg>
-                  Retry
-                </button>
-              </div>
-            )}
-
-            <div className="max-w-2xl mx-auto px-4 py-3 pb-6 flex items-center gap-3">
-              {/* Controls on the left */}
-              <div className="flex-grow min-w-0">
-                <Controls
-                  appState={appState}
-                  playbackSpeed={playbackSpeed}
-                  onSpeedChange={handleSpeedChange}
-                  onCancelRecording={handleCancelRecording}
-                  scenarioMode={scenarioMode}
-                  activeScenario={activeScenario}
-                  onOpenModeSheet={() => setShowModeSheet(true)}
-                  onExitScenario={handleExitScenario}
-                  tefAdMode={tefAdMode}
-                  onExitTefAd={handleExitTefAd}
-                  tefQuestioningMode={tefQuestioningMode}
-                  onExitTefQuestioning={handleExitTefQuestioning}
-                  compact
-                />
-              </div>
-
-              {/* Orb-Mic on the right */}
-              <div className="flex-shrink-0">
-                <Orb
-                  state={appState}
-                  volume={volume}
-                  size="small"
-                  onClick={handleOrbClick}
-                />
-              </div>
-            </div>
-          </div>
-        </>
-      )}
+        </div>
+      </div>
 
       {/* TEF Ad Setup Modal */}
       {tefAdMode === 'setup' && (
@@ -2461,6 +2562,8 @@ const App: React.FC = () => {
           geminiKeyMissing={apiKeyCheckDone && !hasApiKeyOrEnv('gemini')}
           openaiKeyMissing={apiKeyCheckDone && !hasApiKeyOrEnv('openai')}
           characters={scenarioCharacters}
+          roadmapSteps={roadmapSteps}
+          onRoadmapStepsChange={setRoadmapSteps}
         />
       )}
 

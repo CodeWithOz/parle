@@ -172,6 +172,7 @@ vi.mock('../components/PracticeModeSheet.tsx', () => {
         <div>
           <button
             type="button"
+            data-testid="mode-sheet-role-play"
             onClick={() => {
               onSelectMode('role-play');
               onOpenChange(false);
@@ -214,7 +215,10 @@ describe('ScenarioSetup · describe by voice abort + discard', () => {
 
     // Open PracticeModeSheet -> Role Play -> ScenarioSetup modal
     fireEvent.click(screen.getByRole('button', { name: /Start Practice/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /Role Play/i }));
+    // Scoped via data-testid: the app shell's nav rail also exposes a
+    // "Role Play" control (French-flag redesign), so an unscoped
+    // role/name query is now ambiguous.
+    fireEvent.click(await screen.findByTestId('mode-sheet-role-play'));
 
     await screen.findByText(/Practice Role Play/i);
 
@@ -236,7 +240,10 @@ describe('ScenarioSetup · describe by voice abort + discard', () => {
 
     // Re-open ScenarioSetup (second attempt) before resolving the first transcription
     fireEvent.click(screen.getByRole('button', { name: /Start Practice/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /Role Play/i }));
+    // Scoped via data-testid: the app shell's nav rail also exposes a
+    // "Role Play" control (French-flag redesign), so an unscoped
+    // role/name query is now ambiguous.
+    fireEvent.click(await screen.findByTestId('mode-sheet-role-play'));
 
     await screen.findByText(/Practice Role Play/i);
 
@@ -285,7 +292,10 @@ describe('ScenarioSetup · describe by voice abort + discard', () => {
 
     // Open PracticeModeSheet -> Role Play -> ScenarioSetup modal
     fireEvent.click(screen.getByRole('button', { name: /Start Practice/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /Role Play/i }));
+    // Scoped via data-testid: the app shell's nav rail also exposes a
+    // "Role Play" control (French-flag redesign), so an unscoped
+    // role/name query is now ambiguous.
+    fireEvent.click(await screen.findByTestId('mode-sheet-role-play'));
     await screen.findByText(/Practice Role Play/i);
 
     // Start first "describe by voice" transcription
@@ -303,7 +313,10 @@ describe('ScenarioSetup · describe by voice abort + discard', () => {
 
     // Re-open ScenarioSetup WITHOUT starting a new transcription
     fireEvent.click(screen.getByRole('button', { name: /Start Practice/i }));
-    fireEvent.click(await screen.findByRole('button', { name: /Role Play/i }));
+    // Scoped via data-testid: the app shell's nav rail also exposes a
+    // "Role Play" control (French-flag redesign), so an unscoped
+    // role/name query is now ambiguous.
+    fireEvent.click(await screen.findByTestId('mode-sheet-role-play'));
     await screen.findByText(/Practice Role Play/i);
 
     // Late resolve of the first transcription should not overwrite the reopened modal.
