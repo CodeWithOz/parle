@@ -23,23 +23,23 @@ export const ConversationHint: React.FC<ConversationHintProps> = ({ hint, isVisi
 
   return (
     <div className="animate-hint-fade-in px-4 py-2">
-      <div className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/50 rounded-xl overflow-hidden">
+      <div className="bg-parle-blue-50 border border-parle-navy-100 rounded-xl overflow-hidden">
         {/* Header row - toggle button and dismiss button as siblings */}
         <div className="flex items-center">
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="flex-1 flex items-center justify-between px-3 py-2 text-left hover:bg-slate-700/30 transition-colors"
+            className="flex-1 flex items-center justify-between px-3 py-2 text-left hover:bg-parle-blue-100 transition-colors"
             aria-expanded={isExpanded}
             aria-label={isExpanded ? 'Hide suggestion' : 'Show suggestion'}
           >
             <div className="flex items-center gap-2">
-              <span className="text-amber-400/80 text-sm" aria-hidden="true">💡</span>
-              <span className="text-slate-400 text-xs font-medium">
+              <span className="text-parle-blue-600 text-sm" aria-hidden="true">💡</span>
+              <span className="text-parle-navy-500 text-xs font-medium">
                 {isExpanded ? 'Hide suggestion' : 'Need a hint?'}
               </span>
             </div>
             <svg
-              className={`w-4 h-4 text-slate-500 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
+              className={`w-4 h-4 text-parle-navy-300 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -53,7 +53,7 @@ export const ConversationHint: React.FC<ConversationHintProps> = ({ hint, isVisi
               e.stopPropagation();
               setIsDismissed(true);
             }}
-            className="text-slate-500 hover:text-slate-300 p-2 mr-1 rounded transition-colors"
+            className="text-parle-navy-300 hover:text-parle-navy-700 p-2 mr-1 rounded transition-colors"
             title="Dismiss hint"
             aria-label="Dismiss hint"
           >
@@ -66,8 +66,8 @@ export const ConversationHint: React.FC<ConversationHintProps> = ({ hint, isVisi
         {/* Expanded view - shows the actual hint */}
         {isExpanded && (
           <div className="px-3 pb-3 animate-hint-expand">
-            <div className="pt-1 border-t border-slate-700/50">
-              <p className="text-slate-200 text-sm mt-2 leading-relaxed">
+            <div className="pt-1 border-t border-parle-navy-100">
+              <p className="text-parle-navy-900 text-sm mt-2 leading-relaxed">
                 {hint}
               </p>
             </div>
