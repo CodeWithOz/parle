@@ -1,16 +1,51 @@
 @import "tailwindcss";
 
+@theme {
+  /* Responsive breakpoints for the app shell collapse behavior (nav rail / roadmap sidebar). */
+  --breakpoint-tablet: 760px;
+  --breakpoint-desktop: 1200px;
+
+  /* French-flag-inspired light palette: light blue / white / red, warm cream backdrop. */
+  --color-parle-cream: #eaf2fb;
+  --color-parle-card: #ffffff;
+
+  --color-parle-navy-900: #1c2b3a;
+  --color-parle-navy-700: #2f4356;
+  --color-parle-navy-500: #4a6480;
+  --color-parle-navy-300: #8ba0b8;
+  --color-parle-navy-200: #c3d3e2;
+  --color-parle-navy-100: #dbe7f2;
+  --color-parle-navy-50: #f0f6fc;
+
+  --color-parle-blue-50: #eef4fb;
+  --color-parle-blue-100: #dceafd;
+  --color-parle-blue-300: #8fbde4;
+  --color-parle-blue-400: #4a90d9;
+  --color-parle-blue-500: #2f6fb0;
+  --color-parle-blue-600: #245987;
+  --color-parle-blue-700: #1c3a5c;
+
+  --color-parle-red-50: #fdecec;
+  --color-parle-red-100: #fbdede;
+  --color-parle-red-200: #f6c8c6;
+  --color-parle-red-300: #e78a86;
+  --color-parle-red-400: #d9534f;
+  --color-parle-red-500: #c8342f;
+  --color-parle-red-600: #a82824;
+  --color-parle-red-700: #8a1f1c;
+}
+
 body {
   font-family: 'Inter', sans-serif;
-  background-color: #0f172a; /* Slate 900 */
-  color: #e2e8f0; /* Slate 200 */
+  background-color: #eaf2fb; /* parle-cream */
+  color: #1c2b3a; /* parle-navy-900 */
 }
 
 /* Custom pulse animation for the orb */
 @keyframes soft-pulse {
-  0% { transform: scale(1); opacity: 0.8; box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.4); }
-  50% { transform: scale(1.05); opacity: 1; box-shadow: 0 0 20px 10px rgba(56, 189, 248, 0.2); }
-  100% { transform: scale(1); opacity: 0.8; box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
+  0% { transform: scale(1); opacity: 0.85; box-shadow: 0 0 0 0 rgba(200, 52, 47, 0.35); }
+  50% { transform: scale(1.05); opacity: 1; box-shadow: 0 0 20px 10px rgba(200, 52, 47, 0.18); }
+  100% { transform: scale(1); opacity: 0.85; box-shadow: 0 0 0 0 rgba(200, 52, 47, 0); }
 }
 
 @keyframes speaking-wave {
@@ -55,12 +90,12 @@ body {
 }
 
 .chat-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(100, 116, 139, 0.3);
+  background: rgba(74, 100, 128, 0.3);
   border-radius: 2px;
 }
 
 .chat-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(100, 116, 139, 0.5);
+  background: rgba(74, 100, 128, 0.5);
 }
 
 /* Hint animations */
