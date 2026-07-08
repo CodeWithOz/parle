@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback, useState } from 'react';
 import { Message } from '../types';
 
 interface ConversationHistoryProps {
@@ -8,6 +8,7 @@ interface ConversationHistoryProps {
   autoPlayMessageId?: number | null;
   onRetryAudio?: (messageTimestamp: number) => void;
   retryingMessageTimestamps?: Set<number>;
+  showUserAudioToggle?: boolean;
 }
 
 interface MessageItemProps {
@@ -18,10 +19,12 @@ interface MessageItemProps {
   onAudioEnded?: () => void;
   onRetryAudio?: (messageTimestamp: number) => void;
   isRetrying?: boolean;
+  showUserAudioToggle?: boolean;
 }
 
-const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef, onAudioEnded, onRetryAudio, isRetrying }) => {
+const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef, onAudioEnded, onRetryAudio, isRetrying, showUserAudioToggle }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const [isUserAudioVisible, setIsUserAudioVisible] = useState(false);
 
   // Update playback rate when speed changes
   useEffect(() => {
@@ -152,6 +155,33 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
             ) : null}
           </>
         )}
+
+        {message.role === 'user' && showUserAudioToggle && message.audioUrl && typeof message.audioUrl === 'string' && (
+          <div className="mt-3">
+            <button
+              type="button"
+              onClick={() => setIsUserAudioVisible((visible) => !visible)}
+              aria-expanded={isUserAudioVisible}
+              className="inline-flex items-center gap-2 text-xs text-blue-100/80 hover:text-white transition-colors"
+            >
+              <span
+                className={`inline-block transition-transform ${isUserAudioVisible ? 'rotate-180' : ''}`}
+                aria-hidden="true"
+              >
+                ▾
+              </span>
+              <span>{isUserAudioVisible ? 'Hide recording' : 'Show recording'}</span>
+            </button>
+
+            {isUserAudioVisible && (
+              <audio
+                controls
+                src={message.audioUrl}
+                className="w-full mt-3"
+              />
+            )}
+          </div>
+        )}
       </div>
       <span className={`text-xs text-slate-500 mt-1 ${message.role === 'user' ? 'mr-1' : 'ml-1'}`}>
         {message.role === 'user' ? 'You' : (message.characterName || 'AI')}
@@ -166,7 +196,8 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   playbackSpeed,
   autoPlayMessageId,
   onRetryAudio,
-  retryingMessageTimestamps
+  retryingMessageTimestamps,
+  showUserAudioToggle = false,
 }) => {
   const audioElementsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -252,6 +283,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
               onAudioEnded={() => handleAudioEnded(message.timestamp)}
               onRetryAudio={onRetryAudio}
               isRetrying={retryingMessageTimestamps?.has(message.timestamp) || false}
+              showUserAudioToggle={showUserAudioToggle}
             />
           ))}
           <div ref={bottomRef} />

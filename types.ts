@@ -111,6 +111,15 @@ export interface TefTopicSuggestion {
   examples: TefTopicSuggestionExample[];
 }
 
+export interface ScenarioStandardizationItem {
+  original: string;
+  standard: string;
+}
+
+export interface ScenarioStandardizationReview {
+  items: ScenarioStandardizationItem[];
+}
+
 export interface TefReview {
   cefrLevel: string;                           // e.g. "B2", "C1"
   cefrJustification: string;                   // 1-2 sentences explaining the assessment

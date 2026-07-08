@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node .codex/hooks/detect-workflow.cjs"
+          }
+        ]
+      }
+    ]
+  }
+}

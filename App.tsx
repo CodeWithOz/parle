@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdMode, TefQuestioningMode, TefReview, TefSavedAd, TefTopicSuggestion } from './types';
+import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdMode, TefQuestioningMode, TefReview, TefSavedAd, TefTopicSuggestion, ScenarioStandardizationReview } from './types';
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
 import { useConversationTimer } from './hooks/useConversationTimer';
@@ -10,6 +10,7 @@ import { hasApiKeyOrEnv } from './services/apiKeyService';
 import { assignVoicesToCharacters } from './services/voiceService';
 import { generateId, generateTefAdSystemInstruction, generateTefQuestioningSystemInstruction } from './services/scenarioService';
 import { generateTefReview } from './services/tefReviewService';
+import { generateScenarioStandardizationReview } from './services/scenarioStandardizationReviewService';
 import {
   createSavedAdId,
   deleteSavedAd,
@@ -28,6 +29,7 @@ import { PersuasionTimer } from './components/PersuasionTimer';
 import { QuestioningTimer } from './components/QuestioningTimer';
 import { TefQuestioningSummary } from './components/TefQuestioningSummary';
 import { TefAdSummary } from './components/TefAdSummary';
+import { ScenarioReviewSummary } from './components/ScenarioReviewSummary';
 import { AdThumbnail } from './components/AdThumbnail';
 import { ImageLightbox } from './components/ImageLightbox';
 import { ApiKeySetup } from './components/ApiKeySetup';
@@ -77,6 +79,11 @@ const App: React.FC = () => {
   const [rawTranscript, setRawTranscript] = useState<string | null>(null);
   const [cleanedTranscript, setCleanedTranscript] = useState<string | null>(null);
   const [scenarioCharacters, setScenarioCharacters] = useState<Character[]>([]); // NEW: Characters for scenario
+  const [showScenarioSummary, setShowScenarioSummary] = useState(false);
+  const [scenarioReviews, setScenarioReviews] = useState<ScenarioStandardizationReview[]>([]);
+  const [scenarioReviewIndex, setScenarioReviewIndex] = useState(0);
+  const [scenarioReviewLoading, setScenarioReviewLoading] = useState(false);
+  const [scenarioReviewError, setScenarioReviewError] = useState<string | null>(null);
 
   // TEF Ad state
   const [tefAdMode, setTefAdMode] = useState<TefAdMode>('none');
@@ -127,6 +134,7 @@ const App: React.FC = () => {
   // Snapshot refs for retry/regenerate after messages state is cleared
   const tefQuestioningMessagesSnapshotRef = useRef<Message[]>([]);
   const tefAdMessagesSnapshotRef = useRef<Message[]>([]);
+  const scenarioMessagesSnapshotRef = useRef<Message[]>([]);
 
   // Abort + stale guarding for post-exercise review requests (same pattern as scenario description).
   const tefAdReviewAbortControllerRef = useRef<AbortController | null>(null);
@@ -187,6 +195,93 @@ const App: React.FC = () => {
 
   // AbortController for cancelling in-flight requests (declared here so timer callback can use it)
   const abortControllerRef = useRef<AbortController | null>(null);
+  const scenarioReviewAbortControllerRef = useRef<AbortController | null>(null);
+  const scenarioReviewRequestIdRef = useRef(0);
+
+  const startScenarioReview = (snapshot: Message[]) => {
+    const scenario = activeScenarioRef.current;
+    scenarioReviewAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    scenarioReviewAbortControllerRef.current = abortController;
+    const currentRequestId = ++scenarioReviewRequestIdRef.current;
+    setScenarioReviews([]);
+    setScenarioReviewIndex(0);
+    setScenarioReviewError(null);
+    setScenarioReviewLoading(true);
+    generateScenarioStandardizationReview({
+      messages: snapshot,
+      scenarioName: scenario?.name,
+      scenarioDescription: scenario?.aiSummary || scenario?.description,
+      signal: abortController.signal,
+    })
+      .then((review) => {
+        if (currentRequestId !== scenarioReviewRequestIdRef.current) {
+          return;
+        }
+        if (review) {
+          setScenarioReviews([review]);
+          setScenarioReviewIndex(0);
+        }
+      })
+      .catch((error) => {
+        if (currentRequestId !== scenarioReviewRequestIdRef.current) {
+          return;
+        }
+        setScenarioReviewError(error instanceof Error ? error.message : 'Review failed');
+      })
+      .finally(() => {
+        if (currentRequestId !== scenarioReviewRequestIdRef.current) {
+          return;
+        }
+        if (scenarioReviewAbortControllerRef.current === abortController) {
+          scenarioReviewAbortControllerRef.current = null;
+        }
+        setScenarioReviewLoading(false);
+      });
+  };
+
+  const regenerateScenarioReview = (snapshot: Message[]) => {
+    const scenario = activeScenarioRef.current;
+    scenarioReviewAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    scenarioReviewAbortControllerRef.current = abortController;
+    const currentRequestId = ++scenarioReviewRequestIdRef.current;
+    setScenarioReviewError(null);
+    setScenarioReviewLoading(true);
+    generateScenarioStandardizationReview({
+      messages: snapshot,
+      scenarioName: scenario?.name,
+      scenarioDescription: scenario?.aiSummary || scenario?.description,
+      signal: abortController.signal,
+    })
+      .then((review) => {
+        if (currentRequestId !== scenarioReviewRequestIdRef.current) {
+          return;
+        }
+        if (review) {
+          setScenarioReviews((prev) => {
+            const next = [...prev, review];
+            setScenarioReviewIndex(next.length - 1);
+            return next;
+          });
+        }
+      })
+      .catch((error) => {
+        if (currentRequestId !== scenarioReviewRequestIdRef.current) {
+          return;
+        }
+        setScenarioReviewError(error instanceof Error ? error.message : 'Review failed');
+      })
+      .finally(() => {
+        if (currentRequestId !== scenarioReviewRequestIdRef.current) {
+          return;
+        }
+        if (scenarioReviewAbortControllerRef.current === abortController) {
+          scenarioReviewAbortControllerRef.current = null;
+        }
+        setScenarioReviewLoading(false);
+      });
+  };
 
   // ---------------------------------------------------------------------------
   // TEF Questioning review helpers
@@ -1275,6 +1370,10 @@ const App: React.FC = () => {
   };
 
   const handleStartPractice = async (scenario: Scenario) => {
+    scenarioReviewAbortControllerRef.current?.abort();
+    scenarioReviewAbortControllerRef.current = null;
+    scenarioReviewRequestIdRef.current += 1;
+
     // Revoke all audio URLs before clearing messages to prevent memory leaks
     messages.forEach(msg => {
       if (msg.audioUrl) {
@@ -1292,6 +1391,12 @@ const App: React.FC = () => {
     // Clear existing conversation
     clearHistory();
     setMessages([]);
+    setShowScenarioSummary(false);
+    setScenarioReviews([]);
+    setScenarioReviewIndex(0);
+    setScenarioReviewLoading(false);
+    setScenarioReviewError(null);
+    scenarioMessagesSnapshotRef.current = [];
 
     // Enhance scenario with characters
     // Use scenarioCharacters if available (new scenario), otherwise fall back to scenario.characters (existing scenario)
@@ -1314,30 +1419,124 @@ const App: React.FC = () => {
   };
 
   const handleExitScenario = async () => {
-    // Revoke all audio URLs before clearing messages
-    messages.forEach(msg => {
+    if (showScenarioSummary) return;
+
+    if (messagesRef.current.length === 0) {
+      setActiveScenario(null);
+      setScenarioMode('none');
+      setScenarioCharacters([]);
+      setScenario(null);
+      clearHistory();
+      setMessages([]);
+      setAutoPlayMessageId(null);
+      setCurrentHint(null);
+      return;
+    }
+
+    processingAbortedRef.current = true;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (appState === AppState.RECORDING) {
+      cancelRecording();
+    }
+
+    setLastChatAudio(null);
+    setCanRetryChatAudio(false);
+    setLastDescriptionAudio(null);
+    setCanRetryDescriptionAudio(false);
+
+    const snapshot = messagesRef.current;
+    scenarioMessagesSnapshotRef.current = snapshot;
+    setScenarioReviews([]);
+    setScenarioReviewIndex(0);
+    setScenarioReviewError(null);
+    setScenarioReviewLoading(true);
+    setShowScenarioSummary(true);
+
+    startScenarioReview(snapshot);
+  };
+
+  const handleDismissScenarioSummary = () => {
+    scenarioReviewAbortControllerRef.current?.abort();
+    scenarioReviewAbortControllerRef.current = null;
+    scenarioReviewRequestIdRef.current += 1;
+
+    for (const msg of scenarioMessagesSnapshotRef.current) {
       if (msg.audioUrl) {
         if (Array.isArray(msg.audioUrl)) {
-          msg.audioUrl.forEach(url => URL.revokeObjectURL(url));
+          for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
         } else {
           URL.revokeObjectURL(msg.audioUrl);
         }
       }
-    });
+    }
+    scenarioMessagesSnapshotRef.current = [];
 
-    // Clear the scenario and characters
     setActiveScenario(null);
     setScenarioMode('none');
     setScenarioCharacters([]);
-
-    // Reset Gemini service to normal mode
     setScenario(null);
-
-    // Clear conversation and hint
     clearHistory();
     setMessages([]);
     setAutoPlayMessageId(null);
     setCurrentHint(null);
+
+    setShowScenarioSummary(false);
+    setScenarioReviews([]);
+    setScenarioReviewIndex(0);
+    setScenarioReviewLoading(false);
+    setScenarioReviewError(null);
+    setAppState(AppState.IDLE);
+  };
+
+  const handleRestartScenarioFromSummary = () => {
+    const scenarioToRestart = activeScenarioRef.current;
+    if (!scenarioToRestart) {
+      handleDismissScenarioSummary();
+      return;
+    }
+
+    scenarioReviewAbortControllerRef.current?.abort();
+    scenarioReviewAbortControllerRef.current = null;
+    scenarioReviewRequestIdRef.current += 1;
+
+    processingAbortedRef.current = true;
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    if (appState === AppState.RECORDING) {
+      cancelRecording();
+    }
+
+    for (const msg of scenarioMessagesSnapshotRef.current) {
+      if (msg.audioUrl) {
+        if (Array.isArray(msg.audioUrl)) {
+          for (const url of msg.audioUrl) { URL.revokeObjectURL(url); }
+        } else {
+          URL.revokeObjectURL(msg.audioUrl);
+        }
+      }
+    }
+    scenarioMessagesSnapshotRef.current = [];
+
+    clearHistory();
+    setMessages([]);
+    setAutoPlayMessageId(null);
+    setCurrentHint(null);
+    setScenario(scenarioToRestart);
+    setActiveScenario(scenarioToRestart);
+    setScenarioMode('practice');
+    setTefAdMode('none');
+    setTefQuestioningMode('none');
+    setShowScenarioSummary(false);
+    setScenarioReviews([]);
+    setScenarioReviewIndex(0);
+    setScenarioReviewLoading(false);
+    setScenarioReviewError(null);
+    setAppState(AppState.IDLE);
   };
 
   // TEF Ad handlers
@@ -2019,6 +2218,7 @@ const App: React.FC = () => {
               autoPlayMessageId={autoPlayMessageId}
               onRetryAudio={handleRetryAudioGeneration}
               retryingMessageTimestamps={retryingMessageTimestamps}
+              showUserAudioToggle={scenarioMode === 'practice'}
             />
             {(tefAdMode === 'practice' || tefQuestioningMode === 'practice') &&
               practiceGuide &&
@@ -2119,6 +2319,23 @@ const App: React.FC = () => {
           onClose={() => setTefQuestioningMode('none')}
           geminiKeyMissing={geminiKeyMissing}
           onOpenApiKeyModal={() => setShowApiKeyModal(true)}
+        />
+      )}
+
+      {/* Role-play Scenario Summary Overlay */}
+      {showScenarioSummary && (
+        <ScenarioReviewSummary
+          scenarioName={activeScenario?.name}
+          messages={scenarioMessagesSnapshotRef.current}
+          reviews={scenarioReviews}
+          reviewIndex={scenarioReviewIndex}
+          onNavigateReview={setScenarioReviewIndex}
+          isReviewLoading={scenarioReviewLoading}
+          reviewError={scenarioReviewError}
+          onRetryReview={() => startScenarioReview(scenarioMessagesSnapshotRef.current)}
+          onRegenerateReview={() => regenerateScenarioReview(scenarioMessagesSnapshotRef.current)}
+          onRestart={handleRestartScenarioFromSummary}
+          onDismiss={handleDismissScenarioSummary}
         />
       )}
 
