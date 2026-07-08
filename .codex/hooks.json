@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node '/Users/ucheozoemena/01-projects/parle/.codex/hooks/detect-workflow.cjs'"
+            "command": "node .codex/hooks/detect-workflow.cjs"
           }
         ]
       }

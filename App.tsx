@@ -187,9 +187,15 @@ const App: React.FC = () => {
 
   // AbortController for cancelling in-flight requests (declared here so timer callback can use it)
   const abortControllerRef = useRef<AbortController | null>(null);
+  const scenarioReviewAbortControllerRef = useRef<AbortController | null>(null);
+  const scenarioReviewRequestIdRef = useRef(0);
 
   const startScenarioReview = (snapshot: Message[]) => {
     const scenario = activeScenarioRef.current;
+    scenarioReviewAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    scenarioReviewAbortControllerRef.current = abortController;
+    const currentRequestId = ++scenarioReviewRequestIdRef.current;
     setScenarioReviews([]);
     setScenarioReviewIndex(0);
     setScenarioReviewError(null);
@@ -198,29 +204,52 @@ const App: React.FC = () => {
       messages: snapshot,
       scenarioName: scenario?.name,
       scenarioDescription: scenario?.aiSummary || scenario?.description,
+      signal: abortController.signal,
     })
       .then((review) => {
+        if (currentRequestId !== scenarioReviewRequestIdRef.current) {
+          return;
+        }
         if (review) {
           setScenarioReviews([review]);
           setScenarioReviewIndex(0);
         }
       })
       .catch((error) => {
+        if (currentRequestId !== scenarioReviewRequestIdRef.current) {
+          return;
+        }
         setScenarioReviewError(error instanceof Error ? error.message : 'Review failed');
       })
-      .finally(() => setScenarioReviewLoading(false));
+      .finally(() => {
+        if (currentRequestId !== scenarioReviewRequestIdRef.current) {
+          return;
+        }
+        if (scenarioReviewAbortControllerRef.current === abortController) {
+          scenarioReviewAbortControllerRef.current = null;
+        }
+        setScenarioReviewLoading(false);
+      });
   };
 
   const regenerateScenarioReview = (snapshot: Message[]) => {
     const scenario = activeScenarioRef.current;
+    scenarioReviewAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    scenarioReviewAbortControllerRef.current = abortController;
+    const currentRequestId = ++scenarioReviewRequestIdRef.current;
     setScenarioReviewError(null);
     setScenarioReviewLoading(true);
     generateScenarioStandardizationReview({
       messages: snapshot,
       scenarioName: scenario?.name,
       scenarioDescription: scenario?.aiSummary || scenario?.description,
+      signal: abortController.signal,
     })
       .then((review) => {
+        if (currentRequestId !== scenarioReviewRequestIdRef.current) {
+          return;
+        }
         if (review) {
           setScenarioReviews((prev) => {
             const next = [...prev, review];
@@ -230,9 +259,20 @@ const App: React.FC = () => {
         }
       })
       .catch((error) => {
+        if (currentRequestId !== scenarioReviewRequestIdRef.current) {
+          return;
+        }
         setScenarioReviewError(error instanceof Error ? error.message : 'Review failed');
       })
-      .finally(() => setScenarioReviewLoading(false));
+      .finally(() => {
+        if (currentRequestId !== scenarioReviewRequestIdRef.current) {
+          return;
+        }
+        if (scenarioReviewAbortControllerRef.current === abortController) {
+          scenarioReviewAbortControllerRef.current = null;
+        }
+        setScenarioReviewLoading(false);
+      });
   };
 
   // ---------------------------------------------------------------------------
@@ -1223,6 +1263,10 @@ const App: React.FC = () => {
   };
 
   const handleStartPractice = async (scenario: Scenario) => {
+    scenarioReviewAbortControllerRef.current?.abort();
+    scenarioReviewAbortControllerRef.current = null;
+    scenarioReviewRequestIdRef.current += 1;
+
     // Revoke all audio URLs before clearing messages to prevent memory leaks
     messages.forEach(msg => {
       if (msg.audioUrl) {
@@ -1308,6 +1352,10 @@ const App: React.FC = () => {
   };
 
   const handleDismissScenarioSummary = () => {
+    scenarioReviewAbortControllerRef.current?.abort();
+    scenarioReviewAbortControllerRef.current = null;
+    scenarioReviewRequestIdRef.current += 1;
+
     for (const msg of scenarioMessagesSnapshotRef.current) {
       if (msg.audioUrl) {
         if (Array.isArray(msg.audioUrl)) {
@@ -1342,6 +1390,10 @@ const App: React.FC = () => {
       handleDismissScenarioSummary();
       return;
     }
+
+    scenarioReviewAbortControllerRef.current?.abort();
+    scenarioReviewAbortControllerRef.current = null;
+    scenarioReviewRequestIdRef.current += 1;
 
     processingAbortedRef.current = true;
     if (abortControllerRef.current) {

@@ -11,11 +11,7 @@ function ensureAiInitialized(): void {
     if (!apiKey) {
       throw new Error('Missing Gemini API Key');
     }
-    try {
-      ai = new GoogleGenAI({ apiKey });
-    } catch {
-      ai = (GoogleGenAI as unknown as (opts: { apiKey: string }) => GoogleGenAI)({ apiKey });
-    }
+    ai = new GoogleGenAI({ apiKey });
   }
 }
 

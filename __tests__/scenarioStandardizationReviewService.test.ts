@@ -26,7 +26,9 @@ const mockAi = {
   chats: { create: vi.fn() },
 };
 
-vi.mocked(GoogleGenAI).mockImplementation(() => mockAi as unknown as GoogleGenAI);
+vi.mocked(GoogleGenAI).mockImplementation(function GoogleGenAIConstructorMock() {
+  return mockAi as unknown as GoogleGenAI;
+});
 
 const SAMPLE_REVIEW: ScenarioStandardizationReview = {
   items: [
