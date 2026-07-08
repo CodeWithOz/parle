@@ -2154,14 +2154,14 @@ const App: React.FC = () => {
   // Status text for the landing view
   const getStatusText = () => {
     if (errorFlashVisible) {
-      return <p className="text-red-400 font-medium animate-pulse">{errorFlashMessage}</p>;
+      return <p className="text-parle-red-600 font-medium animate-pulse">{errorFlashMessage}</p>;
     }
     if (appState === AppState.ERROR) {
       const errLine = chatProcessingErrorMessage || 'Connection error. Please try again.';
-      return <p className="text-red-400 font-medium animate-pulse">{errLine}</p>;
+      return <p className="text-parle-red-600 font-medium animate-pulse">{errLine}</p>;
     }
     if (geminiKeyMissing) {
-      return <p className="text-yellow-400 font-medium text-sm">Warning: No Gemini API key configured.</p>;
+      return <p className="text-amber-700 font-medium text-sm">Warning: No Gemini API key configured.</p>;
     }
     if (appState === AppState.PROCESSING) {
       return <p className="text-parle-navy-500 font-medium">Thinking...</p>;
@@ -2185,6 +2185,7 @@ const App: React.FC = () => {
         activeMode={activeMode}
         onSelectMode={handleNavSelect}
         onOpenSettings={() => setShowApiKeyModal(true)}
+        disabledModes={navDisabledModes}
         rightSlot={
           <>
             {tefAdMode === 'practice' && tefAdImage && (

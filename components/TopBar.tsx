@@ -9,6 +9,9 @@ interface TopBarProps {
   onOpenSettings: () => void;
   /** Right-aligned slot before the settings gear (TEF timer/thumbnail, etc). */
   rightSlot?: React.ReactNode;
+  /** Mirrors NavRail's disabledModes so the mobile menu has the same
+   * can't-stack-a-setup-flow-on-a-running-session guardrail as the rail. */
+  disabledModes?: NavMode[];
 }
 
 /**
@@ -16,7 +19,7 @@ interface TopBarProps {
  * hamburger menu on mobile that reveals the same mode-switch options the
  * nav rail offers at larger breakpoints (nav rail is hidden below `tablet:`).
  */
-export const TopBar: React.FC<TopBarProps> = ({ activeMode, onSelectMode, onOpenSettings, rightSlot }) => {
+export const TopBar: React.FC<TopBarProps> = ({ activeMode, onSelectMode, onOpenSettings, rightSlot, disabledModes = [] }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
@@ -72,10 +75,12 @@ export const TopBar: React.FC<TopBarProps> = ({ activeMode, onSelectMode, onOpen
             <div className="flex-1 min-h-0 overflow-y-auto px-4 pb-8 pt-1 space-y-2">
               {NAV_MODE_ITEMS.map((item) => {
                 const isActive = item.mode === activeMode;
+                const isDisabled = !isActive && disabledModes.includes(item.mode);
                 return (
                   <button
                     key={item.mode}
                     type="button"
+                    disabled={isDisabled}
                     onClick={() => {
                       setMobileMenuOpen(false);
                       onSelectMode(item.mode);
@@ -84,6 +89,8 @@ export const TopBar: React.FC<TopBarProps> = ({ activeMode, onSelectMode, onOpen
                     className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-colors ${
                       isActive
                         ? 'bg-parle-blue-100 border-parle-blue-500 text-parle-navy-900 font-medium'
+                        : isDisabled
+                        ? 'border-parle-navy-100 text-parle-navy-300 cursor-not-allowed'
                         : 'border-parle-navy-100 text-parle-navy-700 hover:bg-parle-blue-50'
                     }`}
                   >
