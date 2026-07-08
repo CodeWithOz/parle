@@ -2164,18 +2164,18 @@ const App: React.FC = () => {
       return <p className="text-yellow-400 font-medium text-sm">Warning: No Gemini API key configured.</p>;
     }
     if (appState === AppState.PROCESSING) {
-      return <p className="text-slate-400 font-medium">Thinking...</p>;
+      return <p className="text-parle-navy-500 font-medium">Thinking...</p>;
     }
     if (appState === AppState.RECORDING) {
-      return <p className="text-red-400 font-medium">Listening... Tap to stop</p>;
+      return <p className="text-parle-red-600 font-medium">Listening... Tap to stop</p>;
     }
     if (appState === AppState.PLAYING) {
-      return <p className="text-sky-400 font-medium">Speaking...</p>;
+      return <p className="text-parle-blue-600 font-medium">Speaking...</p>;
     }
     if (appState === AppState.IDLE && hasStarted) {
-      return <p className="text-slate-500">Ready. Tap the mic to speak.</p>;
+      return <p className="text-parle-navy-300">Ready. Tap the mic to speak.</p>;
     }
-    return <p className="text-slate-500">Tap the mic to start your session.</p>;
+    return <p className="text-parle-navy-300">Tap the mic to start your session.</p>;
   };
 
   return (
@@ -2497,27 +2497,27 @@ const App: React.FC = () => {
 
       {/* TEF Ad Time's Up Overlay */}
       {tefTimedUp && tefAdMode === 'practice' && !showTefAdSummary && (
-        <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-sm w-full p-8 text-center">
-            <div className="w-16 h-16 bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-700/50">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-amber-400" viewBox="0 0 20 20" fill="currentColor">
+        <div className="fixed inset-0 bg-parle-navy-900/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-parle-navy-100 max-w-sm w-full p-8 text-center">
+            <div className="w-16 h-16 bg-parle-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 border border-parle-blue-300">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-parle-blue-600" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
               </svg>
             </div>
-            <h2 className="text-xl font-bold text-slate-100 mb-2">Time's Up!</h2>
-            <p className="text-slate-400 text-sm mb-6">
+            <h2 className="text-xl font-bold text-parle-navy-900 mb-2">Time's Up!</h2>
+            <p className="text-parle-navy-500 text-sm mb-6">
               Your 10-minute practice session has ended. Great work!
             </p>
             <div className="flex flex-col gap-3">
               <button
                 onClick={() => { setTefTimedUp(false); }}
-                className="w-full py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-medium transition-colors"
+                className="w-full py-3 bg-parle-navy-100 hover:bg-parle-navy-200 text-parle-navy-900 rounded-xl font-medium transition-colors"
               >
                 Continue Anyway
               </button>
               <button
                 onClick={() => { setTefTimedUp(false); handleExitTefAd(); }}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors"
+                className="w-full py-3 bg-parle-blue-500 hover:bg-parle-blue-600 text-white rounded-xl font-medium transition-colors"
               >
                 End Session
               </button>

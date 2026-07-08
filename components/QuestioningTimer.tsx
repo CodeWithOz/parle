@@ -27,20 +27,20 @@ export const QuestioningTimer: React.FC<QuestioningTimerProps> = ({
   const isFinished = isTimedUp || remaining === 0;
 
   const colorClass = isFinished
-    ? 'text-slate-400'
+    ? 'text-parle-navy-400'
     : isCritical
-    ? 'text-red-400'
+    ? 'text-parle-red-600'
     : isLow
-    ? 'text-amber-400'
-    : 'text-slate-200';
+    ? 'text-parle-red-400'
+    : 'text-parle-navy-700';
 
   const bgClass = isFinished
-    ? 'bg-slate-800/50 border-slate-700/50'
+    ? 'bg-parle-navy-50 border-parle-navy-100'
     : isCritical
-    ? 'bg-red-900/20 border-red-700/50'
+    ? 'bg-parle-red-100 border-parle-red-500'
     : isLow
-    ? 'bg-amber-900/20 border-amber-700/50'
-    : 'bg-slate-800/50 border-slate-700/50';
+    ? 'bg-parle-red-50 border-parle-red-300'
+    : 'bg-parle-blue-50 border-parle-navy-100';
 
   const pulseClass = isCritical ? 'animate-pulse' : '';
 
@@ -51,7 +51,7 @@ export const QuestioningTimer: React.FC<QuestioningTimerProps> = ({
     >
       {isPaused ? (
         /* Pause icon */
-        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-parle-navy-400" viewBox="0 0 20 20" fill="currentColor">
           <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
         </svg>
       ) : (
@@ -63,7 +63,7 @@ export const QuestioningTimer: React.FC<QuestioningTimerProps> = ({
       <span className={`text-sm font-mono font-medium ${colorClass}`}>
         {isFinished ? '00:00' : formatTime(remaining)}
       </span>
-      <span className="text-xs font-medium text-slate-300 ml-1">
+      <span className="text-xs font-medium text-parle-navy-500 ml-1">
         {questionCount} / {questionGoal} questions asked
       </span>
     </div>
