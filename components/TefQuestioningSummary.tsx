@@ -105,23 +105,23 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 overscroll-none"
+      className="fixed inset-0 bg-parle-navy-900/40 z-50 flex items-center justify-center p-4 overscroll-none"
       role="dialog"
       aria-modal="true"
       aria-labelledby="questioning-summary-title"
     >
-      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[min(85dvh,100%)] flex flex-col min-h-0 text-center">
+      <div className="bg-white rounded-2xl border border-parle-navy-100 max-w-lg w-full max-h-[min(85dvh,100%)] flex flex-col min-h-0 text-center">
         {/* Scrollable content area */}
         <div className="overflow-y-auto overscroll-y-contain p-8 flex-1 min-h-0">
           {/* Icon */}
-          <div className="w-16 h-16 bg-blue-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-blue-700/50">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+          <div className="w-16 h-16 bg-parle-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 border border-parle-blue-300">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-8 w-8 text-parle-blue-600" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.415-1.415L11 9.586V6z" clipRule="evenodd" />
             </svg>
           </div>
 
-          <h2 id="questioning-summary-title" className="text-xl font-bold text-slate-100 mb-2">Session Complete</h2>
-          <p className="text-slate-400 text-sm mb-6">Here's how your questioning session went.</p>
+          <h2 id="questioning-summary-title" className="text-xl font-bold text-parle-navy-900 mb-2">Session Complete</h2>
+          <p className="text-parle-navy-500 text-sm mb-6">Here's how your questioning session went.</p>
 
           {/* Ad thumbnail */}
           {adImage && (
@@ -129,7 +129,7 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
               <img
                 src={adImage}
                 alt="Advertisement"
-                className="w-16 h-16 object-cover rounded-xl border border-slate-600"
+                className="w-16 h-16 object-cover rounded-xl border border-parle-navy-200"
               />
             </div>
           )}
@@ -137,30 +137,30 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
           {/* Stats */}
           <div className="space-y-3 text-left mb-6">
             {/* Time used */}
-            <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-xl border border-slate-600">
-              <span className="text-slate-400 text-sm">Time used</span>
-              <span className="text-slate-100 text-sm font-mono font-medium">{formatTime(elapsedSeconds)}</span>
+            <div className="flex items-center justify-between p-3 bg-parle-blue-50 rounded-xl border border-parle-navy-100">
+              <span className="text-parle-navy-500 text-sm">Time used</span>
+              <span className="text-parle-navy-900 text-sm font-mono font-medium">{formatTime(elapsedSeconds)}</span>
             </div>
 
             {/* Questions asked */}
-            <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-xl border border-slate-600">
-              <span className="text-slate-400 text-sm">Questions asked</span>
+            <div className="flex items-center justify-between p-3 bg-parle-blue-50 rounded-xl border border-parle-navy-100">
+              <span className="text-parle-navy-500 text-sm">Questions asked</span>
               <div className="flex items-center gap-2">
-                <span className="text-slate-100 text-sm font-medium">
+                <span className="text-parle-navy-900 text-sm font-medium">
                   {questionCount} / {questionGoal}
                 </span>
                 {goalMet ? (
-                  <span className="text-green-400 text-sm">&#10003;</span>
+                  <span className="text-parle-blue-600 text-sm">&#10003;</span>
                 ) : (
-                  <span className="text-red-400 text-sm">&#10007;</span>
+                  <span className="text-parle-red-600 text-sm">&#10007;</span>
                 )}
               </div>
             </div>
 
             {/* Repeats */}
-            <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-xl border border-slate-600">
-              <span className="text-slate-400 text-sm">Repeats flagged by AI</span>
-              <span className={`text-sm font-medium ${repeatCount > 0 ? 'text-amber-400' : 'text-green-400'}`}>
+            <div className="flex items-center justify-between p-3 bg-parle-blue-50 rounded-xl border border-parle-navy-100">
+              <span className="text-parle-navy-500 text-sm">Repeats flagged by AI</span>
+              <span className={`text-sm font-medium ${repeatCount > 0 ? 'text-parle-red-500' : 'text-parle-blue-600'}`}>
                 {repeatCount}
               </span>
             </div>
@@ -169,12 +169,12 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
           {/* Repeated Concepts section */}
           {repeatedConcepts.size > 0 && (
             <div className="mb-6 text-left">
-              <h3 className="text-slate-300 text-sm font-semibold mb-3 uppercase tracking-wide">Repeated Concepts</h3>
+              <h3 className="text-parle-navy-700 text-sm font-semibold mb-3 uppercase tracking-wide">Repeated Concepts</h3>
               <div className="space-y-2">
                 {Array.from(repeatedConcepts.entries()).map(([label, group]) => {
                   const isOpen = openConcepts.has(label);
                   return (
-                    <div key={label} className="bg-slate-700/50 rounded-xl border border-slate-600 overflow-hidden">
+                    <div key={label} className="bg-parle-blue-50 rounded-xl border border-parle-navy-100 overflow-hidden">
                       {/* Accordion header */}
                       <button
                         type="button"
@@ -182,15 +182,15 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
                         className="w-full flex items-center justify-between p-3 text-left"
                         aria-expanded={isOpen}
                       >
-                        <span className="text-slate-100 text-sm font-medium">
+                        <span className="text-parle-navy-900 text-sm font-medium">
                           {label}
-                          <span className="text-slate-400 font-normal ml-1">
+                          <span className="text-parle-navy-500 font-normal ml-1">
                             · asked {group.messages.length} time{group.messages.length !== 1 ? 's' : ''}
                           </span>
                         </span>
                         <svg
                           xmlns="http://www.w3.org/2000/svg"
-                          className={`h-4 w-4 text-slate-400 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                          className={`h-4 w-4 text-parle-navy-300 transition-transform ${isOpen ? 'rotate-180' : ''}`}
                           viewBox="0 0 20 20"
                           fill="currentColor"
                         >
@@ -200,18 +200,18 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
 
                       {/* Accordion body */}
                       {isOpen && (
-                        <div className="border-t border-slate-600 p-3 space-y-4">
+                        <div className="border-t border-parle-navy-100 p-3 space-y-4">
                           {group.messages.map((entry, idx) => (
                             <div key={idx} className="space-y-2">
-                              <p className="text-xs text-slate-500 uppercase tracking-wide font-semibold">
+                              <p className="text-xs text-parle-navy-300 uppercase tracking-wide font-semibold">
                                 {idx === 0 ? 'First mention' : `Repeat #${idx}`}
                               </p>
 
                               {/* Model message before */}
                               {entry.before && (
-                                <div className="rounded-lg bg-slate-800 border border-slate-600 p-2">
-                                  <p className="text-xs text-slate-400 mb-1 font-medium">Agent</p>
-                                  <p className="text-slate-200 text-sm">{entry.before.text}</p>
+                                <div className="rounded-lg bg-white border border-parle-navy-100 p-2">
+                                  <p className="text-xs text-parle-navy-500 mb-1 font-medium">Agent</p>
+                                  <p className="text-parle-navy-900 text-sm">{entry.before.text}</p>
                                   {entry.before.audioUrl && (
                                     <audio controls src={entry.before.audioUrl as string} className="mt-2 w-full h-8" />
                                   )}
@@ -219,9 +219,9 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
                               )}
 
                               {/* User message (highlighted) */}
-                              <div className="rounded-lg bg-slate-800 border border-amber-600/50 border-l-4 border-l-amber-500 p-2">
-                                <p className="text-xs text-amber-400 mb-1 font-medium">Moi</p>
-                                <p className="text-slate-200 text-sm">{entry.user.text}</p>
+                              <div className="rounded-lg bg-white border border-parle-blue-300 border-l-4 border-l-parle-blue-500 p-2">
+                                <p className="text-xs text-parle-blue-600 mb-1 font-medium">Moi</p>
+                                <p className="text-parle-navy-900 text-sm">{entry.user.text}</p>
                                 {entry.user.audioUrl && (
                                   <audio controls src={entry.user.audioUrl as string} className="mt-2 w-full h-8" />
                                 )}
@@ -229,9 +229,9 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
 
                               {/* Model message after */}
                               {entry.after && (
-                                <div className="rounded-lg bg-slate-800 border border-slate-600 p-2">
-                                  <p className="text-xs text-slate-400 mb-1 font-medium">Agent</p>
-                                  <p className="text-slate-200 text-sm">{entry.after.text}</p>
+                                <div className="rounded-lg bg-white border border-parle-navy-100 p-2">
+                                  <p className="text-xs text-parle-navy-500 mb-1 font-medium">Agent</p>
+                                  <p className="text-parle-navy-900 text-sm">{entry.after.text}</p>
                                   {entry.after.audioUrl && (
                                     <audio controls src={entry.after.audioUrl as string} className="mt-2 w-full h-8" />
                                   )}
@@ -260,8 +260,8 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
           />
 
           {topicArchiveSaved && !isReviewLoading && (
-            <div className="flex items-center gap-1.5 mt-4 text-xs text-slate-500">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-green-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+            <div className="flex items-center gap-1.5 mt-4 text-xs text-parle-navy-300">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-parle-blue-500 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
               </svg>
               Saved to your topic library
@@ -270,18 +270,18 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
         </div>
 
         {/* Done button — pinned outside the scroll area */}
-        <div className="p-6 pt-4 border-t border-slate-700">
+        <div className="p-6 pt-4 border-t border-parle-navy-100">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <button
               onClick={onRestart}
               disabled={isReviewLoading}
-              className="py-3 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="py-3 bg-parle-navy-100 hover:bg-parle-navy-200 text-parle-navy-900 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Restart Exercise
             </button>
             <button
               onClick={onDismiss}
-              className="py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors"
+              className="py-3 bg-parle-blue-500 hover:bg-parle-blue-600 text-white rounded-xl font-medium transition-colors"
             >
               Done
             </button>
