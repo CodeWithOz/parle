@@ -80,6 +80,21 @@ const TefQuestioningSchema = z.object({
 });
 
 /**
+ * Zod schema for single-character scenarios that carry roadmap steps.
+ * Adds a required "currentStepIndex" field so the client can auto-advance the
+ * scenario roadmap sidebar. Mirrors the isTefQuestioning conditional-schema
+ * precedent: this field must ONLY be present when the scenario has a non-empty
+ * `steps` array, so it is a separate schema branch rather than an
+ * always-present optional field (see AGENTS.md "TEF Ad Questioning Mode:
+ * Schema Selection").
+ */
+const RoadmapSingleCharacterSchema = SingleCharacterSchema.extend({
+  currentStepIndex: z.number().int().min(0).describe(
+    "0-based index into the scenario roadmap steps list (given in the system instruction) of the step the conversation currently reflects."
+  ),
+});
+
+/**
  * Zod schema for free conversation mode response.
  * Separates French and English for TTS control, with optional hint.
  */
@@ -162,6 +177,8 @@ const SINGLE_CHARACTER_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(SingleCha
 const FREE_CONVERSATION_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(FreeConversationSchema) as Record<string, any>);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const TEF_QUESTIONING_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(TefQuestioningSchema) as Record<string, any>);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ROADMAP_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(RoadmapSingleCharacterSchema) as Record<string, any>);
 const createGeminiMultiCharacterSchema = (scenario: Scenario) =>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   toGeminiSchema(z.toJSONSchema(createMultiCharacterSchema(scenario)) as Record<string, any>);
@@ -199,6 +216,9 @@ function createChatSession(): void {
     }
     if (activeScenario.isTefQuestioning) {
       return TEF_QUESTIONING_RESPONSE_SCHEMA;
+    }
+    if (activeScenario.steps && activeScenario.steps.length > 0) {
+      return ROADMAP_RESPONSE_SCHEMA;
     }
     return SINGLE_CHARACTER_RESPONSE_SCHEMA;
   })();
@@ -705,6 +725,9 @@ export const sendVoiceMessage = async (
       if (activeScenario.isTefQuestioning) {
         return TEF_QUESTIONING_RESPONSE_SCHEMA;
       }
+      if (activeScenario.steps && activeScenario.steps.length > 0) {
+        return ROADMAP_RESPONSE_SCHEMA;
+      }
       return SINGLE_CHARACTER_RESPONSE_SCHEMA;
     })();
 
@@ -891,8 +914,16 @@ export const sendVoiceMessage = async (
           throw new Error(`Failed to parse single-character response as JSON: ${errorMessage}. Raw response: ${rawModelText}`);
         }
 
-        // Choose schema: TEF Questioning adds isRepeat field
-        const schemaToUse = activeScenario.isTefQuestioning ? TefQuestioningSchema : SingleCharacterSchema;
+        // Choose schema: TEF Questioning adds isRepeat/conceptLabels; a scenario
+        // with roadmap steps adds currentStepIndex. These are separate schema
+        // branches (see AGENTS.md "TEF Ad Questioning Mode: Schema Selection")
+        // so each field is only ever present/required for its own scenario type.
+        const hasRoadmapSteps = !!activeScenario.steps && activeScenario.steps.length > 0;
+        const schemaToUse = activeScenario.isTefQuestioning
+          ? TefQuestioningSchema
+          : hasRoadmapSteps
+            ? RoadmapSingleCharacterSchema
+            : SingleCharacterSchema;
 
         // Use safeParse for better error handling
         const validationResult = schemaToUse.safeParse(jsonResponse);
@@ -904,6 +935,9 @@ export const sendVoiceMessage = async (
         const isRepeat = activeScenario.isTefQuestioning && 'isRepeat' in validated ? (validated as { isRepeat?: boolean }).isRepeat : undefined;
         const conceptLabels = activeScenario.isTefQuestioning && 'conceptLabels' in validated
           ? (validated as { conceptLabels?: string[] }).conceptLabels
+          : undefined;
+        const currentStepIndex = hasRoadmapSteps && 'currentStepIndex' in validated
+          ? (validated as { currentStepIndex?: number }).currentStepIndex
           : undefined;
 
         // Check if operation was cancelled before generating audio
@@ -954,6 +988,7 @@ export const sendVoiceMessage = async (
           audioGenerationFailed: !audioUrl, // Empty audioUrl means TTS failed
           ...(isRepeat !== undefined ? { isRepeat } : {}),
           ...(conceptLabels !== undefined ? { conceptLabels } : {}),
+          ...(currentStepIndex !== undefined ? { currentStepIndex } : {}),
           characters: [{
             characterId: activeScenario?.characters?.[0]?.id || '',
             characterName: activeScenario?.characters?.[0]?.name || '',

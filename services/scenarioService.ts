@@ -1,6 +1,30 @@
-import { Scenario } from '../types';
+import { Scenario, ScenarioStep } from '../types';
 
 const STORAGE_KEY = 'parle-scenarios';
+
+/**
+ * Defensive accessor for a scenario's roadmap steps. Normalizes a possibly
+ * legacy scenario (saved before the roadmap feature existed, so it has no
+ * `steps` key at all) to an empty array, so UI code (roadmap sidebar, mobile
+ * step chip, etc.) never has to null-check `scenario.steps` itself.
+ */
+export function getScenarioSteps(scenario: Scenario | null | undefined): ScenarioStep[] {
+  return scenario?.steps ?? [];
+}
+
+/**
+ * Heuristic seed for the roadmap editor: break the AI-generated scenario
+ * summary into rough per-sentence steps the user can then edit/reorder.
+ * This is a simple heuristic (not an AI call) — see workflow-builder summary
+ * notes for the "AI-generated step breakdown" follow-up left for a future pass.
+ */
+export function seedRoadmapStepsFromSummary(summary: string): string[] {
+  const sentences = summary
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return sentences.length > 0 ? sentences : [''];
+}
 
 /**
  * Generate a unique ID for a scenario
@@ -89,6 +113,8 @@ export const generateScenarioSystemInstruction = (scenario: Scenario): string =>
     return generateMultiCharacterSystemInstruction(scenario);
   }
 
+  const roadmapSection = generateRoadmapInstructionSection(scenario);
+
   // Single-character scenario with JSON response format
   return `You are participating in a role-play scenario to help the user practice French.
 
@@ -137,8 +163,31 @@ The hint should:
 - Be brief - just a few words describing the next logical step
 
 START THE SCENARIO:
-Begin by greeting the user in character and initiating the scenario. For example, if it's a bakery scenario, greet them as the baker would.`;
+Begin by greeting the user in character and initiating the scenario. For example, if it's a bakery scenario, greet them as the baker would.${roadmapSection}`;
 };
+
+/**
+ * Builds the roadmap-tracking instruction block appended to the single-character
+ * system instruction when the scenario has roadmap steps. Returns an empty
+ * string when there are no steps, so it's a no-op for scenarios without a roadmap.
+ *
+ * This mirrors the isTefQuestioning conditional-schema precedent (see AGENTS.md):
+ * the "currentStepIndex" field only exists in the response schema when steps are
+ * present, so the model must only be told about it in that case too.
+ */
+function generateRoadmapInstructionSection(scenario: Scenario): string {
+  const steps = scenario.steps ?? [];
+  if (steps.length === 0) return '';
+
+  const stepList = steps.map((s, i) => `${i}. ${s.text}`).join('\n');
+
+  return `
+
+SCENARIO ROADMAP (for your internal tracking only — do not read this list aloud or mention step numbers to the user):
+${stepList}
+
+For EVERY response, you MUST also include a "currentStepIndex" field: the 0-based index into the roadmap list above of the step the conversation currently reflects (i.e. the step that was just addressed by the user, or is currently being addressed). Infer this from the conversation so far — do not ask the user which step they are on. Advance one step at a time as the user's utterances address each step; do not skip ahead speculatively.`;
+}
 
 /**
  * Generate the system instruction for multi-character scenario practice mode
