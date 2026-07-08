@@ -179,17 +179,17 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-parle-navy-900/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl border border-parle-navy-100 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
-        <div className="flex justify-between items-center p-6 border-b border-slate-700">
-          <h2 className="text-xl font-bold text-slate-100">Practice Role Play</h2>
+        <div className="flex justify-between items-center p-6 border-b border-parle-navy-100">
+          <h2 className="text-xl font-bold text-parle-navy-900">Practice Role Play</h2>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+            className="p-2 hover:bg-parle-blue-50 rounded-lg transition-colors"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-parle-navy-500" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
           </button>
@@ -222,7 +222,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
             <div>
               <button
                 onClick={() => setShowSaved(!showSaved)}
-                className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-2"
+                className="text-sm text-parle-blue-600 hover:text-parle-blue-700 flex items-center gap-2"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform ${showSaved ? 'rotate-90' : ''}`} viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
@@ -232,7 +232,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 
               {showSaved && (
                 <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
-                  <p className="text-slate-500 text-xs mb-2">Click "Start" to practice immediately, or click the row to edit first.</p>
+                  <p className="text-parle-navy-500 text-xs mb-2">Click "Start" to practice immediately, or click the row to edit first.</p>
                   {savedScenarios.map((scenario) => (
                     <div
                       key={scenario.id}
@@ -245,11 +245,11 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                           handleSelectSaved(scenario);
                         }
                       }}
-                      className="flex justify-between items-center p-3 bg-slate-700/50 rounded-lg cursor-pointer hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex justify-between items-center p-3 bg-parle-blue-50 rounded-lg cursor-pointer hover:bg-parle-blue-100 transition-colors focus:outline-none focus:ring-2 focus:ring-parle-blue-500"
                     >
                       <div className="flex-1 min-w-0 mr-3">
-                        <p className="text-slate-200 font-medium">{scenario.name}</p>
-                        <p className="text-slate-400 text-sm truncate">
+                        <p className="text-parle-navy-900 font-medium">{scenario.name}</p>
+                        <p className="text-parle-navy-500 text-sm truncate">
                           {scenario.description.length > 80
                             ? `${scenario.description.substring(0, 80)}...`
                             : scenario.description}
@@ -261,7 +261,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                           onClick={(e) => handleQuickStart(scenario, e)}
                           onKeyDown={(e) => e.stopPropagation()}
                           aria-label={`Start practicing ${scenario.name}`}
-                          className="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white text-xs font-medium rounded transition-colors"
+                          className="px-3 py-1.5 bg-parle-blue-500 hover:bg-parle-blue-600 text-white text-xs font-medium rounded transition-colors"
                         >
                           Start
                         </button>
@@ -270,9 +270,9 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                           onClick={(e) => handleDeleteSaved(scenario, e)}
                           onKeyDown={(e) => e.stopPropagation()}
                           aria-label={`Delete scenario ${scenario.name}`}
-                          className="p-1.5 hover:bg-slate-600 rounded transition-colors"
+                          className="p-1.5 hover:bg-parle-red-50 rounded transition-colors"
                         >
-                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-400 hover:text-red-400" viewBox="0 0 20 20" fill="currentColor">
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-parle-navy-400 hover:text-parle-red-500" viewBox="0 0 20 20" fill="currentColor">
                             <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
                           </svg>
                         </button>
@@ -288,7 +288,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
             <>
               {/* Scenario Name */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
+                <label className="block text-sm font-medium text-parle-navy-700 mb-2">
                   Scenario Name
                 </label>
                 <input
@@ -296,16 +296,16 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                   value={currentName}
                   onChange={(e) => onNameChange(e.target.value)}
                   placeholder="e.g., Bakery Visit, Hotel Check-in..."
-                  className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-3 bg-white border border-parle-navy-200 rounded-lg text-parle-navy-900 placeholder-parle-navy-300 focus:outline-none focus:ring-2 focus:ring-parle-blue-500 focus:border-transparent"
                 />
               </div>
 
               {/* Scenario Description */}
               <div>
-                <label className="block text-sm font-medium text-slate-300 mb-2">
+                <label className="block text-sm font-medium text-parle-navy-700 mb-2">
                   Describe Your Experience
                 </label>
-                <p className="text-slate-400 text-sm mb-3">
+                <p className="text-parle-navy-500 text-sm mb-3">
                   Tell us about a real experience you had (or want to practice). Be specific about what happened, what you said, and what the other person said.
                 </p>
                 <textarea
@@ -313,14 +313,14 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                   onChange={(e) => onDescriptionChange(e.target.value)}
                   placeholder="Example: I went to a bakery and bought a baguette and two croissants. The baker asked if I wanted anything else, I said no, and then I paid 5 euros."
                   rows={5}
-                  className="w-full px-4 py-3 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  className="w-full px-4 py-3 bg-white border border-parle-navy-200 rounded-lg text-parle-navy-900 placeholder-parle-navy-300 focus:outline-none focus:ring-2 focus:ring-parle-blue-500 focus:border-transparent resize-none"
                 />
               </div>
 
               {/* Voice Input Button */}
               <div className="flex items-center gap-4">
                 {isTranscribingDescription ? (
-                  <div className="flex items-center gap-2 px-4 py-2 bg-slate-700 rounded-lg text-slate-300">
+                  <div className="flex items-center gap-2 px-4 py-2 bg-parle-blue-50 rounded-lg text-parle-navy-700">
                     <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -333,7 +333,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                     className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
                       isRecordingDescription
                         ? 'bg-red-500 hover:bg-red-600 text-white'
-                        : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
+                        : 'bg-parle-blue-50 hover:bg-parle-blue-100 text-parle-navy-700'
                     }`}
                   >
                     {showTranscriptOptions ? (
@@ -357,7 +357,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                 {isRecordingDescription && (
                   <button
                     onClick={onCancelRecordingDescription}
-                    className="px-4 py-2 text-slate-400 hover:text-slate-200 transition-colors"
+                    className="px-4 py-2 text-parle-navy-500 hover:text-parle-navy-700 transition-colors"
                   >
                     Cancel
                   </button>
@@ -379,30 +379,30 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 
               {/* Transcript Selection UI */}
               {showTranscriptOptions && rawTranscript && cleanedTranscript && (
-                <div ref={transcriptOptionsRef} className="space-y-4 p-4 bg-slate-700/30 rounded-lg border border-slate-600">
+                <div ref={transcriptOptionsRef} className="space-y-4 p-4 bg-parle-blue-50 rounded-lg border border-parle-navy-200">
                   <div className="flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-parle-blue-600" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                     </svg>
-                    <p className="text-sm font-medium text-slate-200">Choose your transcript version</p>
+                    <p className="text-sm font-medium text-parle-navy-900">Choose your transcript version</p>
                   </div>
 
-                  <p className="text-xs text-slate-400">
+                  <p className="text-xs text-parle-navy-500">
                     We've created a cleaned-up version of your transcript. Choose which one you'd like to use.
                   </p>
 
                   {/* Raw Transcript Option */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-slate-300">Original Transcript</span>
-                      <span className="text-xs text-slate-500">As spoken</span>
+                      <span className="text-sm font-medium text-parle-navy-700">Original Transcript</span>
+                      <span className="text-xs text-parle-navy-500">As spoken</span>
                     </div>
-                    <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-600 max-h-32 overflow-y-auto">
-                      <p className="text-sm text-slate-300 whitespace-pre-wrap">{rawTranscript}</p>
+                    <div className="p-3 bg-parle-blue-50 rounded-lg border border-parle-navy-200 max-h-32 overflow-y-auto">
+                      <p className="text-sm text-parle-navy-700 whitespace-pre-wrap">{rawTranscript}</p>
                     </div>
                     <button
                       onClick={() => onSelectTranscript(false)}
-                      className="w-full py-2 bg-slate-600 hover:bg-slate-500 text-slate-200 rounded-lg text-sm font-medium transition-colors"
+                      className="w-full py-2 bg-parle-navy-200 hover:bg-parle-navy-300 text-parle-navy-900 rounded-lg text-sm font-medium transition-colors"
                     >
                       Use Original
                     </button>
@@ -411,11 +411,11 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                   {/* Cleaned Transcript Option */}
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-slate-300">Cleaned Transcript</span>
+                      <span className="text-sm font-medium text-parle-navy-700">Cleaned Transcript</span>
                       <span className="text-xs text-green-400">Fillers removed</span>
                     </div>
-                    <div className="p-3 bg-slate-800/50 rounded-lg border border-green-600/30 max-h-32 overflow-y-auto">
-                      <p className="text-sm text-slate-300 whitespace-pre-wrap">{cleanedTranscript}</p>
+                    <div className="p-3 bg-parle-blue-50 rounded-lg border border-parle-blue-300 max-h-32 overflow-y-auto">
+                      <p className="text-sm text-parle-navy-700 whitespace-pre-wrap">{cleanedTranscript}</p>
                     </div>
                     <button
                       onClick={() => onSelectTranscript(true)}
@@ -433,8 +433,8 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                 disabled={!currentDescription.trim() || !currentName.trim() || isProcessingScenario}
                 className={`w-full py-3 rounded-lg font-medium transition-colors ${
                   !currentDescription.trim() || !currentName.trim() || isProcessingScenario
-                    ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                    : 'bg-blue-600 hover:bg-blue-500 text-white'
+                    ? 'bg-parle-navy-100 text-parle-navy-300 cursor-not-allowed'
+                    : 'bg-parle-blue-500 hover:bg-parle-blue-600 text-white'
                 }`}
               >
                 {isProcessingScenario ? 'Processing...' : 'Create Scenario'}
@@ -444,37 +444,37 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
             <>
               {/* AI Summary Display */}
               <div>
-                <h3 className="text-lg font-medium text-slate-200 mb-2">Scenario: {currentName}</h3>
-                <div className="p-4 bg-slate-700/50 rounded-lg border border-slate-600">
-                  <p className="text-slate-300 whitespace-pre-wrap">{aiSummary}</p>
+                <h3 className="text-lg font-medium text-parle-navy-900 mb-2">Scenario: {currentName}</h3>
+                <div className="p-4 bg-parle-blue-50 rounded-lg border border-parle-navy-200">
+                  <p className="text-parle-navy-700 whitespace-pre-wrap">{aiSummary}</p>
                 </div>
               </div>
 
               {/* Characters Display */}
               {characters && characters.length > 1 && (
                 <div>
-                  <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-blue-400" viewBox="0 0 20 20" fill="currentColor">
+                  <h4 className="text-sm font-medium text-parle-navy-700 mb-3 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-parle-blue-600" viewBox="0 0 20 20" fill="currentColor">
                       <path d="M9 6a3 3 0 11-6 0 3 3 0 016 0zM17 6a3 3 0 11-6 0 3 3 0 016 0zM12.93 17c.046-.327.07-.66.07-1a6.97 6.97 0 00-1.5-4.33A5 5 0 0119 16v1h-6.07zM6 11a5 5 0 015 5v1H1v-1a5 5 0 015-5z" />
                     </svg>
                     Characters in this scenario
                   </h4>
                   <div className="space-y-2">
                     {characters.map(char => (
-                      <div key={char.id} className="flex justify-between items-center p-3 bg-slate-800/50 rounded-lg border border-slate-700/50">
+                      <div key={char.id} className="flex justify-between items-center p-3 bg-parle-blue-50 rounded-lg border border-parle-navy-100">
                         <div className="flex-1">
                           <div className="flex items-center gap-2">
-                            <div className="w-2 h-2 bg-blue-400 rounded-full"></div>
-                            <p className="text-sm font-medium text-slate-200">{char.name}</p>
+                            <div className="w-2 h-2 bg-parle-blue-500 rounded-full"></div>
+                            <p className="text-sm font-medium text-parle-navy-900">{char.name}</p>
                           </div>
-                          <p className="text-xs text-slate-400 ml-4 mt-1">{char.role}</p>
+                          <p className="text-xs text-parle-navy-500 ml-4 mt-1">{char.role}</p>
                           {char.description && (
-                            <p className="text-xs text-slate-500 ml-4 mt-1">{char.description}</p>
+                            <p className="text-xs text-parle-navy-500 ml-4 mt-1">{char.description}</p>
                           )}
                         </div>
                         <div className="text-right ml-3">
-                          <p className="text-xs text-slate-400">Voice</p>
-                          <p className="text-xs font-medium text-blue-400">{char.voiceName}</p>
+                          <p className="text-xs text-parle-navy-500">Voice</p>
+                          <p className="text-xs font-medium text-parle-blue-600">{char.voiceName}</p>
                         </div>
                       </div>
                     ))}
@@ -484,8 +484,8 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 
               {/* Roadmap Editor — confirm + edit the scenario roadmap (wireframe 3d/4d) */}
               <div>
-                <h4 className="text-sm font-medium text-slate-300 mb-1">Your Roadmap</h4>
-                <p className="text-xs text-slate-500 mb-3">
+                <h4 className="text-sm font-medium text-parle-navy-700 mb-1">Your Roadmap</h4>
+                <p className="text-xs text-parle-navy-500 mb-3">
                   Drag to reorder, edit or remove any step. This maps out the scenario so you always know what's next.
                 </p>
                 <div data-testid="roadmap-step-list" className="space-y-2">
@@ -493,16 +493,16 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                     <div
                       key={index}
                       data-testid={`roadmap-step-${index}`}
-                      className="flex items-center gap-2 p-2 bg-slate-800/50 rounded-lg border border-slate-700/50"
+                      className="flex items-center gap-2 p-2 bg-parle-blue-50 rounded-lg border border-parle-navy-100"
                     >
-                      <span className="text-slate-500 cursor-grab select-none px-1" aria-hidden="true">⋮⋮</span>
+                      <span className="text-parle-navy-300 cursor-grab select-none px-1" aria-hidden="true">⋮⋮</span>
                       <input
                         type="text"
                         data-testid={`roadmap-step-input-${index}`}
                         value={stepText}
                         onChange={(e) => handleRoadmapStepTextChange(index, e.target.value)}
                         placeholder={`Step ${index + 1}`}
-                        className="flex-1 min-w-0 px-3 py-2 bg-slate-700/50 border border-slate-600 rounded-lg text-slate-100 placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        className="flex-1 min-w-0 px-3 py-2 bg-white border border-parle-navy-200 rounded-lg text-parle-navy-900 placeholder-parle-navy-300 text-sm focus:outline-none focus:ring-2 focus:ring-parle-blue-500 focus:border-transparent"
                       />
                       <div className="flex items-center gap-1 flex-shrink-0">
                         <button
@@ -511,7 +511,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                           onClick={() => handleRoadmapStepMove(index, -1)}
                           disabled={index === 0}
                           aria-label={`Move step ${index + 1} up`}
-                          className="p-1.5 rounded hover:bg-slate-600 text-slate-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          className="p-1.5 rounded hover:bg-parle-blue-100 text-parle-navy-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                             <path fillRule="evenodd" d="M10 3a1 1 0 01.707.293l6 6a1 1 0 01-1.414 1.414L11 6.414V16a1 1 0 11-2 0V6.414l-4.293 4.293a1 1 0 01-1.414-1.414l6-6A1 1 0 0110 3z" clipRule="evenodd" />
@@ -523,7 +523,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                           onClick={() => handleRoadmapStepMove(index, 1)}
                           disabled={index === roadmapSteps.length - 1}
                           aria-label={`Move step ${index + 1} down`}
-                          className="p-1.5 rounded hover:bg-slate-600 text-slate-400 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                          className="p-1.5 rounded hover:bg-parle-blue-100 text-parle-navy-500 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                             <path fillRule="evenodd" d="M10 17a1 1 0 01-.707-.293l-6-6a1 1 0 111.414-1.414L9 13.586V4a1 1 0 112 0v9.586l4.293-4.293a1 1 0 111.414 1.414l-6 6A1 1 0 0110 17z" clipRule="evenodd" />
@@ -534,7 +534,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                           data-testid={`step-remove-${index}`}
                           onClick={() => handleRoadmapStepRemove(index)}
                           aria-label={`Remove step ${index + 1}`}
-                          className="p-1.5 rounded hover:bg-slate-600 text-slate-400 hover:text-red-400 transition-colors"
+                          className="p-1.5 rounded hover:bg-parle-red-50 text-parle-navy-500 hover:text-parle-red-500 transition-colors"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                             <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
@@ -548,7 +548,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                   type="button"
                   data-testid="roadmap-add-step"
                   onClick={handleRoadmapAddStep}
-                  className="mt-2 text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1.5"
+                  className="mt-2 text-sm text-parle-blue-600 hover:text-parle-blue-700 flex items-center gap-1.5"
                 >
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M10 5a1 1 0 011 1v3h3a1 1 0 110 2h-3v3a1 1 0 11-2 0v-3H6a1 1 0 110-2h3V6a1 1 0 011-1z" clipRule="evenodd" />
@@ -563,13 +563,13 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                   onClick={() => {
                     onEditScenario();
                   }}
-                  className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg font-medium transition-colors"
+                  className="flex-1 py-3 bg-parle-navy-100 hover:bg-parle-navy-200 text-parle-navy-900 rounded-lg font-medium transition-colors"
                 >
                   Edit Description
                 </button>
                 <button
                   onClick={handleStartPractice}
-                  className="flex-1 py-3 bg-green-600 hover:bg-green-500 text-white rounded-lg font-medium transition-colors"
+                  className="flex-1 py-3 bg-parle-blue-500 hover:bg-parle-blue-600 text-white rounded-lg font-medium transition-colors"
                 >
                   Start Practice
                 </button>
