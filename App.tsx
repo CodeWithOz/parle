@@ -1349,23 +1349,26 @@ const App: React.FC = () => {
     setIsProcessingScenario(true);
 
     try {
-      // Use OpenAI for scenario planning (returns JSON with summary and characters)
+      // Use OpenAI for scenario planning (returns JSON with summary, characters, and roadmap steps)
       const result = await processScenarioDescriptionOpenAI(description);
 
       // Try to parse as JSON first
-      let parsed: { summary: string; characters?: Array<{ name: string; role: string; description?: string }> };
+      let parsed: { summary: string; characters?: Array<{ name: string; role: string; description?: string }>; steps?: string[] };
       try {
         parsed = JSON.parse(result);
       } catch (parseError) {
         // If not JSON, treat as plain summary (backward compatibility)
         console.warn('Scenario description response is not JSON, treating as plain text');
-        parsed = { summary: result, characters: [] };
+        parsed = { summary: result, characters: [], steps: [] };
       }
 
       setAiSummary(parsed.summary);
-      // Heuristic seed for the roadmap editor — see seedRoadmapStepsFromSummary
-      // for the "AI-generated step breakdown" follow-up deferred to a later pass.
-      setRoadmapSteps(seedRoadmapStepsFromSummary(parsed.summary));
+      // Prefer the AI-generated roadmap steps from the same planning call. Fall
+      // back to the sentence-split heuristic only when the model didn't return
+      // usable steps (non-JSON legacy response, or an empty/missing `steps`
+      // field) — the user can still edit whatever comes out of either path.
+      const aiSteps = Array.isArray(parsed.steps) ? parsed.steps.map((s) => s.trim()).filter(Boolean) : [];
+      setRoadmapSteps(aiSteps.length > 0 ? aiSteps : seedRoadmapStepsFromSummary(parsed.summary));
 
       // Extract and assign voices to characters
       if (parsed.characters && parsed.characters.length > 0) {

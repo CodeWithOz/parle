@@ -13,10 +13,15 @@ export function getScenarioSteps(scenario: Scenario | null | undefined): Scenari
 }
 
 /**
- * Heuristic seed for the roadmap editor: break the AI-generated scenario
- * summary into rough per-sentence steps the user can then edit/reorder.
- * This is a simple heuristic (not an AI call) — see workflow-builder summary
- * notes for the "AI-generated step breakdown" follow-up left for a future pass.
+ * Defensive fallback seed for the roadmap editor: break a scenario summary
+ * into rough per-sentence steps the user can then edit/reorder.
+ *
+ * The primary source of roadmap steps is the AI-generated `steps` array
+ * returned by `processScenarioDescriptionOpenAI` (services/openaiService.ts),
+ * as part of the same structured-output scenario-planning call that produces
+ * `summary`/`characters` — no extra request. This heuristic only runs when
+ * that call didn't return usable steps: a non-JSON legacy response, or the
+ * model omitting/returning an empty `steps` field.
  */
 export function seedRoadmapStepsFromSummary(summary: string): string[] {
   const sentences = summary

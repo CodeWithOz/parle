@@ -14,7 +14,13 @@ const CharacterSchema = z.object({
 
 const ScenarioSummarySchema = z.object({
   summary: z.string().describe("Brief 2-3 sentence summary of the scenario"),
-  characters: z.array(CharacterSchema).min(1).max(5).describe("All distinct characters/people the user will interact with in this scenario (1-5 characters)")
+  characters: z.array(CharacterSchema).min(1).max(5).describe("All distinct characters/people the user will interact with in this scenario (1-5 characters)"),
+  steps: z.array(z.string()).min(2).max(8).describe(
+    "An ordered list of 2-8 short, concrete conversational beats the user will go through in this scenario " +
+    "(e.g. 'Greet the baker', 'Ask for a baguette', 'Order two croissants', 'Pay and say goodbye'), in the " +
+    "order they should naturally occur. Each step should describe a single user action or exchange, phrased " +
+    "as a short imperative/action label (not a full sentence of narration) so it reads well in a checklist."
+  )
 });
 
 const SYSTEM_INSTRUCTION = `
@@ -86,7 +92,8 @@ export const processScenarioDescriptionOpenAI = async (description: string): Pro
     // Fallback response
     return JSON.stringify({
       summary: "I understand the scenario. Ready to begin when you are!",
-      characters: []
+      characters: [],
+      steps: []
     });
   }
 };
