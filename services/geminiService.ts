@@ -116,13 +116,20 @@ const ImageAnalysisSchema = z.object({
  * Uses fixed labels ("Character 1", "Character 2", etc.) instead of actual names
  * because LLMs don't reliably use exact character names in structured output.
  * The processing code maps these labels back to actual characters by index.
+ *
+ * When the scenario also carries roadmap steps, this extends the base shape
+ * with a required "currentStepIndex" field — the same conditional-schema
+ * precedent used by `RoadmapSingleCharacterSchema` (see AGENTS.md "Scenario
+ * Roadmap: Schema Selection..."). Multi-character scenarios (e.g. a bakery
+ * visit with a Baker + Cashier) are common for role-play, so the roadmap
+ * field must be available here too, not just on the single-character branch.
  */
 const createMultiCharacterSchema = (scenario: Scenario) => {
   const count = Math.min(scenario.characters!.length, MAX_CHARACTERS);
   const labels = Array.from({ length: count }, (_, i) => `Character ${i + 1}`);
 
   // Allow hint at top level OR inside each character response (LLMs place it inconsistently)
-  return z.object({
+  const base = z.object({
     characterResponses: z.array(
       z.object({
         characterName: z.string().describe(`Must be one of: ${labels.join(', ')}`),
@@ -133,6 +140,15 @@ const createMultiCharacterSchema = (scenario: Scenario) => {
     ),
     hint: z.string().optional().describe("Hint for what the user should say or ask next - brief description in English")
   });
+
+  const hasRoadmapSteps = !!scenario.steps && scenario.steps.length > 0;
+  return hasRoadmapSteps
+    ? base.extend({
+        currentStepIndex: z.number().int().min(0).describe(
+          "0-based index into the scenario roadmap steps list (given in the system instruction) of the step the conversation currently reflects."
+        ),
+      })
+    : base;
 };
 
 /**
@@ -768,6 +784,14 @@ export const sendVoiceMessage = async (
 
       const validated = validationResult.data;
 
+      // Roadmap auto-advance: only present when the schema included it (see
+      // createMultiCharacterSchema's hasRoadmapSteps branch above). Mirrors
+      // the extraction pattern used for the single-character roadmap schema.
+      const hasRoadmapSteps = !!activeScenario.steps && activeScenario.steps.length > 0;
+      const currentStepIndex = hasRoadmapSteps && 'currentStepIndex' in validated
+        ? (validated as { currentStepIndex?: number }).currentStepIndex
+        : undefined;
+
       // Map fixed character labels ("Character 1", etc.) back to actual characters by index
       const characterResponses = validated.characterResponses.map(resp => {
         const label = resp.characterName.trim();
@@ -900,7 +924,8 @@ export const sendVoiceMessage = async (
           voiceName: ca.voiceName,
           audioGenerationFailed: ca.audioGenerationFailed,
           frenchText: ca.french // Include French text for TTS retry
-        }))
+        })),
+        ...(currentStepIndex !== undefined ? { currentStepIndex } : {}),
       };
     } else {
       // Single-character scenario with JSON response

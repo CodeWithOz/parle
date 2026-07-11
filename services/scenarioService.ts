@@ -198,6 +198,7 @@ For EVERY response, you MUST also include a "currentStepIndex" field: the 0-base
  * Generate the system instruction for multi-character scenario practice mode
  */
 export const generateMultiCharacterSystemInstruction = (scenario: Scenario): string => {
+  const roadmapSection = generateRoadmapInstructionSection(scenario);
   const characterMapping = scenario.characters!.map((c, i) => `- "Character ${i + 1}" = ${c.name} (${c.role})`).join('\n');
   const exampleResponses = scenario.characters!.slice(0, 2).map((_, i) => `    {
       "characterName": "Character ${i + 1}",
@@ -253,7 +254,7 @@ PROACTIVE HINTS (REQUIRED):
 For EVERY response, you MUST include a "hint" field in the JSON with a brief description of what the user should say or ask next, in English. Focus on the TOPIC or ACTION, not the exact French words. Example: "Ask what you'd like to buy" or "Thank them and say goodbye".
 
 START THE SCENARIO:
-Begin by having the appropriate character(s) greet the user and initiate the scenario.`;
+Begin by having the appropriate character(s) greet the user and initiate the scenario.${roadmapSection}`;
 };
 
 /**
