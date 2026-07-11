@@ -30,6 +30,16 @@ interface ScenarioSetupProps {
   characters?: Character[]; // NEW: Characters for this scenario
   roadmapSteps: string[]; // NEW: editable roadmap step texts, in order
   onRoadmapStepsChange: (steps: string[]) => void;
+  /** Called instead of onStartPractice when quick-starting a saved scenario
+   * that has no roadmap steps yet — proactively attempts AI roadmap
+   * generation and brings the user into the same confirm/edit screen used
+   * when creating a scenario fresh, anchored to this existing scenario. */
+  onRegenerateRoadmap: (scenario: Scenario) => void;
+  /** When set, the roadmap-editor screen's "Start Practice" reuses this
+   * scenario's id/createdAt (updating it in place) instead of generating a
+   * new scenario — set while regenerating a roadmap for an existing saved
+   * scenario, cleared for fresh scenario creation. */
+  regeneratingScenario?: Scenario | null;
 }
 
 export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
@@ -60,6 +70,8 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   characters,
   roadmapSteps,
   onRoadmapStepsChange,
+  onRegenerateRoadmap,
+  regeneratingScenario,
 }) => {
   const [savedScenarios, setSavedScenarios] = useState<Scenario[]>([]);
   const [showSaved, setShowSaved] = useState(false);
@@ -106,8 +118,17 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 
   const handleQuickStart = (scenario: Scenario, e: React.MouseEvent) => {
     e.stopPropagation();
-    // Start practice directly with the existing saved scenario
-    onStartPractice(scenario);
+    if (scenario.steps && scenario.steps.length > 0) {
+      // Already has a roadmap — start practice directly, unchanged fast path.
+      onStartPractice(scenario);
+    } else {
+      // No roadmap yet — proactively attempt AI generation and bring the user
+      // into the same confirm/edit screen used for fresh scenario creation,
+      // rather than silently skipping the roadmap forever. Collapse the saved
+      // list so the "Processing..." state on the Create/Start button is visible.
+      setShowSaved(false);
+      onRegenerateRoadmap(scenario);
+    }
   };
 
   const handleDeleteSaved = (scenario: Scenario, e: React.MouseEvent) => {
@@ -149,6 +170,29 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     onRoadmapStepsChange([...roadmapSteps, '']);
   };
 
+  // Native HTML5 drag-and-drop reorder for the ⋮⋮ handle. The row itself is
+  // the drag source (draggable="true") — dragstart stashes the source index
+  // in dataTransfer, and dropping on another row's container moves it there.
+  const handleRoadmapStepDragStart = (index: number) => (e: React.DragEvent<HTMLDivElement>) => {
+    e.dataTransfer.setData('text/plain', String(index));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleRoadmapStepDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault(); // required to allow dropping
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleRoadmapStepDrop = (targetIndex: number) => (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const sourceIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
+    if (Number.isNaN(sourceIndex) || sourceIndex === targetIndex) return;
+    const next = roadmapSteps.slice();
+    const [moved] = next.splice(sourceIndex, 1);
+    next.splice(targetIndex, 0, moved);
+    onRoadmapStepsChange(next);
+  };
+
   const handleStartPractice = () => {
     const steps = roadmapSteps
       .map((text) => text.trim())
@@ -156,11 +200,13 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
       .map((text, idx) => ({ id: `${generateId()}_step${idx}`, text }));
 
     const scenario: Scenario = {
-      id: generateId(),
+      // Reuse the existing scenario's identity when regenerating its roadmap,
+      // so saveScenario updates it in place instead of creating a duplicate.
+      id: regeneratingScenario?.id ?? generateId(),
       name: currentName,
       description: currentDescription,
       aiSummary: aiSummary || undefined,
-      createdAt: Date.now(),
+      createdAt: regeneratingScenario?.createdAt ?? Date.now(),
       isActive: true,
       characters: characters, // Include characters data
       steps,
@@ -493,9 +539,13 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                     <div
                       key={index}
                       data-testid={`roadmap-step-${index}`}
+                      draggable
+                      onDragStart={handleRoadmapStepDragStart(index)}
+                      onDragOver={handleRoadmapStepDragOver}
+                      onDrop={handleRoadmapStepDrop(index)}
                       className="flex items-center gap-2 p-2 bg-parle-blue-50 rounded-lg border border-parle-navy-100"
                     >
-                      <span className="text-parle-navy-300 cursor-grab select-none px-1" aria-hidden="true">⋮⋮</span>
+                      <span className="text-parle-navy-400 cursor-grab active:cursor-grabbing select-none px-1" aria-hidden="true">⋮⋮</span>
                       <input
                         type="text"
                         data-testid={`roadmap-step-input-${index}`}
