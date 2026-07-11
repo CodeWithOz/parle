@@ -92,6 +92,10 @@ const App: React.FC = () => {
   // Scenario roadmap: editable step texts (setup flow) and AI auto-advanced current index (practice)
   const [roadmapSteps, setRoadmapSteps] = useState<string[]>([]);
   const [currentRoadmapStepIndex, setCurrentRoadmapStepIndex] = useState<number | undefined>(undefined);
+  // When set, the roadmap-editor confirm screen is regenerating a roadmap for
+  // this EXISTING saved scenario (id/createdAt preserved on save) rather than
+  // creating a brand new one — see handleRegenerateRoadmapForScenario.
+  const [regeneratingScenario, setRegeneratingScenario] = useState<Scenario | null>(null);
   const [showRoadmapDrawer, setShowRoadmapDrawer] = useState(false);
   const [showScenarioSummary, setShowScenarioSummary] = useState(false);
   const [scenarioReviews, setScenarioReviews] = useState<ScenarioStandardizationReview[]>([]);
@@ -861,6 +865,16 @@ const App: React.FC = () => {
           setCurrentHint(response.hint);
         }
 
+        // Scenario roadmap auto-advance — "never regress" (like the hint already
+        // does). Multi-character scenarios (e.g. Baker + Cashier) need this too,
+        // not just the single-character branch below.
+        if (response.currentStepIndex !== undefined) {
+          const stepsLength = getScenarioSteps(activeScenarioRef.current).length;
+          setCurrentRoadmapStepIndex((prev) =>
+            advanceRoadmapStep(prev, response.currentStepIndex, stepsLength)
+          );
+        }
+
         // Set the first character message to auto-play (others will auto-play sequentially)
         setAutoPlayMessageId(timestamp + 1);
       } else {
@@ -1147,6 +1161,7 @@ const App: React.FC = () => {
     setScenarioName('');
     setAiSummary(null);
     setRoadmapSteps([]);
+    setRegeneratingScenario(null);
     setShowTranscriptOptions(false);
     setRawTranscript(null);
     setCleanedTranscript(null);
@@ -1163,6 +1178,7 @@ const App: React.FC = () => {
     setScenarioName('');
     setAiSummary(null);
     setRoadmapSteps([]);
+    setRegeneratingScenario(null);
     setScenarioCharacters([]); // Clear characters
     setIsRecordingDescription(false);
     setIsTranscribingDescription(false);
@@ -1340,12 +1356,14 @@ const App: React.FC = () => {
     cancelRecording();
   };
 
-  const handleSubmitScenarioDescription = async (description: string, name: string) => {
-    // Scenario creation requires both Gemini (transcription) and OpenAI (planning)
-    if (!hasApiKeyOrEnv('gemini') || !hasApiKeyOrEnv('openai')) {
-      setShowApiKeyModal(true);
-      return;
-    }
+  // Shared by fresh scenario creation (handleSubmitScenarioDescription) AND
+  // regenerating a roadmap for an existing saved scenario that doesn't have
+  // one yet (handleRegenerateRoadmapForScenario) — both populate the same
+  // aiSummary/roadmapSteps/scenarioCharacters state that drives the roadmap
+  // editor confirm screen in ScenarioSetup. `fallbackCharacters` lets the
+  // regenerate path keep an existing scenario's characters if the AI call
+  // fails or returns none, instead of always falling back to single-character.
+  const processScenarioDescriptionAndPopulate = async (description: string, fallbackCharacters: Character[] = []) => {
     setIsProcessingScenario(true);
 
     try {
@@ -1382,17 +1400,44 @@ const App: React.FC = () => {
         const charactersWithVoices = assignVoicesToCharacters(charactersWithIds);
         setScenarioCharacters(charactersWithVoices);
       } else {
-        // No characters extracted, fallback to single-character mode
-        setScenarioCharacters([]);
+        // No characters extracted from this call — keep the caller's fallback
+        // (e.g. an existing scenario's already-saved characters) if any.
+        setScenarioCharacters(fallbackCharacters);
       }
     } catch (error) {
       console.error('Error processing scenario:', error);
       setAiSummary('I understand your scenario. Ready to begin when you are!');
       setRoadmapSteps(['']);
-      setScenarioCharacters([]); // Fallback to single-character
+      setScenarioCharacters(fallbackCharacters);
     } finally {
       setIsProcessingScenario(false);
     }
+  };
+
+  const handleSubmitScenarioDescription = async (description: string, name: string) => {
+    // Scenario creation requires both Gemini (transcription) and OpenAI (planning)
+    if (!hasApiKeyOrEnv('gemini') || !hasApiKeyOrEnv('openai')) {
+      setShowApiKeyModal(true);
+      return;
+    }
+    await processScenarioDescriptionAndPopulate(description);
+  };
+
+  // Quick-starting a saved scenario that has no roadmap steps yet (e.g. every
+  // scenario saved before the roadmap feature existed) used to jump straight
+  // into practice, permanently skipping the roadmap editor for it. Instead,
+  // proactively attempt AI roadmap generation and bring the user into the same
+  // confirm/edit screen used for fresh creation, anchored to this scenario's
+  // existing id so "Start Practice" from there updates it in place.
+  const handleRegenerateRoadmapForScenario = async (scenario: Scenario) => {
+    if (!hasApiKeyOrEnv('gemini') || !hasApiKeyOrEnv('openai')) {
+      setShowApiKeyModal(true);
+      return;
+    }
+    setRegeneratingScenario(scenario);
+    setScenarioName(scenario.name);
+    setScenarioDescription(scenario.description);
+    await processScenarioDescriptionAndPopulate(scenario.description, scenario.characters ?? []);
   };
 
   const handleEditScenario = () => {
@@ -1451,6 +1496,7 @@ const App: React.FC = () => {
     setScenarioName('');
     setAiSummary(null);
     setRoadmapSteps([]);
+    setRegeneratingScenario(null);
   };
 
   const handleExitScenario = async () => {
@@ -2222,11 +2268,23 @@ const App: React.FC = () => {
         }
       />
 
-      {/* Content row: nav rail (left) + main content (center) + roadmap sidebar (right, desktop) */}
+      {/* Content row: nav rail (left) + center column [main + footer] (middle) + roadmap sidebar
+          (right, desktop) — nav rail and roadmap sidebar are both full-height siblings of the center
+          column (not nested inside a row above the footer), so <main> and the footer are direct
+          children of the SAME center column and share the exact same width. If either the nav rail or
+          the roadmap sidebar were only next to <main> (not also spanning down past the footer), the
+          footer (centering across a wider box) and <main> (centering across a narrower box) would land
+          their centered max-w-2xl content at different horizontal offsets. */}
       <div className="flex-grow min-h-0 flex overflow-hidden relative">
-        <NavRail activeMode={activeMode} onSelect={handleNavSelect} disabledModes={navDisabledModes} />
+        <NavRail
+          activeMode={activeMode}
+          onSelect={handleNavSelect}
+          disabledModes={navDisabledModes}
+          onOpenTopicHistory={() => openTopicHistory(null)}
+        />
 
-        <main className="flex-grow min-h-0 overflow-y-auto flex flex-col items-center w-full z-10">
+        <div className="flex-grow min-h-0 flex flex-col overflow-hidden">
+            <main className="flex-grow min-h-0 overflow-y-auto flex flex-col items-center w-full z-10">
           {showRoadmap && (
             /* Mobile roadmap chip — tappable, opens the bottom sheet with the full step list */
             <div className="tablet:hidden w-full px-4 pt-3">
@@ -2286,7 +2344,66 @@ const App: React.FC = () => {
               </div>
             </div>
           )}
-        </main>
+            </main>
+
+          {/* Footer — pinned to the bottom at every breakpoint: exit/start (left) + mic orb (center) + speed
+              (right). Direct sibling of <main> in the center column (not nested inside a row with the nav
+              rail), so its centered max-w-2xl content lines up with the conversation's centered content —
+              both narrowed equally by the nav rail and roadmap sidebar, which are full-height siblings of
+              this whole center column rather than being only next to <main>. */}
+          <div className="w-full z-20 flex-shrink-0 border-t border-parle-navy-100 bg-white/95 backdrop-blur-xl">
+            {errorFlashVisible && (
+              <div className="px-4 py-2 text-center">
+                <p className="text-parle-red-600 text-xs font-medium animate-pulse">{errorFlashMessage}</p>
+              </div>
+            )}
+
+            {canRetryChatAudio && appState === AppState.ERROR && (
+              <div className="px-4 py-2 text-center">
+                <button
+                  onClick={handleRetryChatAudio}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-parle-red-500 hover:bg-parle-red-600 text-white transition-colors rounded-lg"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
+                  </svg>
+                  Retry
+                </button>
+              </div>
+            )}
+
+            <div className="max-w-2xl mx-auto px-4 py-3 pb-6 flex items-center gap-3">
+              {/* Controls on the left */}
+              <div className="flex-grow min-w-0">
+                <Controls
+                  appState={appState}
+                  playbackSpeed={playbackSpeed}
+                  onSpeedChange={handleSpeedChange}
+                  onCancelRecording={handleCancelRecording}
+                  scenarioMode={scenarioMode}
+                  activeScenario={activeScenario}
+                  onOpenModeSheet={() => setShowModeSheet(true)}
+                  onExitScenario={handleExitScenario}
+                  tefAdMode={tefAdMode}
+                  onExitTefAd={handleExitTefAd}
+                  tefQuestioningMode={tefQuestioningMode}
+                  onExitTefQuestioning={handleExitTefQuestioning}
+                  compact
+                />
+              </div>
+
+              {/* Orb-Mic — pinned in the footer at every breakpoint (never moved near the top) */}
+              <div className="flex-shrink-0">
+                <Orb
+                  state={appState}
+                  volume={volume}
+                  size="small"
+                  onClick={handleOrbClick}
+                />
+              </div>
+            </div>
+          </div>
+        </div>
 
         {showRoadmap && (
           <>
@@ -2343,60 +2460,6 @@ const App: React.FC = () => {
             )}
           </>
         )}
-      </div>
-
-      {/* Footer — pinned to the bottom at every breakpoint: exit/start (left) + mic orb (center) + speed (right) */}
-      <div className="w-full z-20 flex-shrink-0 border-t border-parle-navy-100 bg-white/95 backdrop-blur-xl">
-        {errorFlashVisible && (
-          <div className="px-4 py-2 text-center">
-            <p className="text-parle-red-600 text-xs font-medium animate-pulse">{errorFlashMessage}</p>
-          </div>
-        )}
-
-        {canRetryChatAudio && appState === AppState.ERROR && (
-          <div className="px-4 py-2 text-center">
-            <button
-              onClick={handleRetryChatAudio}
-              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium bg-parle-red-500 hover:bg-parle-red-600 text-white transition-colors rounded-lg"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clipRule="evenodd" />
-              </svg>
-              Retry
-            </button>
-          </div>
-        )}
-
-        <div className="max-w-2xl mx-auto px-4 py-3 pb-6 flex items-center gap-3">
-          {/* Controls on the left */}
-          <div className="flex-grow min-w-0">
-            <Controls
-              appState={appState}
-              playbackSpeed={playbackSpeed}
-              onSpeedChange={handleSpeedChange}
-              onCancelRecording={handleCancelRecording}
-              scenarioMode={scenarioMode}
-              activeScenario={activeScenario}
-              onOpenModeSheet={() => setShowModeSheet(true)}
-              onExitScenario={handleExitScenario}
-              tefAdMode={tefAdMode}
-              onExitTefAd={handleExitTefAd}
-              tefQuestioningMode={tefQuestioningMode}
-              onExitTefQuestioning={handleExitTefQuestioning}
-              compact
-            />
-          </div>
-
-          {/* Orb-Mic — pinned in the footer at every breakpoint (never moved near the top) */}
-          <div className="flex-shrink-0">
-            <Orb
-              state={appState}
-              volume={volume}
-              size="small"
-              onClick={handleOrbClick}
-            />
-          </div>
-        </div>
       </div>
 
       {/* TEF Ad Setup Modal */}
@@ -2568,6 +2631,8 @@ const App: React.FC = () => {
           characters={scenarioCharacters}
           roadmapSteps={roadmapSteps}
           onRoadmapStepsChange={setRoadmapSteps}
+          onRegenerateRoadmap={handleRegenerateRoadmapForScenario}
+          regeneratingScenario={regeneratingScenario}
         />
       )}
 

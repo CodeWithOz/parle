@@ -22,6 +22,11 @@ interface NavRailProps {
    * non-free-talk mode is running, to avoid stacking setup flows on top of
    * an in-progress practice session. */
   disabledModes?: NavMode[];
+  /** Opens the same TefTopicHistorySheet as PracticeModeSheet's "Past topic
+   * suggestions" row. Not a mode switch (doesn't touch activeMode), so it's
+   * a separate callback — rendered below a divider under the four mode items
+   * only when provided. */
+  onOpenTopicHistory?: () => void;
 }
 
 /**
@@ -29,7 +34,7 @@ interface NavRailProps {
  * shows icon + label; tablet collapses to icon-only; mobile hides this rail
  * entirely (see TopBar's hamburger menu for the mobile equivalent).
  */
-export const NavRail: React.FC<NavRailProps> = ({ activeMode, onSelect, disabledModes = [] }) => {
+export const NavRail: React.FC<NavRailProps> = ({ activeMode, onSelect, disabledModes = [], onOpenTopicHistory }) => {
   return (
     <nav
       aria-label="Practice mode"
@@ -62,6 +67,21 @@ export const NavRail: React.FC<NavRailProps> = ({ activeMode, onSelect, disabled
           </button>
         );
       })}
+
+      {onOpenTopicHistory && (
+        <>
+          <div className="h-px bg-parle-navy-100 my-1.5 mx-1" aria-hidden="true" />
+          <button
+            type="button"
+            onClick={onOpenTopicHistory}
+            title="Past topic suggestions"
+            className="flex items-center gap-2.5 rounded-xl px-2.5 desktop:px-3 py-2.5 text-sm transition-colors justify-center desktop:justify-start text-parle-navy-700 hover:bg-parle-blue-50 border border-transparent"
+          >
+            <span className="text-base leading-none" aria-hidden="true">📚</span>
+            <span className="hidden desktop:inline truncate">Past topics</span>
+          </button>
+        </>
+      )}
     </nav>
   );
 };
