@@ -181,7 +181,7 @@ Begin by greeting the user in character and initiating the scenario. For example
  * present, so the model must only be told about it in that case too.
  */
 function generateRoadmapInstructionSection(scenario: Scenario): string {
-  const steps = scenario.steps ?? [];
+  const steps = getScenarioSteps(scenario);
   if (steps.length === 0) return '';
 
   const stepList = steps.map((s, i) => `${i}. ${s.text}`).join('\n');
