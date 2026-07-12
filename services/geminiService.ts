@@ -200,6 +200,30 @@ const createGeminiMultiCharacterSchema = (scenario: Scenario) =>
   toGeminiSchema(z.toJSONSchema(createMultiCharacterSchema(scenario)) as Record<string, any>);
 
 /**
+ * Picks the response schema for a given active scenario (or free conversation
+ * when null). Shared by createChatSession() (session-level config) and
+ * sendVoiceMessage() (per-request config) — both need the exact same
+ * branching, so this is the single place that order lives: multi-character,
+ * no scenario, TEF questioning, roadmap, then single-character fallback.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function selectResponseSchema(scenario: Scenario | null): Record<string, any> {
+  if (scenario && scenario.characters && scenario.characters.length > 1) {
+    return createGeminiMultiCharacterSchema(scenario);
+  }
+  if (!scenario) {
+    return FREE_CONVERSATION_RESPONSE_SCHEMA;
+  }
+  if (scenario.isTefQuestioning) {
+    return TEF_QUESTIONING_RESPONSE_SCHEMA;
+  }
+  if (scenario.steps && scenario.steps.length > 0) {
+    return ROADMAP_RESPONSE_SCHEMA;
+  }
+  return SINGLE_CHARACTER_RESPONSE_SCHEMA;
+}
+
+/**
  * Helper function to create the chat session with current state.
  * Only call when ai is initialized.
  */
@@ -223,21 +247,7 @@ function createChatSession(): void {
   // returning an array of turns instead of a single response object.
   // isTefQuestioning is a sub-case of having a single-character activeScenario,
   // so it is only evaluated once we know activeScenario is non-null.
-  const responseSchema = (() => {
-    if (activeScenario && activeScenario.characters && activeScenario.characters.length > 1) {
-      return createGeminiMultiCharacterSchema(activeScenario);
-    }
-    if (!activeScenario) {
-      return FREE_CONVERSATION_RESPONSE_SCHEMA;
-    }
-    if (activeScenario.isTefQuestioning) {
-      return TEF_QUESTIONING_RESPONSE_SCHEMA;
-    }
-    if (activeScenario.steps && activeScenario.steps.length > 0) {
-      return ROADMAP_RESPONSE_SCHEMA;
-    }
-    return SINGLE_CHARACTER_RESPONSE_SCHEMA;
-  })();
+  const responseSchema = selectResponseSchema(activeScenario);
 
   chatSession = ai.chats.create({
     model: 'gemini-2.5-flash-lite',
@@ -731,21 +741,7 @@ export const sendVoiceMessage = async (
       ? generateScenarioSystemInstruction(activeScenario)
       : SYSTEM_INSTRUCTION;
 
-    const responseSchemaForThisRequest = (() => {
-      if (activeScenario && activeScenario.characters && activeScenario.characters.length > 1) {
-        return createGeminiMultiCharacterSchema(activeScenario);
-      }
-      if (!activeScenario) {
-        return FREE_CONVERSATION_RESPONSE_SCHEMA;
-      }
-      if (activeScenario.isTefQuestioning) {
-        return TEF_QUESTIONING_RESPONSE_SCHEMA;
-      }
-      if (activeScenario.steps && activeScenario.steps.length > 0) {
-        return ROADMAP_RESPONSE_SCHEMA;
-      }
-      return SINGLE_CHARACTER_RESPONSE_SCHEMA;
-    })();
+    const responseSchemaForThisRequest = selectResponseSchema(activeScenario);
 
     const chatResponse = await chatSession.sendMessage({
       message: messageParts,
