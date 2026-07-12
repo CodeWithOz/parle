@@ -139,17 +139,17 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4 overscroll-none">
-      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[min(90dvh,100%)] flex flex-col min-h-0">
+    <div className="fixed inset-0 bg-parle-navy-900/40 z-50 flex items-center justify-center p-4 overscroll-none">
+      <div className="bg-white rounded-2xl border border-parle-navy-100 max-w-lg w-full max-h-[min(90dvh,100%)] flex flex-col min-h-0">
         {/* Header */}
-        <div className="flex-shrink-0 flex justify-between items-center p-6 border-b border-slate-700">
-          <h2 className="text-xl font-bold text-slate-100">Practice Ad Persuasion</h2>
+        <div className="flex-shrink-0 flex justify-between items-center p-6 border-b border-parle-navy-100">
+          <h2 className="text-xl font-bold text-parle-navy-900">Practice Ad Persuasion</h2>
           <button
             onClick={onClose}
             aria-label="Close"
-            className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+            className="p-2 hover:bg-parle-blue-50 rounded-lg transition-colors"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-slate-400" viewBox="0 0 20 20" fill="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-parle-navy-500" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
             </svg>
           </button>
@@ -157,14 +157,14 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
 
         {/* Warning for missing API key */}
         {geminiKeyMissing && (
-          <div className="mx-6 mt-4 p-4 bg-yellow-900/30 border border-yellow-600/50 rounded-lg">
+          <div className="mx-6 mt-4 p-4 bg-amber-50 border border-amber-400 rounded-lg">
             <div className="flex items-start gap-3">
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-yellow-400 flex-shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
                 <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
               </svg>
               <div className="flex-1">
-                <h3 className="text-sm font-medium text-yellow-400 mb-1">API Key Required</h3>
-                <p className="text-sm text-yellow-200/90">
+                <h3 className="text-sm font-medium text-amber-900 mb-1">API Key Required</h3>
+                <p className="text-sm text-amber-800">
                   Gemini API key is required for analyzing the advertisement image and powering the conversation.
                 </p>
               </div>
@@ -177,13 +177,13 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
           {/* Step 1: Upload */}
           {step === 'upload' && (
             <>
-              <p className="text-slate-400 text-sm">
+              <p className="text-parle-navy-500 text-sm">
                 Upload a French advertisement image. The AI will analyze it and play the role of a skeptical French-speaking friend you must convince to buy the product.
               </p>
 
               {error && (
-                <div className="p-3 bg-red-900/30 border border-red-600/50 rounded-lg">
-                  <p className="text-red-300 text-sm">{error}</p>
+                <div className="p-3 bg-parle-red-50 border border-parle-red-300 rounded-lg">
+                  <p className="text-parle-red-700 text-sm">{error}</p>
                 </div>
               )}
 
@@ -202,17 +202,17 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
                 onDrop={handleDrop}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
-                className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-parle-blue-500 ${
                   isDragging
-                    ? 'border-blue-500 bg-blue-900/20'
-                    : 'border-slate-600 hover:border-slate-500 bg-slate-700/30 hover:bg-slate-700/50'
+                    ? 'border-parle-blue-500 bg-parle-blue-50'
+                    : 'border-parle-navy-200 hover:border-parle-navy-300 bg-parle-blue-50/40 hover:bg-parle-blue-50'
                 }`}
               >
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-slate-500 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-12 w-12 text-parle-navy-300 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-                <p className="text-slate-300 font-medium mb-1">Click or drag an image here</p>
-                <p className="text-slate-500 text-sm">PNG, JPG, WEBP, HEIC, HEIF supported</p>
+                <p className="text-parle-navy-700 font-medium mb-1">Click or drag an image here</p>
+                <p className="text-parle-navy-500 text-sm">PNG, JPG, WEBP, HEIC, HEIF supported</p>
               </div>
 
               <input
@@ -226,7 +226,7 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
 
               <button
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors"
+                className="w-full py-3 bg-parle-blue-500 hover:bg-parle-blue-600 text-white rounded-xl font-medium transition-colors"
               >
                 Select Image
               </button>
@@ -248,17 +248,17 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
                 <img
                   src={imageDataUrl}
                   alt="Advertisement being analyzed"
-                  className="w-24 h-24 object-cover rounded-xl border border-slate-600"
+                  className="w-24 h-24 object-cover rounded-xl border border-parle-navy-200"
                 />
               )}
               <div className="flex items-center gap-3">
-                <svg className="animate-spin h-6 w-6 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg className="animate-spin h-6 w-6 text-parle-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                <p className="text-slate-300 font-medium">Analyzing the advertisement...</p>
+                <p className="text-parle-navy-700 font-medium">Analyzing the advertisement...</p>
               </div>
-              <p className="text-slate-500 text-sm text-center">
+              <p className="text-parle-navy-500 text-sm text-center">
                 The AI is reading your ad to prepare for the conversation.
               </p>
             </div>
@@ -271,24 +271,24 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
                 <img
                   src={imageDataUrl}
                   alt="Advertisement"
-                  className="w-24 h-24 object-cover rounded-xl border border-slate-600"
+                  className="w-24 h-24 object-cover rounded-xl border border-parle-navy-200"
                 />
               )}
-              <div className="p-3 bg-red-900/30 border border-red-600/50 rounded-lg w-full">
-                <p className="text-red-300 text-sm">{error || 'Failed to analyze the advertisement. Please try again.'}</p>
+              <div className="p-3 bg-parle-red-50 border border-parle-red-300 rounded-lg w-full">
+                <p className="text-parle-red-700 text-sm">{error || 'Failed to analyze the advertisement. Please try again.'}</p>
               </div>
               <div className="flex gap-3 w-full">
                 <button
                   type="button"
                   onClick={handleChangeImage}
-                  className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-medium transition-colors"
+                  className="flex-1 py-3 bg-parle-navy-100 hover:bg-parle-navy-200 text-parle-navy-900 rounded-xl font-medium transition-colors"
                 >
                   Change Image
                 </button>
                 <button
                   type="button"
                   onClick={handleRetry}
-                  className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-medium transition-colors"
+                  className="flex-1 py-3 bg-parle-blue-500 hover:bg-parle-blue-600 text-white rounded-xl font-medium transition-colors"
                 >
                   Retry
                 </button>
@@ -304,41 +304,41 @@ export const AdPersuasionSetup: React.FC<AdPersuasionSetupProps> = ({
                   <img
                     src={imageDataUrl}
                     alt="Advertisement"
-                    className="w-20 h-20 object-cover rounded-xl border border-slate-600 flex-shrink-0"
+                    className="w-20 h-20 object-cover rounded-xl border border-parle-navy-200 flex-shrink-0"
                   />
                 )}
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-green-400" viewBox="0 0 20 20" fill="currentColor">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-parle-blue-600" viewBox="0 0 20 20" fill="currentColor">
                       <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                     </svg>
-                    <span className="text-green-400 text-sm font-medium">Ad Analyzed</span>
+                    <span className="text-parle-blue-600 text-sm font-medium">Ad Analyzed</span>
                   </div>
-                  <p className="text-slate-300 text-sm">{confirmation.summary}</p>
+                  <p className="text-parle-navy-700 text-sm">{confirmation.summary}</p>
                 </div>
               </div>
 
-              <div className="p-4 bg-slate-700/50 rounded-xl border border-slate-600">
-                <p className="text-slate-400 text-xs uppercase tracking-wider font-medium mb-2">AI Role Confirmation</p>
-                <p className="text-slate-300 text-sm">{confirmation.roleSummary}</p>
+              <div className="p-4 bg-parle-blue-50 rounded-xl border border-parle-navy-200">
+                <p className="text-parle-navy-500 text-xs uppercase tracking-wider font-medium mb-2">AI Role Confirmation</p>
+                <p className="text-parle-navy-700 text-sm">{confirmation.roleSummary}</p>
               </div>
 
               <div className="flex gap-3">
                 <button
                   onClick={handleChangeImage}
-                  className="flex-1 py-3 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl font-medium transition-colors"
+                  className="flex-1 py-3 bg-parle-navy-100 hover:bg-parle-navy-200 text-parle-navy-900 rounded-xl font-medium transition-colors"
                 >
                   Change Image
                 </button>
                 <button
                   onClick={handleStart}
-                  className="flex-1 py-3 bg-green-600 hover:bg-green-500 text-white rounded-xl font-medium transition-colors"
+                  className="flex-1 py-3 bg-parle-blue-500 hover:bg-parle-blue-600 text-white rounded-xl font-medium transition-colors"
                 >
                   Start Conversation
                 </button>
               </div>
 
-              <p className="text-slate-500 text-xs text-center">
+              <p className="text-parle-navy-300 text-xs text-center">
                 Timer starts when you click Start Conversation
               </p>
             </>

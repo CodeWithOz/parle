@@ -108,16 +108,16 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
       className={`flex flex-col animate-slide-up ${message.role === 'user' ? 'items-end' : 'items-start'}`}
     >
       <div
-        className={`max-w-[85%] min-w-[60%] px-4 py-3 rounded-2xl ${
+        className={`max-w-[85%] min-w-[60%] px-4 py-3 rounded-2xl border ${
           message.role === 'user'
-            ? 'bg-blue-600/80 text-white rounded-br-md'
-            : 'bg-slate-800/80 text-slate-200 border border-slate-700/50 rounded-bl-md'
+            ? 'bg-parle-blue-100 text-parle-navy-900 border-parle-blue-300 rounded-br-md'
+            : 'bg-white text-parle-navy-900 border-parle-navy-100 rounded-bl-md'
         }`}
       >
         {/* Character name for model messages */}
         {message.role === 'model' && message.characterName && (
-          <div className="text-xs text-slate-400 font-medium mb-2 flex items-center gap-1">
-            <div className="w-1.5 h-1.5 bg-blue-400 rounded-full"></div>
+          <div className="text-xs text-parle-navy-500 font-medium mb-2 flex items-center gap-1">
+            <div className="w-1.5 h-1.5 bg-parle-blue-500 rounded-full"></div>
             {message.characterName}
           </div>
         )}
@@ -136,15 +136,15 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
               />
             ) : message.audioGenerationFailed ? (
               <div className="mt-3 flex items-center gap-2 text-xs">
-                <span className="text-yellow-400/80">⚠️ Audio unavailable</span>
+                <span className="text-parle-red-500">⚠️ Audio unavailable</span>
                 {onRetryAudio && (
                   <button
                     onClick={() => onRetryAudio(message.timestamp)}
                     disabled={isRetrying}
-                    className={`px-2 py-1 rounded text-slate-300 transition-colors flex items-center gap-1 ${
+                    className={`px-2 py-1 rounded text-parle-navy-700 transition-colors flex items-center gap-1 ${
                       isRetrying
-                        ? 'bg-slate-700/30 cursor-not-allowed opacity-60'
-                        : 'bg-slate-700/50 hover:bg-slate-600/50'
+                        ? 'bg-parle-navy-50 cursor-not-allowed opacity-60'
+                        : 'bg-parle-navy-100 hover:bg-parle-navy-200'
                     }`}
                   >
                     <span>{isRetrying ? '⏳' : '🔄'}</span>
@@ -162,7 +162,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
               type="button"
               onClick={() => setIsUserAudioVisible((visible) => !visible)}
               aria-expanded={isUserAudioVisible}
-              className="inline-flex items-center gap-2 text-xs text-blue-100/80 hover:text-white transition-colors"
+              className="inline-flex items-center gap-2 text-xs text-parle-blue-700 hover:text-parle-navy-900 transition-colors"
             >
               <span
                 className={`inline-block transition-transform ${isUserAudioVisible ? 'rotate-180' : ''}`}
@@ -183,7 +183,7 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
           </div>
         )}
       </div>
-      <span className={`text-xs text-slate-500 mt-1 ${message.role === 'user' ? 'mr-1' : 'ml-1'}`}>
+      <span className={`text-xs text-parle-navy-300 mt-1 ${message.role === 'user' ? 'mr-1' : 'ml-1'}`}>
         {message.role === 'user' ? 'You' : (message.characterName || 'AI')}
       </span>
     </div>
@@ -258,12 +258,12 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
       {/* Clear button header */}
       <div className="flex items-center justify-between px-4 py-2 flex-shrink-0">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-          <span className="text-slate-500 text-xs font-medium uppercase tracking-widest">Conversation</span>
+          <div className="w-2 h-2 bg-parle-blue-500 rounded-full"></div>
+          <span className="text-parle-navy-300 text-xs font-medium uppercase tracking-widest">Conversation</span>
         </div>
         <button
           onClick={onClear}
-          className="text-slate-500 hover:text-slate-300 text-xs font-medium transition-colors px-2 py-1 rounded hover:bg-slate-800/50"
+          className="text-parle-navy-300 hover:text-parle-navy-700 text-xs font-medium transition-colors px-2 py-1 rounded hover:bg-parle-blue-50"
           title="Clear conversation history"
         >
           Clear

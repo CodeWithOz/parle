@@ -1,6 +1,21 @@
 import React from 'react';
 import { AppState } from '../types';
 
+/**
+ * Single source of truth for the mic orb's per-state background color.
+ * The mic must read as the dominantly-red control in the UI (per the
+ * French-flag redesign): muted red-pink while idle, vivid solid red while
+ * recording. Processing/playing stay outside the red family so the red is
+ * reserved for the mic's idle/active affordance.
+ */
+export const ORB_STATE_COLORS: Record<'IDLE' | 'RECORDING' | 'PROCESSING' | 'PLAYING', string> = {
+  IDLE: '#ce5f5a',       // muted red-pink, darkened for ~3.9:1 contrast against the white mic icon
+                          // (was #d9827e at ~2.8:1); still clearly less saturated than RECORDING
+  RECORDING: '#c8342f',  // vivid, strongly-saturated red
+  PROCESSING: '#8ba0b8', // parle-navy-300 — neutral, out of the red family
+  PLAYING: '#2f6fb0',    // parle-blue-500 — blue family
+};
+
 interface OrbProps {
   state: AppState;
   volume?: number; // 0 to 1, used for recording visualization
@@ -26,28 +41,28 @@ export const Orb: React.FC<OrbProps> = ({ state, volume = 0, size = 'large', onC
         const scale = 1 + volume * (isLarge ? 0.3 : 0.15);
         return {
           transform: `scale(${scale})`,
-          backgroundColor: '#ef4444',
-          boxShadow: `0 0 ${20 + volume * 50}px ${5 + volume * 20}px rgba(239, 68, 68, 0.4)`,
+          backgroundColor: ORB_STATE_COLORS.RECORDING,
+          boxShadow: `0 0 ${20 + volume * 50}px ${5 + volume * 20}px rgba(200, 52, 47, 0.4)`,
         };
       }
       case AppState.PROCESSING:
         return {
-          backgroundColor: '#f8fafc',
+          backgroundColor: ORB_STATE_COLORS.PROCESSING,
           animation: 'spin 3s linear infinite',
-          opacity: 0.8,
-          boxShadow: '0 0 30px 10px rgba(255, 255, 255, 0.3)',
+          opacity: 0.85,
+          boxShadow: '0 0 30px 10px rgba(139, 160, 184, 0.3)',
         };
       case AppState.PLAYING:
         return {
-          backgroundColor: '#38bdf8',
-          boxShadow: '0 0 40px 15px rgba(56, 189, 248, 0.4)',
+          backgroundColor: ORB_STATE_COLORS.PLAYING,
+          boxShadow: '0 0 40px 15px rgba(47, 111, 176, 0.4)',
         };
       case AppState.IDLE:
       default:
         return {
-          backgroundColor: '#1e293b',
-          border: '2px solid #334155',
-          boxShadow: '0 0 0 0 rgba(0,0,0,0)',
+          backgroundColor: ORB_STATE_COLORS.IDLE,
+          border: '2px solid #c8342f',
+          boxShadow: '0 0 0 4px rgba(200, 52, 47, 0.08)',
         };
     }
   };

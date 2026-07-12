@@ -42,14 +42,14 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
   const currentReview = reviews[reviewIndex];
 
   return (
-    <div className="fixed inset-0 bg-slate-900/80 z-50 flex items-center justify-center p-4 overscroll-none">
-      <div className="bg-slate-800 rounded-2xl border border-slate-700 max-w-lg w-full max-h-[min(85dvh,100%)] flex flex-col min-h-0 text-center">
+    <div className="fixed inset-0 bg-parle-navy-900/40 z-50 flex items-center justify-center p-4 overscroll-none">
+      <div className="bg-white rounded-2xl border border-parle-navy-100 max-w-lg w-full max-h-[min(85dvh,100%)] flex flex-col min-h-0 text-center">
         <div className="overflow-y-auto overscroll-y-contain flex-1 min-h-0 p-8">
         {/* Icon */}
-        <div className="w-16 h-16 bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-4 border border-amber-700/50">
+        <div className="w-16 h-16 bg-parle-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 border border-parle-blue-300">
           <svg
             xmlns="http://www.w3.org/2000/svg"
-            className="h-8 w-8 text-amber-400"
+            className="h-8 w-8 text-parle-blue-600"
             viewBox="0 0 20 20"
             fill="currentColor"
           >
@@ -61,8 +61,8 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
           </svg>
         </div>
 
-        <h2 className="text-xl font-bold text-slate-100 mb-2">Session Complete</h2>
-        <p className="text-slate-400 text-sm mb-6">
+        <h2 className="text-xl font-bold text-parle-navy-900 mb-2">Session Complete</h2>
+        <p className="text-parle-navy-500 text-sm mb-6">
           Here's how your persuasion session went.
         </p>
 
@@ -72,7 +72,7 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
             <img
               src={adImage}
               alt="Advertisement"
-              className="w-16 h-16 object-cover rounded-xl border border-slate-600"
+              className="w-16 h-16 object-cover rounded-xl border border-parle-navy-200"
             />
           </div>
         )}
@@ -80,17 +80,17 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
         {/* Stats */}
         <div className="space-y-3 text-left mb-6">
           {/* Time used */}
-          <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-xl border border-slate-600">
-            <span className="text-slate-400 text-sm">Time used</span>
-            <span className="text-slate-100 text-sm font-mono font-medium">
+          <div className="flex items-center justify-between p-3 bg-parle-blue-50 rounded-xl border border-parle-navy-100">
+            <span className="text-parle-navy-500 text-sm">Time used</span>
+            <span className="text-parle-navy-900 text-sm font-mono font-medium">
               {formatTime(elapsedSeconds)}
             </span>
           </div>
 
           {/* Turns */}
-          <div className="flex items-center justify-between p-3 bg-slate-700/50 rounded-xl border border-slate-600">
-            <span className="text-slate-400 text-sm">Turns</span>
-            <span className="text-slate-100 text-sm font-medium">
+          <div className="flex items-center justify-between p-3 bg-parle-blue-50 rounded-xl border border-parle-navy-100">
+            <span className="text-parle-navy-500 text-sm">Turns</span>
+            <span className="text-parle-navy-900 text-sm font-medium">
               {turnCount}
             </span>
           </div>
@@ -99,18 +99,18 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
         {/* Criteria scorecard */}
         {currentReview?.criteriaEvaluation && currentReview.criteriaEvaluation.length > 0 && (
           <div className="space-y-2 text-left mb-6">
-            <h3 className="text-sm font-semibold text-slate-300 mb-2">Criteria</h3>
+            <h3 className="text-sm font-semibold text-parle-navy-700 mb-2">Criteria</h3>
             {currentReview.criteriaEvaluation.map((item, idx) => (
               <div
                 key={idx}
-                className="flex items-start gap-2 p-3 bg-slate-700/50 rounded-xl border border-slate-600"
+                className="flex items-start gap-2 p-3 bg-parle-blue-50 rounded-xl border border-parle-navy-100"
               >
-                <span className={`text-sm font-bold flex-shrink-0 ${item.met ? 'text-green-400' : 'text-red-400'}`}>
+                <span className={`text-sm font-bold flex-shrink-0 ${item.met ? 'text-parle-blue-600' : 'text-parle-red-600'}`}>
                   {item.met ? '✓' : '✗'}
                 </span>
                 <div className="min-w-0">
-                  <p className="text-slate-200 text-sm font-medium">{item.criterion}</p>
-                  <p className="text-slate-400 text-xs mt-0.5">{item.evidence}</p>
+                  <p className="text-parle-navy-900 text-sm font-medium">{item.criterion}</p>
+                  <p className="text-parle-navy-500 text-xs mt-0.5">{item.evidence}</p>
                 </div>
               </div>
             ))}
@@ -129,8 +129,8 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
         />
 
         {topicArchiveSaved && !isReviewLoading && (
-          <div className="flex items-center justify-center gap-1.5 mt-4 text-xs text-slate-500">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-green-500" viewBox="0 0 20 20" fill="currentColor">
+          <div className="flex items-center justify-center gap-1.5 mt-4 text-xs text-parle-navy-300">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5 text-parle-blue-500" viewBox="0 0 20 20" fill="currentColor">
               <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
             </svg>
             Saved to your topic library
@@ -141,13 +141,13 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
           <button
             onClick={onRestart}
             disabled={isReviewLoading}
-            className="py-3 bg-slate-700 hover:bg-slate-600 text-slate-100 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            className="py-3 bg-parle-navy-100 hover:bg-parle-navy-200 text-parle-navy-900 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Restart Exercise
           </button>
           <button
             onClick={onDismiss}
-            className="py-3 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-medium transition-colors"
+            className="py-3 bg-parle-blue-500 hover:bg-parle-blue-600 text-white rounded-xl font-medium transition-colors"
           >
             Done
           </button>

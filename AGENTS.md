@@ -604,6 +604,113 @@ Do **not** remove the `SIMULATION CONTEXT` block or replace the default strategy
 
 ---
 
+## Scenario Roadmap: Schema Selection and Never-Regress Auto-Advance
+
+**Location:** `services/geminiService.ts` - `RoadmapSingleCharacterSchema`, `createChatSession()`, `sendVoiceMessage()`; `services/scenarioService.ts`; `utils/roadmapStepStatus.ts`; `types.ts`; `components/ScenarioRoadmap.tsx`, `components/ScenarioSetup.tsx`
+
+### Pattern
+
+Role-play scenarios can carry an ordered list of roadmap steps (`Scenario.steps?: ScenarioStep[]`, each `{ id, text }`), shown as an always-visible progress outline during practice. This is a **structural sibling of the TEF Ad Questioning schema branch above**: a scenario with a non-empty `steps` array uses a third response-schema branch, exactly like `isTefQuestioning` does.
+
+**1. Schema selection in `createChatSession()` and `sendVoiceMessage()`**
+
+```typescript
+if (activeScenario.isTefQuestioning) {
+  return TEF_QUESTIONING_RESPONSE_SCHEMA;
+}
+if (activeScenario.steps && activeScenario.steps.length > 0) {
+  return ROADMAP_RESPONSE_SCHEMA;
+}
+return SINGLE_CHARACTER_RESPONSE_SCHEMA;
+```
+
+`RoadmapSingleCharacterSchema` extends `SingleCharacterSchema` with one **required** field:
+
+```typescript
+currentStepIndex: z.number().int().min(0).describe(
+  "0-based index into the scenario roadmap steps list (given in the system instruction) of the step the conversation currently reflects."
+)
+```
+
+Do **not** flag this as a case that could be collapsed into `SingleCharacterSchema` with an optional field, or merged with the `isTefQuestioning` branch — `currentStepIndex` must only be present/required when the scenario actually has roadmap steps, mirroring why `isRepeat`/`conceptLabels` are isolated to their own schema branch.
+
+**2. `currentStepIndex` propagation in `sendVoiceMessage()`**
+
+```typescript
+const hasRoadmapSteps = !!activeScenario.steps && activeScenario.steps.length > 0;
+const schemaToUse = activeScenario.isTefQuestioning
+  ? TefQuestioningSchema
+  : hasRoadmapSteps
+    ? RoadmapSingleCharacterSchema
+    : SingleCharacterSchema;
+// ...
+const currentStepIndex = hasRoadmapSteps && 'currentStepIndex' in validated
+  ? (validated as { currentStepIndex?: number }).currentStepIndex
+  : undefined;
+```
+
+`currentStepIndex` is forwarded on `VoiceResponse`. Do **not** flag it as dead code — it drives the roadmap sidebar/drawer/sheet highlight in the UI.
+
+**3. System instruction: roadmap block is a no-op without steps**
+
+`generateRoadmapInstructionSection()` in `scenarioService.ts` appends a `SCENARIO ROADMAP (for your internal tracking only...)` block to the single-character system instruction, listing steps and instructing the model to report `currentStepIndex` and to advance one step at a time without skipping ahead. It returns `''` when `scenario.steps` is empty, so scenarios without a roadmap get an unchanged prompt.
+
+**4. Never-regress auto-advance (`utils/roadmapStepStatus.ts`)**
+
+The AI's self-reported `currentStepIndex` is **not** trusted directly as the displayed step — it can be wrong or (rarely) regress. `advanceRoadmapStep(prevIndex, aiReportedIndex, stepsLength)` clamps the AI's index into range and then takes `Math.max(prevIndex, clampedAiIndex)`, so the UI-visible current step can only move forward or stay put, never backward:
+
+```typescript
+export function advanceRoadmapStep(
+  prevIndex: number | undefined,
+  aiReportedIndex: number | undefined,
+  stepsLength: number
+): number {
+  // ...
+  return Math.max(prevIndex, clampedAiIndex);
+}
+```
+
+This is the same "don't regress a per-turn signal" spirit as the existing per-turn `hint` mechanism, but implemented as a structural progress tracker (clamped integer index + monotonic max) rather than free text. `getRoadmapStepStatus(stepsLength, currentStepIndex)` derives `'done' | 'current' | 'upcoming'` for each step from a single effective index and is the only thing `ScenarioRoadmap.tsx` renders from.
+
+Do **not** "simplify" `advanceRoadmapStep` to just return `aiReportedIndex` directly — that would let a single bad model turn make the roadmap jump backward, which is the exact failure mode this function exists to prevent.
+
+### Roadmap Steps Are AI-Generated, With a Heuristic as a Defensive Fallback Only
+
+The **primary** source of roadmap-editor steps is `processScenarioDescriptionOpenAI()` in `services/openaiService.ts`: the same LangChain structured-output call that already produces `summary`/`characters` for scenario planning also returns a `steps: string[]` field (`ScenarioSummarySchema` requires 2-8 entries) — no extra request, no added latency/cost over the pre-existing call.
+
+```typescript
+const ScenarioSummarySchema = z.object({
+  summary: z.string()...,
+  characters: z.array(CharacterSchema)...,
+  steps: z.array(z.string()).min(2).max(8).describe(
+    "An ordered list of 2-8 short, concrete conversational beats..."
+  )
+});
+```
+
+`seedRoadmapStepsFromSummary(summary)` in `services/scenarioService.ts` (sentence-split heuristic, regex `/(?<=[.!?])\s+/`) still exists, but only as a **defensive fallback** — used in `App.tsx`'s `handleSubmitScenarioDescription` when the AI didn't return usable steps (a non-JSON legacy response, or an empty/missing `steps` field):
+
+```typescript
+const aiSteps = Array.isArray(parsed.steps) ? parsed.steps.map((s) => s.trim()).filter(Boolean) : [];
+setRoadmapSteps(aiSteps.length > 0 ? aiSteps : seedRoadmapStepsFromSummary(parsed.summary));
+```
+
+Do **not** remove `seedRoadmapStepsFromSummary` or treat it as dead code — it is the fallback path's only implementation, exercised whenever the OpenAI call throws (caught in `processScenarioDescriptionOpenAI`, which returns `steps: []` in that case) or returns a non-JSON response. Either way, the seeded steps (AI or heuristic) remain fully user-editable (add/remove/reorder/edit) in the roadmap editor before practice starts.
+
+### Related Files
+
+- `types.ts` — `ScenarioStep` interface; `steps?: ScenarioStep[]` on `Scenario`; `currentStepIndex?: number` on `VoiceResponse`
+- `services/openaiService.ts` — `ScenarioSummarySchema` (`steps` field); `processScenarioDescriptionOpenAI()` (returns `steps: []` in its catch-block fallback)
+- `services/geminiService.ts` — `RoadmapSingleCharacterSchema`, `ROADMAP_RESPONSE_SCHEMA`; schema selection in `createChatSession()` and `sendVoiceMessage()`; `currentStepIndex` extraction
+- `services/scenarioService.ts` — `generateRoadmapInstructionSection()`, `seedRoadmapStepsFromSummary()` (fallback only), `getScenarioSteps()`
+- `utils/roadmapStepStatus.ts` — `advanceRoadmapStep()` (never-regress), `getRoadmapStepStatus()` (done/current/upcoming derivation)
+- `components/ScenarioRoadmap.tsx` — Presentational step list, reused across desktop sidebar / tablet drawer / mobile sheet
+- `components/ScenarioSetup.tsx` — Roadmap step editor (add/remove/reorder/edit) and `onRoadmapStepsChange` controlled-array pattern
+- `App.tsx` — `handleSubmitScenarioDescription` (AI-steps-first, heuristic-fallback selection logic)
+- `__tests__/roadmapStepStatus.test.ts`, `__tests__/roadmapSchemaSelection.test.ts`, `__tests__/scenarioService.roadmapSteps.test.ts`, `__tests__/ScenarioSetup.roadmapEditor.test.tsx`, `__tests__/openaiService.roadmapSteps.test.ts`, `__tests__/scenarioDescriptionAiRoadmapSteps.source.test.ts`
+
+---
+
 ## Notes for Code Review Agents
 
 When reviewing this codebase:
@@ -622,6 +729,9 @@ When reviewing this codebase:
 12. **Don't flag the `if (r)` null-checks on `generateTefReview` results as redundant** - `null` is the documented return value for an aborted review request; the check is required (see "TEF Post-Exercise Review: `generateTefReview` Returns `null` on Abort" section)
 13. **Don't flag `[Agent said: ...]` text-only formatting in `tefReviewService.ts` as incomplete** - Agent turns are intentionally context-only; the review evaluates the user's French exclusively and must never score agent lines (see "TEF Post-Exercise Review: Evaluation Scope" section)
 14. **Don't flag "invent plausible details" in the questioning system prompt as a hallucination risk** - The AI agent is deliberately instructed to fabricate realistic in-character answers for details not stated in the ad; this is intentional exam-simulation behavior (see "Simulation Context: Caller Already On Call" in the TEF Ad Questioning section)
+15. **Don't flag the `RoadmapSingleCharacterSchema` branch as redundant with `TefQuestioningSchema` or `SingleCharacterSchema`** - `currentStepIndex` must only be present/required when the scenario has roadmap steps (see "Scenario Roadmap: Schema Selection and Never-Regress Auto-Advance")
+16. **Don't simplify `advanceRoadmapStep` to trust the AI's `currentStepIndex` directly** - `Math.max(prevIndex, clampedAiIndex)` is intentional; it prevents a single bad model turn from making the roadmap sidebar jump backward
+17. **Don't remove `seedRoadmapStepsFromSummary` as dead code** - the AI-generated `steps` field from `processScenarioDescriptionOpenAI` is the primary source of roadmap steps, but this sentence-split heuristic is still the load-bearing fallback for a non-JSON legacy response or an empty/missing `steps` field - see "Roadmap Steps Are AI-Generated, With a Heuristic as a Defensive Fallback Only"
 
 If you believe you've found a genuine bug in one of these areas, please:
 - Reference this document in your review
@@ -729,4 +839,6 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - 2026-05-01: Added restart handlers to deferred URL revocation section; documented `topicSuggestions` required field on `TefReview` (both exercise types)
 - 2026-05-22: Documented TEF review user-only evaluation scope (`[Agent said: ...]` context-only pattern); documented questioning simulation context (caller already on call, tiered answer strategy: reassuring invented answers default, website/email last resort when user persists, never phone redirects)
 - 2026-06-06: Added browser testing procedure (Playwright CLI, Gemini mock, IndexedDB seeding, stale review discard); gitignore `.browser-test-screenshots/`
+- 2026-07-08: Documented scenario roadmap feature — `RoadmapSingleCharacterSchema` conditional-schema branch (`currentStepIndex`), `advanceRoadmapStep()` never-regress auto-advance, and the intentional sentence-split seeding heuristic (`seedRoadmapStepsFromSummary`); added French-flag visual redesign and app shell (`NavRail`, `TopBar`) to `README.md` project layout
+- 2026-07-08: Replaced the sentence-split heuristic as the primary roadmap-step source with an AI-generated `steps` field on `processScenarioDescriptionOpenAI`'s existing structured-output call (`ScenarioSummarySchema`); `seedRoadmapStepsFromSummary` is now a defensive fallback only, used when the AI call fails or returns no usable steps
 - See git history for detailed implementation timeline

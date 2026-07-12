@@ -41,6 +41,7 @@ export interface VoiceResponse {
   audioGenerationFailed?: boolean; // Track if TTS failed for single-character response
   isRepeat?: boolean; // TEF Questioning: true if the user asked a repeated question
   conceptLabels?: string[]; // TEF Questioning: topic labels for this response
+  currentStepIndex?: number; // Scenario roadmap: 0-based index into scenario.steps the AI infers is current
   characters?: Array<{ // Character info for multi-character responses
     characterId: string;
     characterName: string;
@@ -64,6 +65,11 @@ export interface TefAdState {
   isTimedUp: boolean;           // timer reached 600s
 }
 
+export interface ScenarioStep {
+  id: string;
+  text: string;
+}
+
 export interface Scenario {
   id: string;
   name: string;
@@ -73,6 +79,7 @@ export interface Scenario {
   isActive: boolean;
   characters?: Character[]; // NEW: Characters in this scenario
   isTefQuestioning?: boolean; // TEF Questioning: use the questioning-specific response schema
+  steps?: ScenarioStep[]; // Scenario roadmap steps, in display/follow order
 }
 
 /**

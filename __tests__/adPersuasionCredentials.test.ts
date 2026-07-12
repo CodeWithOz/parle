@@ -285,11 +285,15 @@ describe('AdPersuasionSetup · credential gate moved to processFile (TDD — mus
     expect(src.default).toMatch(/geminiKeyMissing/);
   });
 
-  it('AdPersuasionSetup renders a yellow warning banner when geminiKeyMissing is true', async () => {
+  it('AdPersuasionSetup renders an amber warning banner when geminiKeyMissing is true', async () => {
     // Already implemented — should PASS.
+    // Light-theme redesign (pass 2): the missing-credentials warning banner
+    // keeps the amber/yellow warning semantics documented in AGENTS.md, but
+    // uses light-mode-appropriate amber shades (bg-amber-50/border-amber-400)
+    // instead of the old dark-theme bg-yellow-900/border-yellow-600 pair.
     const src = await import('../components/AdPersuasionSetup?raw');
-    expect(src.default).toMatch(/bg-yellow-/);
-    expect(src.default).toMatch(/border-yellow-/);
+    expect(src.default).toMatch(/bg-amber-/);
+    expect(src.default).toMatch(/border-amber-/);
   });
 
   it('AdPersuasionSetup warning banner mentions Gemini (inside the warning element, not just imports)', async () => {

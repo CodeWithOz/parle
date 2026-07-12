@@ -80,6 +80,21 @@ const TefQuestioningSchema = z.object({
 });
 
 /**
+ * Zod schema for single-character scenarios that carry roadmap steps.
+ * Adds a required "currentStepIndex" field so the client can auto-advance the
+ * scenario roadmap sidebar. Mirrors the isTefQuestioning conditional-schema
+ * precedent: this field must ONLY be present when the scenario has a non-empty
+ * `steps` array, so it is a separate schema branch rather than an
+ * always-present optional field (see AGENTS.md "TEF Ad Questioning Mode:
+ * Schema Selection").
+ */
+const RoadmapSingleCharacterSchema = SingleCharacterSchema.extend({
+  currentStepIndex: z.number().int().min(0).describe(
+    "0-based index into the scenario roadmap steps list (given in the system instruction) of the step the conversation currently reflects."
+  ),
+});
+
+/**
  * Zod schema for free conversation mode response.
  * Separates French and English for TTS control, with optional hint.
  */
@@ -101,13 +116,20 @@ const ImageAnalysisSchema = z.object({
  * Uses fixed labels ("Character 1", "Character 2", etc.) instead of actual names
  * because LLMs don't reliably use exact character names in structured output.
  * The processing code maps these labels back to actual characters by index.
+ *
+ * When the scenario also carries roadmap steps, this extends the base shape
+ * with a required "currentStepIndex" field — the same conditional-schema
+ * precedent used by `RoadmapSingleCharacterSchema` (see AGENTS.md "Scenario
+ * Roadmap: Schema Selection..."). Multi-character scenarios (e.g. a bakery
+ * visit with a Baker + Cashier) are common for role-play, so the roadmap
+ * field must be available here too, not just on the single-character branch.
  */
 const createMultiCharacterSchema = (scenario: Scenario) => {
   const count = Math.min(scenario.characters!.length, MAX_CHARACTERS);
   const labels = Array.from({ length: count }, (_, i) => `Character ${i + 1}`);
 
   // Allow hint at top level OR inside each character response (LLMs place it inconsistently)
-  return z.object({
+  const base = z.object({
     characterResponses: z.array(
       z.object({
         characterName: z.string().describe(`Must be one of: ${labels.join(', ')}`),
@@ -118,6 +140,15 @@ const createMultiCharacterSchema = (scenario: Scenario) => {
     ),
     hint: z.string().optional().describe("Hint for what the user should say or ask next - brief description in English")
   });
+
+  const hasRoadmapSteps = !!scenario.steps && scenario.steps.length > 0;
+  return hasRoadmapSteps
+    ? base.extend({
+        currentStepIndex: z.number().int().min(0).describe(
+          "0-based index into the scenario roadmap steps list (given in the system instruction) of the step the conversation currently reflects."
+        ),
+      })
+    : base;
 };
 
 /**
@@ -162,9 +193,35 @@ const SINGLE_CHARACTER_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(SingleCha
 const FREE_CONVERSATION_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(FreeConversationSchema) as Record<string, any>);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const TEF_QUESTIONING_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(TefQuestioningSchema) as Record<string, any>);
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const ROADMAP_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(RoadmapSingleCharacterSchema) as Record<string, any>);
 const createGeminiMultiCharacterSchema = (scenario: Scenario) =>
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   toGeminiSchema(z.toJSONSchema(createMultiCharacterSchema(scenario)) as Record<string, any>);
+
+/**
+ * Picks the response schema for a given active scenario (or free conversation
+ * when null). Shared by createChatSession() (session-level config) and
+ * sendVoiceMessage() (per-request config) — both need the exact same
+ * branching, so this is the single place that order lives: multi-character,
+ * no scenario, TEF questioning, roadmap, then single-character fallback.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function selectResponseSchema(scenario: Scenario | null): Record<string, any> {
+  if (scenario && scenario.characters && scenario.characters.length > 1) {
+    return createGeminiMultiCharacterSchema(scenario);
+  }
+  if (!scenario) {
+    return FREE_CONVERSATION_RESPONSE_SCHEMA;
+  }
+  if (scenario.isTefQuestioning) {
+    return TEF_QUESTIONING_RESPONSE_SCHEMA;
+  }
+  if (scenario.steps && scenario.steps.length > 0) {
+    return ROADMAP_RESPONSE_SCHEMA;
+  }
+  return SINGLE_CHARACTER_RESPONSE_SCHEMA;
+}
 
 /**
  * Helper function to create the chat session with current state.
@@ -190,18 +247,7 @@ function createChatSession(): void {
   // returning an array of turns instead of a single response object.
   // isTefQuestioning is a sub-case of having a single-character activeScenario,
   // so it is only evaluated once we know activeScenario is non-null.
-  const responseSchema = (() => {
-    if (activeScenario && activeScenario.characters && activeScenario.characters.length > 1) {
-      return createGeminiMultiCharacterSchema(activeScenario);
-    }
-    if (!activeScenario) {
-      return FREE_CONVERSATION_RESPONSE_SCHEMA;
-    }
-    if (activeScenario.isTefQuestioning) {
-      return TEF_QUESTIONING_RESPONSE_SCHEMA;
-    }
-    return SINGLE_CHARACTER_RESPONSE_SCHEMA;
-  })();
+  const responseSchema = selectResponseSchema(activeScenario);
 
   chatSession = ai.chats.create({
     model: 'gemini-2.5-flash-lite',
@@ -695,18 +741,7 @@ export const sendVoiceMessage = async (
       ? generateScenarioSystemInstruction(activeScenario)
       : SYSTEM_INSTRUCTION;
 
-    const responseSchemaForThisRequest = (() => {
-      if (activeScenario && activeScenario.characters && activeScenario.characters.length > 1) {
-        return createGeminiMultiCharacterSchema(activeScenario);
-      }
-      if (!activeScenario) {
-        return FREE_CONVERSATION_RESPONSE_SCHEMA;
-      }
-      if (activeScenario.isTefQuestioning) {
-        return TEF_QUESTIONING_RESPONSE_SCHEMA;
-      }
-      return SINGLE_CHARACTER_RESPONSE_SCHEMA;
-    })();
+    const responseSchemaForThisRequest = selectResponseSchema(activeScenario);
 
     const chatResponse = await chatSession.sendMessage({
       message: messageParts,
@@ -744,6 +779,14 @@ export const sendVoiceMessage = async (
       }
 
       const validated = validationResult.data;
+
+      // Roadmap auto-advance: only present when the schema included it (see
+      // createMultiCharacterSchema's hasRoadmapSteps branch above). Mirrors
+      // the extraction pattern used for the single-character roadmap schema.
+      const hasRoadmapSteps = !!activeScenario.steps && activeScenario.steps.length > 0;
+      const currentStepIndex = hasRoadmapSteps && 'currentStepIndex' in validated
+        ? (validated as { currentStepIndex?: number }).currentStepIndex
+        : undefined;
 
       // Map fixed character labels ("Character 1", etc.) back to actual characters by index
       const characterResponses = validated.characterResponses.map(resp => {
@@ -877,7 +920,8 @@ export const sendVoiceMessage = async (
           voiceName: ca.voiceName,
           audioGenerationFailed: ca.audioGenerationFailed,
           frenchText: ca.french // Include French text for TTS retry
-        }))
+        })),
+        ...(currentStepIndex !== undefined ? { currentStepIndex } : {}),
       };
     } else {
       // Single-character scenario with JSON response
@@ -891,8 +935,16 @@ export const sendVoiceMessage = async (
           throw new Error(`Failed to parse single-character response as JSON: ${errorMessage}. Raw response: ${rawModelText}`);
         }
 
-        // Choose schema: TEF Questioning adds isRepeat field
-        const schemaToUse = activeScenario.isTefQuestioning ? TefQuestioningSchema : SingleCharacterSchema;
+        // Choose schema: TEF Questioning adds isRepeat/conceptLabels; a scenario
+        // with roadmap steps adds currentStepIndex. These are separate schema
+        // branches (see AGENTS.md "TEF Ad Questioning Mode: Schema Selection")
+        // so each field is only ever present/required for its own scenario type.
+        const hasRoadmapSteps = !!activeScenario.steps && activeScenario.steps.length > 0;
+        const schemaToUse = activeScenario.isTefQuestioning
+          ? TefQuestioningSchema
+          : hasRoadmapSteps
+            ? RoadmapSingleCharacterSchema
+            : SingleCharacterSchema;
 
         // Use safeParse for better error handling
         const validationResult = schemaToUse.safeParse(jsonResponse);
@@ -904,6 +956,9 @@ export const sendVoiceMessage = async (
         const isRepeat = activeScenario.isTefQuestioning && 'isRepeat' in validated ? (validated as { isRepeat?: boolean }).isRepeat : undefined;
         const conceptLabels = activeScenario.isTefQuestioning && 'conceptLabels' in validated
           ? (validated as { conceptLabels?: string[] }).conceptLabels
+          : undefined;
+        const currentStepIndex = hasRoadmapSteps && 'currentStepIndex' in validated
+          ? (validated as { currentStepIndex?: number }).currentStepIndex
           : undefined;
 
         // Check if operation was cancelled before generating audio
@@ -954,6 +1009,7 @@ export const sendVoiceMessage = async (
           audioGenerationFailed: !audioUrl, // Empty audioUrl means TTS failed
           ...(isRepeat !== undefined ? { isRepeat } : {}),
           ...(conceptLabels !== undefined ? { conceptLabels } : {}),
+          ...(currentStepIndex !== undefined ? { currentStepIndex } : {}),
           characters: [{
             characterId: activeScenario?.characters?.[0]?.id || '',
             characterName: activeScenario?.characters?.[0]?.name || '',
