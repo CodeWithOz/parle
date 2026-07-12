@@ -186,7 +186,18 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   const handleRoadmapStepDrop = (targetIndex: number) => (e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     const sourceIndex = parseInt(e.dataTransfer.getData('text/plain'), 10);
-    if (Number.isNaN(sourceIndex) || sourceIndex === targetIndex) return;
+    // Native HTML5 drag data can come from outside this list (e.g. dragging
+    // text/a link onto a row), so sourceIndex isn't guaranteed to be a valid
+    // index — a negative value would splice from the wrong end, and an
+    // out-of-range value would splice in `undefined` as a bogus step.
+    if (
+      Number.isNaN(sourceIndex) ||
+      sourceIndex === targetIndex ||
+      sourceIndex < 0 ||
+      sourceIndex >= roadmapSteps.length
+    ) {
+      return;
+    }
     const next = roadmapSteps.slice();
     const [moved] = next.splice(sourceIndex, 1);
     next.splice(targetIndex, 0, moved);
