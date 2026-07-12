@@ -5,6 +5,7 @@ import { VoiceResponse, Scenario } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
 import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
+import { isAbortLikeError } from "../utils/isAbortLikeError";
 
 // Zod schema for scenario extraction
 const CharacterSchema = z.object({
@@ -64,8 +65,17 @@ export const setScenarioOpenAI = (scenario: Scenario | null) => {
 
 /**
  * Gets AI's understanding/summary of a scenario description using OpenAI with structured output.
+ *
+ * Accepts an optional `signal` so callers can cancel an in-flight request —
+ * e.g. when a newer scenario-planning request supersedes this one (see
+ * `processScenarioDescriptionAndPopulate` in App.tsx, which aborts any
+ * previous in-flight call before starting a new one, preventing a stale
+ * response from overwriting fresher data regardless of network settle order).
+ * An abort-like error is re-thrown (not swallowed into the generic fallback
+ * response below) so callers can tell an intentional cancel apart from a
+ * real failure.
  */
-export const processScenarioDescriptionOpenAI = async (description: string): Promise<string> => {
+export const processScenarioDescriptionOpenAI = async (description: string, signal?: AbortSignal): Promise<string> => {
   const apiKey = getApiKeyOrEnv('openai');
 
   if (!apiKey) {
@@ -83,11 +93,14 @@ export const processScenarioDescriptionOpenAI = async (description: string): Pro
       name: "scenario_summary"
     });
 
-    const result = await structuredModel.invoke(generateScenarioSummaryPrompt(description));
+    const result = await structuredModel.invoke(generateScenarioSummaryPrompt(description), { signal });
 
     // Result is already validated by Zod through Langchain
     return JSON.stringify(result);
   } catch (error) {
+    if (isAbortLikeError(error)) {
+      throw error;
+    }
     console.warn('Failed to process scenario with OpenAI:', error);
     // Fallback response
     return JSON.stringify({
