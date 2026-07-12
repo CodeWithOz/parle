@@ -573,6 +573,15 @@ const App: React.FC = () => {
   const scenarioDescriptionAbortControllerRef = useRef<AbortController | null>(null);
   const scenarioDescriptionRequestIdRef = useRef(0);
 
+  // Abort + stale guarding for scenario-planning (roadmap generation)
+  // requests — distinct from the transcription refs above. Without this,
+  // clicking "Start" twice in a row (e.g. going back and retrying) fires two
+  // concurrent AI planning requests, and whichever settles last silently
+  // overwrites the other's data regardless of which one the user actually
+  // meant to keep.
+  const scenarioPlanningAbortControllerRef = useRef<AbortController | null>(null);
+  const scenarioPlanningRequestIdRef = useRef(0);
+
   // Ref to track if processing was aborted by the user
   const processingAbortedRef = useRef(false);
   /** Set before abort for user cancel (orb) or pipeline deadline; cleared in processAudioMessage finally/catch. */
@@ -1172,6 +1181,11 @@ const App: React.FC = () => {
     // cannot overwrite transcript state after close+reopen.
     scenarioDescriptionRequestIdRef.current += 1;
     abortScenarioDescriptionTranscription();
+    // Also cancel any in-flight scenario-planning (roadmap generation)
+    // request — otherwise it keeps running after the modal closes and could
+    // still write stale state if the user reopens the setup flow before it
+    // resolves.
+    cancelScenarioPlanningRequest();
     scenarioSetupOpenRef.current = false;
     setScenarioMode('none');
     setScenarioDescription('');
@@ -1356,6 +1370,17 @@ const App: React.FC = () => {
     cancelRecording();
   };
 
+  // Aborts any in-flight scenario-planning request (roadmap generation) and
+  // invalidates its request token, so a straggling resolution/rejection can
+  // never update state after this point — called both when starting a new
+  // request (superseding the previous one) and when the setup modal closes
+  // (abandoning it without starting a new one).
+  const cancelScenarioPlanningRequest = () => {
+    scenarioPlanningAbortControllerRef.current?.abort();
+    scenarioPlanningAbortControllerRef.current = null;
+    scenarioPlanningRequestIdRef.current += 1;
+  };
+
   // Shared by fresh scenario creation (handleSubmitScenarioDescription) AND
   // regenerating a roadmap for an existing saved scenario that doesn't have
   // one yet (handleRegenerateRoadmapForScenario) — both populate the same
@@ -1363,12 +1388,29 @@ const App: React.FC = () => {
   // editor confirm screen in ScenarioSetup. `fallbackCharacters` lets the
   // regenerate path keep an existing scenario's characters if the AI call
   // fails or returns none, instead of always falling back to single-character.
+  //
+  // Race-condition guard: clicking "Start" twice in a row (e.g. navigating
+  // back and retrying, or picking a different scenario) previously fired two
+  // concurrent AI planning requests with no cancellation — whichever settled
+  // last silently overwrote the other's data, independent of which one the
+  // user actually meant to keep. Every call here first aborts any request
+  // still in flight and bumps a request token; both the success and error
+  // paths check that token before touching state, so a stale
+  // (superseded-but-not-yet-settled) response can never win.
   const processScenarioDescriptionAndPopulate = async (description: string, fallbackCharacters: Character[] = []) => {
+    cancelScenarioPlanningRequest();
+    const abortController = new AbortController();
+    scenarioPlanningAbortControllerRef.current = abortController;
+    const requestId = scenarioPlanningRequestIdRef.current;
+
     setIsProcessingScenario(true);
 
     try {
       // Use OpenAI for scenario planning (returns JSON with summary, characters, and roadmap steps)
-      const result = await processScenarioDescriptionOpenAI(description);
+      const result = await processScenarioDescriptionOpenAI(description, abortController.signal);
+
+      // A newer request has started since this one began — discard this result.
+      if (requestId !== scenarioPlanningRequestIdRef.current) return;
 
       // Try to parse as JSON first
       let parsed: { summary: string; characters?: Array<{ name: string; role: string; description?: string }>; steps?: string[] };
@@ -1405,12 +1447,15 @@ const App: React.FC = () => {
         setScenarioCharacters(fallbackCharacters);
       }
     } catch (error) {
+      if (requestId !== scenarioPlanningRequestIdRef.current) return; // stale/aborted — ignore
       console.error('Error processing scenario:', error);
       setAiSummary('I understand your scenario. Ready to begin when you are!');
       setRoadmapSteps(['']);
       setScenarioCharacters(fallbackCharacters);
     } finally {
-      setIsProcessingScenario(false);
+      if (requestId === scenarioPlanningRequestIdRef.current) {
+        setIsProcessingScenario(false);
+      }
     }
   };
 
@@ -2434,26 +2479,48 @@ const App: React.FC = () => {
               >
                 <Drawer.Portal>
                   <Drawer.Overlay className="fixed inset-0 z-50 bg-parle-navy-900/30" />
+                  {/*
+                    Mobile (bottom sheet): pinned to the bottom, handle on top, unchanged.
+                    Tablet+ (right side drawer): vertically centered near the edge tab by
+                    default (top-0 + bottom-0 + my-auto + h-fit centers a content-sized box
+                    within the full row height, WITHOUT using `transform` — vaul already
+                    drives the slide-in/out animation via an inline `transform` on this same
+                    element, so a `translate-y-1/2` centering trick would conflict/get
+                    clobbered). max-h caps it so very long roadmaps still get an internal
+                    scrollbar and effectively span the height, rather than overflowing the
+                    viewport — same functional outcome as pinning top-to-bottom for tall
+                    content, without needing to switch centering strategies via JS.
+                  */}
                   <Drawer.Content
-                    className="fixed z-50 bg-white border-parle-navy-100 focus:outline-none
-                      inset-x-0 bottom-0 max-h-[80dvh] rounded-t-2xl border-t p-4
-                      tablet:inset-y-0 tablet:right-0 tablet:left-auto tablet:bottom-auto tablet:max-h-none tablet:w-[280px] tablet:rounded-none tablet:rounded-l-2xl tablet:border-t-0 tablet:border-l"
+                    className="fixed z-50 bg-white border-parle-navy-100 focus:outline-none flex flex-col
+                      inset-x-0 bottom-0 max-h-[80dvh] rounded-t-2xl border-t
+                      tablet:flex-row tablet:inset-y-0 tablet:my-auto tablet:h-fit tablet:max-h-[90dvh] tablet:right-0 tablet:left-auto tablet:w-[280px] tablet:rounded-none tablet:rounded-l-2xl tablet:border-t-0 tablet:border-l"
                   >
-                    <Drawer.Handle className="mx-auto mb-3 h-1.5 w-12 flex-shrink-0 rounded-full bg-parle-navy-200 tablet:hidden" />
-                    <div className="flex items-center justify-between mb-2">
-                      <Drawer.Title asChild>
-                        <h2 className="text-sm uppercase tracking-wide text-parle-navy-500 font-semibold">Scenario Roadmap</h2>
-                      </Drawer.Title>
-                      <button
-                        type="button"
-                        onClick={() => setShowRoadmapDrawer(false)}
-                        aria-label="Close roadmap"
-                        className="text-parle-navy-400 hover:text-parle-navy-700"
-                      >
-                        ✕
-                      </button>
+                    {/* Horizontal handle on top for the bottom sheet (mobile); a vertical
+                        handle on the left edge for the side drawer (tablet+) — the left
+                        edge is the side facing back into the main content, so "grab and
+                        pull right" to dismiss reads correctly (dragging from the top would
+                        suggest a vertical gesture, which isn't how this drawer moves). */}
+                    {/* The "!" (important) modifier is needed here: vaul injects its
+                        own [data-vaul-handle] size rule at runtime, which otherwise
+                        wins the specificity tie against a plain utility class. */}
+                    <Drawer.Handle className="mx-auto mt-3 mb-1 !h-1.5 !w-12 flex-shrink-0 rounded-full bg-parle-navy-200 tablet:mx-0 tablet:my-auto tablet:ml-1.5 tablet:mr-0 tablet:!h-12 tablet:!w-1.5" />
+                    <div className="flex-1 min-h-0 min-w-0 overflow-y-auto p-4 pt-2 tablet:pt-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <Drawer.Title asChild>
+                          <h2 className="text-sm uppercase tracking-wide text-parle-navy-500 font-semibold">Scenario Roadmap</h2>
+                        </Drawer.Title>
+                        <button
+                          type="button"
+                          onClick={() => setShowRoadmapDrawer(false)}
+                          aria-label="Close roadmap"
+                          className="text-parle-navy-400 hover:text-parle-navy-700"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                      <ScenarioRoadmap steps={roadmapStepsList} currentStepIndex={currentRoadmapStepIndex} />
                     </div>
-                    <ScenarioRoadmap steps={roadmapStepsList} currentStepIndex={currentRoadmapStepIndex} />
                   </Drawer.Content>
                 </Drawer.Portal>
               </Drawer.Root>
