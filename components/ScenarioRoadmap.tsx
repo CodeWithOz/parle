@@ -26,6 +26,7 @@ export const ScenarioRoadmap: React.FC<ScenarioRoadmapProps> = ({ steps, current
         return (
           <li
             key={step.id}
+            aria-current={isCurrent ? 'step' : undefined}
             className={`flex items-start gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors ${
               isCurrent
                 ? 'bg-parle-blue-100 border border-parle-blue-500 text-parle-navy-900 font-medium'
@@ -52,7 +53,13 @@ export const ScenarioRoadmap: React.FC<ScenarioRoadmapProps> = ({ steps, current
                 </svg>
               ) : null}
             </span>
-            <span className={isDone ? 'line-through text-parle-navy-500' : ''}>{step.text}</span>
+            <span className={isDone ? 'line-through text-parle-navy-500' : ''}>
+              {/* The done/current/upcoming distinction is otherwise conveyed only by
+                  color and the decorative marker (aria-hidden above) — add a visually
+                  hidden label so screen reader users get the same information. */}
+              <span className="sr-only">{isDone ? 'Done: ' : isCurrent ? 'Current step: ' : 'Upcoming: '}</span>
+              {step.text}
+            </span>
           </li>
         );
       })}
