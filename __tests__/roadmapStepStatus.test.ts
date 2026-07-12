@@ -148,4 +148,24 @@ describe('advanceRoadmapStep', () => {
     expect(advanceRoadmapStep(0, 1000, 3)).toBe(2);
     expect(advanceRoadmapStep(2, -1000, 3)).toBeGreaterThanOrEqual(0);
   });
+
+  describe('stepsLength === 0 (no roadmap steps)', () => {
+    it('returns 0 (not NaN or -1) when both prevIndex and aiReportedIndex are undefined', () => {
+      expect(advanceRoadmapStep(undefined, undefined, 0)).toBe(0);
+    });
+
+    it('returns 0 (not NaN or -1) for a positive AI-reported index with no prior index', () => {
+      expect(advanceRoadmapStep(undefined, 3, 0)).toBe(0);
+    });
+
+    it('returns 0 (not NaN or -1) for a negative AI-reported index with no prior index', () => {
+      expect(advanceRoadmapStep(undefined, -5, 0)).toBe(0);
+    });
+
+    it('returns a finite, non-negative number when aiReportedIndex is undefined and prevIndex is set', () => {
+      const result = advanceRoadmapStep(2, undefined, 0);
+      expect(Number.isFinite(result)).toBe(true);
+      expect(result).not.toBe(-1);
+    });
+  });
 });
