@@ -1186,6 +1186,12 @@ const App: React.FC = () => {
     // still write stale state if the user reopens the setup flow before it
     // resolves.
     cancelScenarioPlanningRequest();
+    // cancelScenarioPlanningRequest() bumps the request token, so the
+    // in-flight request's own `finally` block will find its token stale and
+    // skip clearing this flag — clear it here instead, otherwise it stays
+    // stuck `true` forever (reopening the modal would show "Processing..."
+    // with nothing actually in flight).
+    setIsProcessingScenario(false);
     scenarioSetupOpenRef.current = false;
     setScenarioMode('none');
     setScenarioDescription('');
