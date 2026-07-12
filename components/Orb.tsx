@@ -9,7 +9,8 @@ import { AppState } from '../types';
  * reserved for the mic's idle/active affordance.
  */
 export const ORB_STATE_COLORS: Record<'IDLE' | 'RECORDING' | 'PROCESSING' | 'PLAYING', string> = {
-  IDLE: '#d9827e',       // muted red-pink — recognizably red, low saturation
+  IDLE: '#ce5f5a',       // muted red-pink, darkened for ~3.9:1 contrast against the white mic icon
+                          // (was #d9827e at ~2.8:1); still clearly less saturated than RECORDING
   RECORDING: '#c8342f',  // vivid, strongly-saturated red
   PROCESSING: '#8ba0b8', // parle-navy-300 — neutral, out of the red family
   PLAYING: '#2f6fb0',    // parle-blue-500 — blue family
