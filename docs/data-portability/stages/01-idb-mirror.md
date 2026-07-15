@@ -52,7 +52,7 @@ Then update `../README.md` so Stage 2 is identified as next.
 ### Implementation handoff (2026-07-14)
 
 - Branch: `codex/data-portability-stage-1`
-- Commits: pending
+- Commits: `d4d092e` (`Implement Stage 1 topic archive mirror`)
 - Files changed:
   - `App.tsx`
   - `services/tefArchiveService.ts`
