@@ -156,3 +156,13 @@ export interface TefTopicArchive {
   createdAt: number;
   topicSuggestions: TefTopicSuggestion[];
 }
+
+export interface TopicArchiveMigrationMetadata {
+  name: 'topic-archives-localstorage-to-idb';
+  version: 1;
+  state: 'mirroring';
+  lastReconciledAt: number;
+  sourceRecordCount: number;
+  destinationRecordCount: number;
+  verificationStatus: 'verified';
+}

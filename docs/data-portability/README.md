@@ -6,13 +6,14 @@ to carry context across separate branches, deployments, and AI-agent chats.
 
 ## Current status
 
-- Program status: **planning complete; implementation not started**
-- Current storage behavior: **unchanged**
+- Program status: **Stage 1 implemented on branch; deployment verification pending**
+- Current implementation behavior: **localStorage-authoritative IndexedDB mirror**
+- Deployed behavior: **not verified; confirm before merge/deployment**
 - Last completed stage: **Stage 0 — specification and handoff documentation**
-- Next stage: **[Stage 1 — IndexedDB mirror](stages/01-idb-mirror.md)**
+- Next action: **merge, deploy, and verify [Stage 1 — IndexedDB mirror](stages/01-idb-mirror.md)**
 - Current authoritative topic-archive source: `localStorage`
-- IndexedDB topic-archive store exists: **no**
-- Dual writes are active: **no**
+- IndexedDB topic-archive store exists in this implementation: **yes (schema version 2)**
+- Dual writes are active in this implementation: **yes; localStorage first**
 - Export/import is available: **no**
 
 The next implementation branch must do Stage 1 only. It must not switch UI reads to
@@ -82,7 +83,7 @@ See [backup-format.md](backup-format.md), [migration-plan.md](migration-plan.md)
 | Stage | Purpose | Status |
 |---|---|---|
 | 0 | Specify scope, invariants, and handoff process | Complete (documentation only) |
-| 1 | Add IndexedDB archive store; localStorage remains authoritative | Next |
+| 1 | Add IndexedDB archive store; localStorage remains authoritative | Implemented; deployment verification pending |
 | 2 | Shadow-read, compare, and reconcile | Pending |
 | 3 | Make IndexedDB primary with localStorage fallback | Pending |
 | 4 | Maintain rollback window and prove stability | Pending |
