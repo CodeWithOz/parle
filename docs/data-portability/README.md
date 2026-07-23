@@ -6,15 +6,16 @@ separate branches, deployments, and AI-agent chats.
 
 ## Current status
 
-- Program status: **planning complete; implementation not started**
-- Current storage behavior: **unchanged**
+- Program status: **Stage 1 implemented on branch; deployment verification pending**
+- Current implementation behavior: **localStorage-authoritative IndexedDB mirror**
+- Deployed behavior: **not verified; confirm before merge/deployment**
 - Last completed stage: **Stage 0 — specification and handoff documentation**
-- Next stage: **[Stage 1 — IndexedDB mirror](stages/01-idb-mirror.md)**
+- Next action: **merge, deploy, and verify [Stage 1 — IndexedDB mirror](stages/01-idb-mirror.md)**
 - Current authoritative topic-archive source: `localStorage`
 - Current authoritative saved-scenario source: `localStorage`
-- IndexedDB topic-archive store exists: **no**
-- IndexedDB saved-scenario store exists: **no**
-- Dual writes are active: **no**
+- IndexedDB topic-archive store exists in this implementation: **yes (schema version 3)**
+- IndexedDB saved-scenario store exists in this implementation: **yes (schema version 3)**
+- Dual writes are active in this implementation: **yes for both datasets; localStorage first**
 - Export/import is available: **no**
 
 Compatibility requirement: Stage 1 topic-only builds have already created database version 2
@@ -90,7 +91,7 @@ See [backup-format.md](backup-format.md), [migration-plan.md](migration-plan.md)
 | Stage | Purpose | Status |
 |---|---|---|
 | 0 | Specify scope, invariants, and handoff process | Complete (documentation only) |
-| 1 | Add IndexedDB mirrors for topic archives and saved scenarios | Next |
+| 1 | Add IndexedDB mirrors for topic archives and saved scenarios | Implemented; deployment verification pending |
 | 2 | Shadow-read, compare, and reconcile both datasets | Pending |
 | 3 | Make IndexedDB primary for both with localStorage fallback | Pending |
 | 4 | Maintain rollback windows and prove both datasets stable | Pending |

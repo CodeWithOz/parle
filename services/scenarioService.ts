@@ -1,4 +1,5 @@
 import { Scenario, ScenarioStep } from '../types';
+import { mirrorScenarioDelete, mirrorScenarioSave } from './tefArchiveService';
 
 const STORAGE_KEY = 'parle-scenarios';
 
@@ -87,7 +88,8 @@ export const saveScenario = (scenario: Scenario): Scenario[] => {
       throw error;
     }
   }
-  
+
+  mirrorScenarioSave();
   return scenarios;
 };
 
@@ -103,7 +105,8 @@ export const deleteScenario = (scenarioId: string): Scenario[] => {
     console.error('Error deleting scenario:', error);
     throw new Error('Failed to delete scenario from storage');
   }
-  
+
+  mirrorScenarioDelete();
   return scenarios;
 };
 
