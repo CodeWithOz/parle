@@ -1,24 +1,30 @@
 import type {
+  DurableDataMigrationMetadata,
+  DurableDataMigrationName,
+  Scenario,
+  ScenarioMigrationMetadata,
   TefExerciseType,
   TefSavedAd,
   TefTopicArchive,
   TefTopicSuggestion,
   TopicArchiveMigrationMetadata,
 } from '../types';
-import { generateId } from './scenarioService';
 
 const TOPIC_ARCHIVES_KEY = 'parle-tef-topic-archives';
+const SCENARIOS_KEY = 'parle-scenarios';
 const MAX_TOPIC_ARCHIVES = 50;
 const MAX_SAVED_ADS_PER_TYPE = 20;
 const DB_NAME = 'parle-tef';
-export const TEF_DB_VERSION = 2;
+export const TEF_DB_VERSION = 3;
 const SAVED_ADS_STORE = 'savedAds';
 const TOPIC_ARCHIVES_STORE = 'topicArchives';
+const SCENARIOS_STORE = 'scenarios';
 const MIGRATION_METADATA_STORE = 'migrationMetadata';
 const TOPIC_ARCHIVE_MIGRATION_NAME = 'topic-archives-localstorage-to-idb';
-const MAX_TOPIC_ARCHIVE_STABILITY_ATTEMPTS = 5;
+const SCENARIO_MIGRATION_NAME = 'scenarios-localstorage-to-idb';
+const MAX_MIRROR_STABILITY_ATTEMPTS = 5;
 
-export interface TopicArchiveMirrorDiagnostic {
+export interface DurableDataMirrorDiagnostic {
   operation: 'backfill' | 'save' | 'delete' | 'delete-for-ad';
   success: boolean;
   sourceRecordCount: number;
@@ -27,8 +33,57 @@ export interface TopicArchiveMirrorDiagnostic {
   error?: string;
 }
 
-let topicArchiveMirrorQueue: Promise<void> = Promise.resolve();
-let lastTopicArchiveMirrorDiagnostic: TopicArchiveMirrorDiagnostic | null = null;
+export type TopicArchiveMirrorDiagnostic = DurableDataMirrorDiagnostic;
+export type ScenarioMirrorDiagnostic = DurableDataMirrorDiagnostic;
+
+interface DurableRecord {
+  id: string;
+}
+
+interface MirrorSource<T extends DurableRecord> {
+  records: T[];
+  readable: boolean;
+}
+
+interface MirrorConfig<T extends DurableRecord> {
+  storageKey: string;
+  storeName: string;
+  metadataName: DurableDataMigrationName;
+  label: string;
+}
+
+interface MirrorState {
+  queue: Promise<void>;
+  lastDiagnostic: DurableDataMirrorDiagnostic | null;
+}
+
+const topicArchiveMirrorConfig: MirrorConfig<TefTopicArchive> = {
+  storageKey: TOPIC_ARCHIVES_KEY,
+  storeName: TOPIC_ARCHIVES_STORE,
+  metadataName: TOPIC_ARCHIVE_MIGRATION_NAME,
+  label: 'TEF topic archive',
+};
+
+const scenarioMirrorConfig: MirrorConfig<Scenario> = {
+  storageKey: SCENARIOS_KEY,
+  storeName: SCENARIOS_STORE,
+  metadataName: SCENARIO_MIGRATION_NAME,
+  label: 'saved scenario',
+};
+
+const topicArchiveMirrorState: MirrorState = {
+  queue: Promise.resolve(),
+  lastDiagnostic: null,
+};
+
+const scenarioMirrorState: MirrorState = {
+  queue: Promise.resolve(),
+  lastDiagnostic: null,
+};
+
+function createArchiveId(): string {
+  return `scenario_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+}
 
 function isQuotaExceeded(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'QuotaExceededError';
@@ -61,6 +116,7 @@ function openDb(): Promise<IDBDatabase> {
     };
     request.onupgradeneeded = () => {
       const db = request.result;
+      const upgradeTransaction = request.transaction;
       if (!db.objectStoreNames.contains(SAVED_ADS_STORE)) {
         const store = db.createObjectStore(SAVED_ADS_STORE, { keyPath: 'id' });
         store.createIndex('exerciseType', 'exerciseType', { unique: false });
@@ -71,6 +127,15 @@ function openDb(): Promise<IDBDatabase> {
         store.createIndex('adId', 'adId', { unique: false });
         store.createIndex('exerciseType', 'exerciseType', { unique: false });
         store.createIndex('createdAt', 'createdAt', { unique: false });
+      }
+      if (!db.objectStoreNames.contains(SCENARIOS_STORE)) {
+        const store = db.createObjectStore(SCENARIOS_STORE, { keyPath: 'id' });
+        store.createIndex('createdAt', 'createdAt', { unique: false });
+      } else if (upgradeTransaction) {
+        const store = upgradeTransaction.objectStore(SCENARIOS_STORE);
+        if (!store.indexNames.contains('createdAt')) {
+          store.createIndex('createdAt', 'createdAt', { unique: false });
+        }
       }
       if (!db.objectStoreNames.contains(MIGRATION_METADATA_STORE)) {
         db.createObjectStore(MIGRATION_METADATA_STORE, { keyPath: 'name' });
@@ -153,21 +218,21 @@ async function runWriteTransaction(fn: (store: IDBObjectStore) => Promise<void>)
   });
 }
 
-function readTopicArchivesSource(): { archives: TefTopicArchive[]; readable: boolean } {
+function readMirrorSource<T extends DurableRecord>(config: MirrorConfig<T>): MirrorSource<T> {
   try {
-    const stored = localStorage.getItem(TOPIC_ARCHIVES_KEY);
-    if (!stored) return { archives: [], readable: true };
+    const stored = localStorage.getItem(config.storageKey);
+    if (!stored) return { records: [], readable: true };
     const parsed = JSON.parse(stored) as unknown;
-    if (!Array.isArray(parsed)) return { archives: [], readable: false };
-    return { archives: parsed as TefTopicArchive[], readable: true };
+    if (!Array.isArray(parsed)) return { records: [], readable: false };
+    return { records: parsed as T[], readable: true };
   } catch (error) {
-    console.error('Error loading TEF topic archives:', error);
-    return { archives: [], readable: false };
+    console.error(`Error loading ${config.label}s:`, error);
+    return { records: [], readable: false };
   }
 }
 
 function loadTopicArchivesRaw(): TefTopicArchive[] {
-  return readTopicArchivesSource().archives;
+  return readMirrorSource(topicArchiveMirrorConfig).records;
 }
 
 function persistTopicArchives(archives: TefTopicArchive[]): void {
@@ -203,15 +268,15 @@ function canonicalJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function topicArchiveCollectionsMatch(
-  authoritative: TefTopicArchive[],
-  mirrored: TefTopicArchive[]
+function recordCollectionsMatch<T extends DurableRecord>(
+  authoritative: T[],
+  mirrored: T[]
 ): boolean {
   if (authoritative.length !== mirrored.length) return false;
-  const mirroredById = new Map(mirrored.map((archive) => [archive.id, archive]));
-  return authoritative.every((archive) => {
-    const mirroredArchive = mirroredById.get(archive.id);
-    return mirroredArchive !== undefined && canonicalJson(archive) === canonicalJson(mirroredArchive);
+  const mirroredById = new Map(mirrored.map((record) => [record.id, record]));
+  return authoritative.every((record) => {
+    const mirroredRecord = mirroredById.get(record.id);
+    return mirroredRecord !== undefined && canonicalJson(record) === canonicalJson(mirroredRecord);
   });
 }
 
@@ -231,46 +296,50 @@ async function readAllFromStore<T>(storeName: string): Promise<T[]> {
   }
 }
 
-async function reconcileTopicArchiveMirror(
-  authoritative: TefTopicArchive[]
+async function reconcileMirror<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  authoritative: T[]
 ): Promise<number> {
   const db = await openDb();
   try {
     await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(TOPIC_ARCHIVES_STORE, 'readwrite');
-      const store = tx.objectStore(TOPIC_ARCHIVES_STORE);
+      const tx = db.transaction(config.storeName, 'readwrite');
+      const store = tx.objectStore(config.storeName);
       const getAllRequest = store.getAll();
 
       getAllRequest.onsuccess = () => {
-        const authoritativeIds = new Set(authoritative.map((archive) => archive.id));
-        for (const archive of authoritative) store.put(archive);
-        for (const mirrored of (getAllRequest.result as TefTopicArchive[]) ?? []) {
+        const authoritativeIds = new Set(authoritative.map((record) => record.id));
+        for (const record of authoritative) store.put(record);
+        for (const mirrored of (getAllRequest.result as T[]) ?? []) {
           if (!authoritativeIds.has(mirrored.id)) store.delete(mirrored.id);
         }
       };
-      getAllRequest.onerror = () => reject(getAllRequest.error ?? new Error('Failed to inspect topic archive mirror'));
+      getAllRequest.onerror = () => reject(
+        getAllRequest.error ?? new Error(`Failed to inspect ${config.label} mirror`)
+      );
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error('Failed to reconcile topic archive mirror'));
-      tx.onabort = () => reject(tx.error ?? new Error('Topic archive reconciliation was aborted'));
+      tx.onerror = () => reject(tx.error ?? new Error(`Failed to reconcile ${config.label} mirror`));
+      tx.onabort = () => reject(tx.error ?? new Error(`${config.label} reconciliation was aborted`));
     });
   } finally {
     db.close();
   }
 
-  const mirrored = await readAllFromStore<TefTopicArchive>(TOPIC_ARCHIVES_STORE);
-  if (!topicArchiveCollectionsMatch(authoritative, mirrored)) {
-    throw new Error('Topic archive mirror verification failed after reconciliation');
+  const mirrored = await readAllFromStore<T>(config.storeName);
+  if (!recordCollectionsMatch(authoritative, mirrored)) {
+    throw new Error(`${config.label} mirror verification failed after reconciliation`);
   }
 
   return mirrored.length;
 }
 
-async function writeVerifiedTopicArchiveMetadata(
+async function writeVerifiedMirrorMetadata(
+  metadataName: DurableDataMigrationName,
   sourceRecordCount: number,
   destinationRecordCount: number
 ): Promise<void> {
-  const metadata: TopicArchiveMigrationMetadata = {
-    name: TOPIC_ARCHIVE_MIGRATION_NAME,
+  const metadata: DurableDataMigrationMetadata = {
+    name: metadataName,
     version: 1,
     state: 'mirroring',
     lastReconciledAt: Date.now(),
@@ -293,100 +362,107 @@ async function writeVerifiedTopicArchiveMetadata(
   }
 }
 
-async function mirrorLatestTopicArchiveSource(
+async function mirrorLatestSource<T extends DurableRecord>(
+  config: MirrorConfig<T>,
   onSourceRead: (recordCount: number) => void
 ): Promise<{
   sourceRecordCount: number;
   destinationRecordCount: number;
 }> {
-  for (let attempt = 1; attempt <= MAX_TOPIC_ARCHIVE_STABILITY_ATTEMPTS; attempt += 1) {
+  for (let attempt = 1; attempt <= MAX_MIRROR_STABILITY_ATTEMPTS; attempt += 1) {
     // Read only when this task owns the queue turn. Capturing at enqueue time
     // lets a delayed operation overwrite a newer localStorage snapshot.
-    const source = readTopicArchivesSource();
-    onSourceRead(source.archives.length);
+    const source = readMirrorSource(config);
+    onSourceRead(source.records.length);
     if (!source.readable) {
-      throw new Error('Authoritative localStorage topic archives are unreadable');
+      throw new Error(`Authoritative localStorage ${config.label}s are unreadable`);
     }
 
-    const destinationRecordCount = await reconcileTopicArchiveMirror(source.archives);
-    const sourceAfterReconcile = readTopicArchivesSource();
+    const destinationRecordCount = await reconcileMirror(config, source.records);
+    const sourceAfterReconcile = readMirrorSource(config);
     if (!sourceAfterReconcile.readable) {
-      throw new Error('Authoritative localStorage topic archives are unreadable');
+      throw new Error(`Authoritative localStorage ${config.label}s are unreadable`);
     }
-    if (!topicArchiveCollectionsMatch(source.archives, sourceAfterReconcile.archives)) {
+    if (!recordCollectionsMatch(source.records, sourceAfterReconcile.records)) {
       continue;
     }
 
     // Metadata is only stamped verified after confirming localStorage still
     // matches the snapshot that was reconciled.
-    await writeVerifiedTopicArchiveMetadata(source.archives.length, destinationRecordCount);
+    await writeVerifiedMirrorMetadata(
+      config.metadataName,
+      source.records.length,
+      destinationRecordCount
+    );
 
     // Close the remaining cross-tab window: if localStorage or another tab's
     // IDB transaction changed state while metadata was written, retry latest.
-    const sourceAfterMetadata = readTopicArchivesSource();
+    const sourceAfterMetadata = readMirrorSource(config);
     if (!sourceAfterMetadata.readable) {
-      throw new Error('Authoritative localStorage topic archives are unreadable');
+      throw new Error(`Authoritative localStorage ${config.label}s are unreadable`);
     }
-    const mirrorAfterMetadata = await readAllFromStore<TefTopicArchive>(TOPIC_ARCHIVES_STORE);
+    const mirrorAfterMetadata = await readAllFromStore<T>(config.storeName);
     if (
-      !topicArchiveCollectionsMatch(source.archives, sourceAfterMetadata.archives) ||
-      !topicArchiveCollectionsMatch(source.archives, mirrorAfterMetadata)
+      !recordCollectionsMatch(source.records, sourceAfterMetadata.records) ||
+      !recordCollectionsMatch(source.records, mirrorAfterMetadata)
     ) {
       continue;
     }
 
     return {
-      sourceRecordCount: source.archives.length,
+      sourceRecordCount: source.records.length,
       destinationRecordCount: mirrorAfterMetadata.length,
     };
   }
 
-  throw new Error('Authoritative localStorage changed repeatedly during topic archive mirroring');
+  throw new Error(`Authoritative localStorage changed repeatedly during ${config.label} mirroring`);
 }
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function enqueueTopicArchiveMirror(
-  operation: TopicArchiveMirrorDiagnostic['operation']
-): Promise<TopicArchiveMirrorDiagnostic> {
+function enqueueMirror<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  state: MirrorState,
+  operation: DurableDataMirrorDiagnostic['operation']
+): Promise<DurableDataMirrorDiagnostic> {
   let sourceRecordCount = 0;
 
-  const diagnosticPromise = topicArchiveMirrorQueue.then(async () => {
+  const diagnosticPromise = state.queue.then(async () => {
     try {
-      const result = await mirrorLatestTopicArchiveSource((recordCount) => {
+      const result = await mirrorLatestSource(config, (recordCount) => {
         sourceRecordCount = recordCount;
       });
       sourceRecordCount = result.sourceRecordCount;
-      const diagnostic: TopicArchiveMirrorDiagnostic = {
+      const diagnostic: DurableDataMirrorDiagnostic = {
         operation,
         success: true,
         sourceRecordCount,
         destinationRecordCount: result.destinationRecordCount,
         completedAt: Date.now(),
       };
-      lastTopicArchiveMirrorDiagnostic = diagnostic;
+      state.lastDiagnostic = diagnostic;
       return diagnostic;
     } catch (error) {
-      const diagnostic: TopicArchiveMirrorDiagnostic = {
+      const diagnostic: DurableDataMirrorDiagnostic = {
         operation,
         success: false,
         sourceRecordCount,
         completedAt: Date.now(),
         error: errorMessage(error),
       };
-      lastTopicArchiveMirrorDiagnostic = diagnostic;
+      state.lastDiagnostic = diagnostic;
       // JSDOM and other non-browser runtimes may not provide IndexedDB at all.
       // The returned diagnostic remains observable without flooding their logs.
       if (typeof indexedDB !== 'undefined') {
-        console.error(`TEF topic archive IndexedDB ${operation} mirror failed:`, error);
+        console.error(`${config.label} IndexedDB ${operation} mirror failed:`, error);
       }
       return diagnostic;
     }
   });
 
-  topicArchiveMirrorQueue = diagnosticPromise.then(() => undefined);
+  state.queue = diagnosticPromise.then(() => undefined);
   return diagnosticPromise;
 }
 
@@ -395,17 +471,41 @@ function enqueueTopicArchiveMirror(
  * reconciles the IndexedDB mirror and records verified migration metadata.
  */
 export function initializeTopicArchiveMirror(): Promise<TopicArchiveMirrorDiagnostic> {
-  return enqueueTopicArchiveMirror('backfill');
+  return enqueueMirror(topicArchiveMirrorConfig, topicArchiveMirrorState, 'backfill');
+}
+
+export function initializeScenarioMirror(): Promise<ScenarioMirrorDiagnostic> {
+  return enqueueMirror(scenarioMirrorConfig, scenarioMirrorState, 'backfill');
+}
+
+export async function initializeDurableDataMirrors(): Promise<{
+  topicArchives: TopicArchiveMirrorDiagnostic;
+  scenarios: ScenarioMirrorDiagnostic;
+}> {
+  const [topicArchives, scenarios] = await Promise.all([
+    initializeTopicArchiveMirror(),
+    initializeScenarioMirror(),
+  ]);
+  return { topicArchives, scenarios };
 }
 
 /** Waits for queued fire-and-forget mirrors from synchronous public mutations. */
 export async function waitForTopicArchiveMirror(): Promise<TopicArchiveMirrorDiagnostic | null> {
-  await topicArchiveMirrorQueue;
-  return lastTopicArchiveMirrorDiagnostic;
+  await topicArchiveMirrorState.queue;
+  return topicArchiveMirrorState.lastDiagnostic;
+}
+
+export async function waitForScenarioMirror(): Promise<ScenarioMirrorDiagnostic | null> {
+  await scenarioMirrorState.queue;
+  return scenarioMirrorState.lastDiagnostic;
 }
 
 export function getLastTopicArchiveMirrorDiagnostic(): TopicArchiveMirrorDiagnostic | null {
-  return lastTopicArchiveMirrorDiagnostic;
+  return topicArchiveMirrorState.lastDiagnostic;
+}
+
+export function getLastScenarioMirrorDiagnostic(): ScenarioMirrorDiagnostic | null {
+  return scenarioMirrorState.lastDiagnostic;
 }
 
 /** Diagnostic/test access only. Production topic-history reads stay on localStorage in Stage 1. */
@@ -413,13 +513,19 @@ export function getTopicArchiveMirrorSnapshot(): Promise<TefTopicArchive[]> {
   return readAllFromStore<TefTopicArchive>(TOPIC_ARCHIVES_STORE);
 }
 
-export async function getTopicArchiveMigrationMetadata(): Promise<TopicArchiveMigrationMetadata | null> {
+export function getScenarioMirrorSnapshot(): Promise<Scenario[]> {
+  return readAllFromStore<Scenario>(SCENARIOS_STORE);
+}
+
+async function getMigrationMetadata(
+  name: DurableDataMigrationName
+): Promise<DurableDataMigrationMetadata | null> {
   const db = await openDb();
   try {
     const tx = db.transaction(MIGRATION_METADATA_STORE, 'readonly');
     const result = await idbRequest(
-      tx.objectStore(MIGRATION_METADATA_STORE).get(TOPIC_ARCHIVE_MIGRATION_NAME)
-    ) as TopicArchiveMigrationMetadata | undefined;
+      tx.objectStore(MIGRATION_METADATA_STORE).get(name)
+    ) as DurableDataMigrationMetadata | undefined;
     await new Promise<void>((resolve, reject) => {
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error ?? new Error('Failed reading migration metadata'));
@@ -429,6 +535,22 @@ export async function getTopicArchiveMigrationMetadata(): Promise<TopicArchiveMi
   } finally {
     db.close();
   }
+}
+
+export async function getTopicArchiveMigrationMetadata(): Promise<TopicArchiveMigrationMetadata | null> {
+  return await getMigrationMetadata(TOPIC_ARCHIVE_MIGRATION_NAME) as TopicArchiveMigrationMetadata | null;
+}
+
+export async function getScenarioMigrationMetadata(): Promise<ScenarioMigrationMetadata | null> {
+  return await getMigrationMetadata(SCENARIO_MIGRATION_NAME) as ScenarioMigrationMetadata | null;
+}
+
+export function mirrorScenarioSave(): void {
+  void enqueueMirror(scenarioMirrorConfig, scenarioMirrorState, 'save');
+}
+
+export function mirrorScenarioDelete(): void {
+  void enqueueMirror(scenarioMirrorConfig, scenarioMirrorState, 'delete');
 }
 
 export function listTopicArchives(adId?: string): TefTopicArchive[] {
@@ -448,7 +570,7 @@ export function saveTopicArchive(params: {
   topicSuggestions: TefTopicSuggestion[];
 }): TefTopicArchive {
   const archive: TefTopicArchive = {
-    id: generateId(),
+    id: createArchiveId(),
     adId: params.adId,
     exerciseType: params.exerciseType,
     createdAt: Date.now(),
@@ -463,20 +585,20 @@ export function saveTopicArchive(params: {
   }
 
   persistTopicArchives(archives);
-  void enqueueTopicArchiveMirror('save');
+  void enqueueMirror(topicArchiveMirrorConfig, topicArchiveMirrorState, 'save');
   return archive;
 }
 
 export function deleteTopicArchive(archiveId: string): void {
   const archives = loadTopicArchivesRaw().filter((a) => a.id !== archiveId);
   persistTopicArchives(archives);
-  void enqueueTopicArchiveMirror('delete');
+  void enqueueMirror(topicArchiveMirrorConfig, topicArchiveMirrorState, 'delete');
 }
 
 export function deleteTopicArchivesForAd(adId: string): void {
   const archives = loadTopicArchivesRaw().filter((a) => a.adId !== adId);
   persistTopicArchives(archives);
-  void enqueueTopicArchiveMirror('delete-for-ad');
+  void enqueueMirror(topicArchiveMirrorConfig, topicArchiveMirrorState, 'delete-for-ad');
 }
 
 export async function listSavedAds(exerciseType: TefExerciseType): Promise<TefSavedAd[]> {

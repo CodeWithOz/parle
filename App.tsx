@@ -22,7 +22,7 @@ import {
   createSavedAdId,
   deleteSavedAd,
   getLatestTopicArchive,
-  initializeTopicArchiveMirror,
+  initializeDurableDataMirrors,
   saveTopicArchive,
   touchSavedAdLastUsed,
   upsertSavedAd,
@@ -627,7 +627,7 @@ const App: React.FC = () => {
 
   // Check for API keys on mount; never show modal on load so user can see the app first
   useEffect(() => {
-    void initializeTopicArchiveMirror();
+    void initializeDurableDataMirrors();
 
     const checkApiKeys = async () => {
       setApiKeyCheckDone(true);

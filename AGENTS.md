@@ -740,7 +740,7 @@ If you believe you've found a genuine bug in one of these areas, please:
 
 ---
 
-## Data Portability and Topic-Archive Migration
+## Data Portability and Durable Exercise Data Migration
 
 Before changing TEF persistence, the `parle-tef` IndexedDB schema, topic archives,
 saved advertisements, saved role-play scenarios, or import/export behavior, read:
@@ -750,9 +750,13 @@ saved advertisements, saved role-play scenarios, or import/export behavior, read
 
 Those documents are the source of truth for the active deployment stage, data-safety
 invariants, backup scope, and rollback requirements. Implement only one deployment
-stage per branch/deployment. Do not advance the read source, stop bridge writes, clear
-`parle-tef-topic-archives`, or implement a later stage unless the current stage document
-explicitly authorizes it.
+stage per branch/deployment. Do not advance either read source, stop bridge writes, clear
+`parle-tef-topic-archives` or `parle-scenarios`, or implement a later stage unless the current
+stage document explicitly authorizes it.
+
+The topic-only Stage 1 implementation has already created IndexedDB version 2 in a browser.
+The corrected all-durable-data schema must use version 3 and preserve the v2 stores/records;
+adding a `scenarios` store while still requesting version 2 will not run `onupgradeneeded`.
 
 ---
 
@@ -858,4 +862,5 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - 2026-07-08: Documented scenario roadmap feature — `RoadmapSingleCharacterSchema` conditional-schema branch (`currentStepIndex`), `advanceRoadmapStep()` never-regress auto-advance, and the intentional sentence-split seeding heuristic (`seedRoadmapStepsFromSummary`); added French-flag visual redesign and app shell (`NavRail`, `TopBar`) to `README.md` project layout
 - 2026-07-08: Replaced the sentence-split heuristic as the primary roadmap-step source with an AI-generated `steps` field on `processScenarioDescriptionOpenAI`'s existing structured-output call (`ScenarioSummarySchema`); `seedRoadmapStepsFromSummary` is now a defensive fallback only, used when the AI call fails or returns no usable steps
 - 2026-07-14: Added the staged data-portability and topic-archive migration dossier under `docs/data-portability/`; future persistence/export work must follow its active single-deployment stage
+- 2026-07-23: Corrected the data-portability target so saved role-play scenarios migrate to IndexedDB through the same staged process as topic archives; all durable exercise data must be in IndexedDB before export/import
 - See git history for detailed implementation timeline

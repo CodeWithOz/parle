@@ -157,8 +157,12 @@ export interface TefTopicArchive {
   topicSuggestions: TefTopicSuggestion[];
 }
 
-export interface TopicArchiveMigrationMetadata {
-  name: 'topic-archives-localstorage-to-idb';
+export type DurableDataMigrationName =
+  | 'topic-archives-localstorage-to-idb'
+  | 'scenarios-localstorage-to-idb';
+
+export interface DurableDataMigrationMetadata {
+  name: DurableDataMigrationName;
   version: 1;
   state: 'mirroring';
   lastReconciledAt: number;
@@ -166,3 +170,11 @@ export interface TopicArchiveMigrationMetadata {
   destinationRecordCount: number;
   verificationStatus: 'verified';
 }
+
+export type TopicArchiveMigrationMetadata = DurableDataMigrationMetadata & {
+  name: 'topic-archives-localstorage-to-idb';
+};
+
+export type ScenarioMigrationMetadata = DurableDataMigrationMetadata & {
+  name: 'scenarios-localstorage-to-idb';
+};

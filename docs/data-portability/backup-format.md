@@ -83,7 +83,7 @@ any selection change in the root decision log.
 5. Validate assets and all cross-record relationships.
 6. Calculate duplicate/conflict handling without writing.
 7. Show a preview of additions, skips, and conflicts.
-8. Apply accepted changes transactionally where storage permits.
+8. Apply saved ads, topic archives, and scenarios in one IndexedDB transaction.
 9. Refresh affected UI from the persistence layer.
 
 Import must not call Gemini, OpenAI, or any backend.
@@ -117,6 +117,9 @@ explicitly supported, undeclared assets, and declared assets that are missing. D
 extensions or manifest MIME strings alone; inspect supported image signatures.
 
 ## Exclusions
+
+By Stage 5, `savedAds`, `topicArchives`, and `scenarios` must all be read from IndexedDB and
+imported in one transaction. The format must not depend on the legacy localStorage bridge.
 
 The package must not include:
 

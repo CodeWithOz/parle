@@ -9,8 +9,8 @@ linked topic archives, and saved role-play scenarios.
 
 ## Preconditions
 
-- IndexedDB primary reads are deployed and stable.
-- Stage 4 records the active localStorage bridge policy.
+- IndexedDB primary reads for topic archives and saved scenarios are deployed and stable.
+- Stage 4 records the active localStorage bridge policy for each migrated dataset.
 - `backup-format.md` has been re-reviewed against current types and storage behavior.
 - The ZIP library choice has been revalidated before dependency installation.
 
@@ -22,8 +22,10 @@ linked topic archives, and saved role-play scenarios.
 - Export of all current saved role-play scenario fields, including legacy-compatible shapes.
 - Preview-before-write import UX.
 - Merge-default collision handling and idempotent repeated imports.
-- Transactional saved-ad/topic-archive import.
-- Explicit recovery design for scenario localStorage writes outside the IDB transaction.
+- Transactional saved-ad/topic-archive/saved-scenario import in one IndexedDB transaction.
+- For each dataset whose Stage 4 bridge policy still requires a localStorage mirror, reconcile
+  that mirror from the committed IndexedDB result afterward and report bridge failures without
+  corrupting the canonical import.
 - Tested size, entry-count, path, MIME, signature, and relationship limits.
 - No network or AI calls.
 
