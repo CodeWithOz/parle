@@ -65,7 +65,7 @@ Then update `../README.md` so Stage 2 is identified as next.
 - Branch: `codex/data-portability-stage-1`
 - Commits:
   - `d4d092e` (`Implement Stage 1 topic archive mirror`)
-  - Corrected Stage 1 implementation/merge commit: pending creation
+  - `87ecb81` (merge revised plan and implement saved-scenario mirror)
 - Files changed:
   - `App.tsx`
   - `services/scenarioService.ts`
