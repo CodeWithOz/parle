@@ -4,8 +4,8 @@ Status: **pending Stage 2 deployment verification**
 
 ## Objective
 
-Make verified IndexedDB topic archives the application read source while retaining a guarded
-localStorage fallback and continued bridge writes for rollback.
+Make verified IndexedDB topic archives and saved scenarios the application read sources while
+retaining guarded per-dataset localStorage fallbacks and bridge writes for rollback.
 
 ## Preconditions
 
@@ -15,11 +15,11 @@ localStorage fallback and continued bridge writes for rollback.
 
 ## Required implementation
 
-- Route topic-archive reads through asynchronous IndexedDB repository APIs.
+- Route topic-archive and scenario reads through asynchronous IndexedDB repository APIs.
 - Update all consumers with loading, error, and stale-response handling.
-- Preserve sorting, filtering, latest-archive selection, and deletion behavior.
-- Fall back to localStorage only under documented migration/failure conditions.
-- Continue mirroring writes and deletions to localStorage.
+- Preserve topic sorting/filtering/latest selection and all scenario list/select/edit behavior.
+- Fall back per dataset to localStorage only under documented migration/failure conditions.
+- Continue mirroring writes and deletions for both datasets to localStorage.
 - Prevent transient empty/error reads from overwriting either store.
 
 ## Explicit non-goals

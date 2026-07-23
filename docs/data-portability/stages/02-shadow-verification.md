@@ -4,8 +4,8 @@ Status: **pending Stage 1 deployment verification**
 
 ## Objective
 
-Prove that IndexedDB contains the same topic archives as authoritative localStorage while the
-UI continues reading localStorage.
+Prove that IndexedDB contains the same topic archives and saved role-play scenarios as their
+authoritative localStorage sources while the UI continues reading localStorage.
 
 ## Preconditions
 
@@ -15,11 +15,11 @@ UI continues reading localStorage.
 
 ## Required implementation
 
-- Shadow-read IndexedDB without changing displayed data.
-- Compare archive IDs and canonical record content, not only counts.
-- Detect missing, extra, differing, and relationship-invalid records.
-- Reconcile IndexedDB to authoritative localStorage at this stage.
-- Persist testable verification metadata and timestamps.
+- Shadow-read both IndexedDB mirrors without changing displayed data.
+- Compare IDs and canonical record content per dataset, not only counts.
+- Detect missing, extra, differing, relationship-invalid, and legacy-shape records.
+- Reconcile each IndexedDB mirror to its authoritative localStorage source at this stage.
+- Persist independent, testable verification metadata and timestamps.
 - Keep all user-facing reads sourced from localStorage.
 
 ## Explicit non-goals
@@ -30,10 +30,10 @@ UI continues reading localStorage.
 
 ## Required tests
 
-- Matching stores verify successfully.
-- Missing, extra, and differing IDB records are detected and repaired.
+- Matching archive and scenario stores verify independently.
+- Missing, extra, and differing IDB records are detected and repaired for both datasets.
 - Same counts with different content do not falsely verify.
-- Deleted localStorage records are removed from the IDB mirror.
+- Deleted localStorage records are removed from the corresponding IDB mirror.
 - Verification failure never mutates localStorage.
 
 ## Completion record
