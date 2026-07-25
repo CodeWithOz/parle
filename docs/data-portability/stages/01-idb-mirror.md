@@ -1,6 +1,6 @@
 # Stage 1 — IndexedDB Mirror
 
-Status: **next; not started**
+Status: **implementation complete on branch; pending commit, merge, deployment, and post-deployment verification**
 
 ## Objective
 
@@ -59,3 +59,67 @@ Before marking complete, add:
 - Any deviation from the plan and its rationale
 
 Then update `../README.md` so Stage 2 is identified as next.
+
+### Implementation handoff (updated 2026-07-23)
+
+- Branch: `codex/data-portability-stage-1`
+- Commits:
+  - `d4d092e` (`Implement Stage 1 topic archive mirror`)
+  - `87ecb81` (merge revised plan and implement saved-scenario mirror)
+- Files changed:
+  - `App.tsx`
+  - `services/scenarioService.ts`
+  - `services/tefArchiveService.ts`
+  - `types.ts`
+  - `__tests__/tefArchiveService.test.ts`
+  - `__tests__/tefArchiveStage1Mirror.test.ts`
+  - `package.json` / `package-lock.json` (test-only `fake-indexeddb` dependency)
+- Final IndexedDB schema version: `3`
+- Added stores:
+  - `topicArchives` (`id` key path; `adId`, `exerciseType`, and `createdAt` indexes)
+  - `scenarios` (`id` key path; `createdAt` index)
+  - `migrationMetadata` (`name` key path), with independent verified records for topic
+    archives and scenarios
+- Upgrade compatibility:
+  - Version 1 → 3 preserves `savedAds` and creates the complete schema.
+  - The exact topic-only version 2 → 3 preserves `savedAds`, `topicArchives`, and existing
+    migration metadata while adding the scenario store.
+- Automated verification:
+  - Runtime: Node `v24.4.1`, npm `11.4.2`
+  - Portable test invocation (required when Node experimental web storage is enabled, including
+    the workspace's Node 26 runtime):
+    `NODE_OPTIONS=--no-experimental-webstorage npm test -- --run`
+  - `NODE_OPTIONS=--no-experimental-webstorage npm test -- --run __tests__/tefArchiveStage1Mirror.test.ts __tests__/tefArchiveService.test.ts __tests__/scenarioService.roadmapSteps.test.ts`
+    — 3 files / 25 tests passed, including 13 focused Stage 1 mirror tests
+  - Full-suite result: 52 files / 618 tests passed (pre-existing warning output only)
+  - `npm run build` — passed (existing large-chunk warning only)
+- Manual browser verification (local Vite build, Chromium context):
+  - Seeded the exact topic-only version 2 `parle-tef` layout with one saved ad, one topic
+    archive, and its verified metadata. Seeded localStorage with that archive plus one legacy
+    scenario and one current scenario containing character and roadmap fields.
+  - Reload upgraded the database to version 3, retained the saved ad/archive/topic metadata,
+    added the indexed scenario store, copied both scenario shapes without field loss, and wrote
+    independent verified metadata for both mirrors.
+  - Opened the Role Play setup and confirmed both migrated scenarios were listed. Opening the
+    current record repopulated its editor values.
+  - Deleted the disposable legacy scenario through the Role Play UI and confirmed it was removed
+    from both localStorage and IndexedDB while the current scenario remained identical.
+- Merge reference: pending
+- Deployment date/environment: pending
+- Post-deployment verification: pending. Before Stage 1 can be marked complete, run and record
+  the remaining browser checks from `test-plan.md`:
+  - Open Past topic suggestions globally and filtered to one saved ad.
+  - Restart both TEF exercise types from saved advertisements.
+  - Complete a session and confirm its topic archive appears exactly once.
+  - Delete an archive and a saved ad through the UI, reload, and confirm both stay deleted.
+  - Close and reopen the browser context and confirm persistence.
+  - Create, edit, and restart a saved role-play scenario with configured AI credentials; confirm
+    both stores remain synchronized after reload.
+- Deviations: none. The implementation intentionally leaves all public reads synchronous and
+  localStorage-backed for both datasets. Each independent mirror reads localStorage only when its
+  queue turn begins and retries if the authoritative source changes during reconciliation.
+  Malformed localStorage is reported as unreadable and does not trigger destructive reconciliation
+  of that dataset's existing mirror.
+
+Stage 1 must not be marked complete, and Stage 2 must not be identified as next, until the
+pending merge, deployment, and post-deployment checks are recorded above.

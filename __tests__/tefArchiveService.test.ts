@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { TefSavedAd } from '../types';
+import { IDBFactory } from 'fake-indexeddb';
 
 const sampleTopics = [
   {
@@ -11,103 +11,10 @@ const sampleTopics = [
   },
 ];
 
-let idbStore: Map<string, TefSavedAd>;
-
-function createIdbMock() {
-  idbStore = new Map();
-
-  const mockStore = {
-    getAll: () => ({
-      result: [] as TefSavedAd[],
-      get onsuccess() {
-        return this._onsuccess;
-      },
-      set onsuccess(fn: (() => void) | null) {
-        this._onsuccess = fn;
-        if (fn) queueMicrotask(() => {
-          this.result = Array.from(idbStore.values());
-          fn();
-        });
-      },
-      _onsuccess: null as (() => void) | null,
-    }),
-    get: (key: string) => ({
-      result: undefined as TefSavedAd | undefined,
-      get onsuccess() {
-        return this._onsuccess;
-      },
-      set onsuccess(fn: (() => void) | null) {
-        this._onsuccess = fn;
-        if (fn) queueMicrotask(() => {
-          this.result = idbStore.get(key);
-          fn();
-        });
-      },
-      _onsuccess: null as (() => void) | null,
-    }),
-    put: (value: TefSavedAd) => ({
-      get onsuccess() {
-        return this._onsuccess;
-      },
-      set onsuccess(fn: (() => void) | null) {
-        this._onsuccess = fn;
-        if (fn) queueMicrotask(() => {
-          idbStore.set(value.id, value);
-          fn();
-        });
-      },
-      _onsuccess: null as (() => void) | null,
-    }),
-    delete: (key: string) => ({
-      get onsuccess() {
-        return this._onsuccess;
-      },
-      set onsuccess(fn: (() => void) | null) {
-        this._onsuccess = fn;
-        if (fn) queueMicrotask(() => {
-          idbStore.delete(key);
-          fn();
-        });
-      },
-      _onsuccess: null as (() => void) | null,
-    }),
-  };
-
-  const mockDb = {
-    transaction: () => ({
-      objectStore: () => mockStore,
-      get oncomplete() {
-        return this._oncomplete;
-      },
-      set oncomplete(fn: (() => void) | null) {
-        this._oncomplete = fn;
-        if (fn) queueMicrotask(fn);
-      },
-      _oncomplete: null as (() => void) | null,
-    }),
-    close: vi.fn(),
-    objectStoreNames: { contains: () => true },
-  };
-
-  return {
-    open: () => ({
-      result: mockDb,
-      get onsuccess() {
-        return this._onsuccess;
-      },
-      set onsuccess(fn: (() => void) | null) {
-        this._onsuccess = fn;
-        if (fn) queueMicrotask(() => fn());
-      },
-      _onsuccess: null as (() => void) | null,
-      onupgradeneeded: null,
-    }),
-  };
-}
-
 describe('tefArchiveService · topic archives (localStorage)', () => {
   beforeEach(() => {
     localStorage.clear();
+    vi.stubGlobal('indexedDB', new IDBFactory());
     vi.resetModules();
   });
 
@@ -117,6 +24,7 @@ describe('tefArchiveService · topic archives (localStorage)', () => {
       listTopicArchives,
       getLatestTopicArchive,
       deleteTopicArchive,
+      waitForTopicArchiveMirror,
     } = await import('../services/tefArchiveService');
 
     const a1 = saveTopicArchive({
@@ -140,10 +48,12 @@ describe('tefArchiveService · topic archives (localStorage)', () => {
 
     deleteTopicArchive(a1.id);
     expect(listTopicArchives()).toHaveLength(1);
+    await waitForTopicArchiveMirror();
   });
 
   it('caps archives at 50 entries', async () => {
-    const { saveTopicArchive, listTopicArchives } = await import('../services/tefArchiveService');
+    const { saveTopicArchive, listTopicArchives, waitForTopicArchiveMirror } =
+      await import('../services/tefArchiveService');
 
     for (let i = 0; i < 55; i++) {
       saveTopicArchive({
@@ -153,14 +63,14 @@ describe('tefArchiveService · topic archives (localStorage)', () => {
       });
     }
     expect(listTopicArchives().length).toBe(50);
+    await waitForTopicArchiveMirror();
   });
 });
 
 describe('tefArchiveService · saved ads (IndexedDB)', () => {
   beforeEach(() => {
     localStorage.clear();
-    idbStore = new Map();
-    vi.stubGlobal('indexedDB', createIdbMock());
+    vi.stubGlobal('indexedDB', new IDBFactory());
     vi.resetModules();
   });
 
@@ -171,6 +81,7 @@ describe('tefArchiveService · saved ads (IndexedDB)', () => {
       getSavedAd,
       deleteSavedAd,
       touchSavedAdLastUsed,
+      waitForTopicArchiveMirror,
     } = await import('../services/tefArchiveService');
 
     const ad = await upsertSavedAd({
@@ -195,10 +106,11 @@ describe('tefArchiveService · saved ads (IndexedDB)', () => {
     await deleteSavedAd('tef_ad_test');
     expect(await getSavedAd('tef_ad_test')).toBeNull();
     expect(await listSavedAds('persuasion')).toHaveLength(0);
+    await waitForTopicArchiveMirror();
   });
 
   it('deleteSavedAd removes linked topic archives', async () => {
-    const { upsertSavedAd, deleteSavedAd, saveTopicArchive, listTopicArchives } =
+    const { upsertSavedAd, deleteSavedAd, saveTopicArchive, listTopicArchives, waitForTopicArchiveMirror } =
       await import('../services/tefArchiveService');
 
     await upsertSavedAd({
@@ -217,5 +129,6 @@ describe('tefArchiveService · saved ads (IndexedDB)', () => {
 
     await deleteSavedAd('ad-linked');
     expect(listTopicArchives('ad-linked')).toHaveLength(0);
+    await waitForTopicArchiveMirror();
   });
 });
