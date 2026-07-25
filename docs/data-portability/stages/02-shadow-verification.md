@@ -1,6 +1,6 @@
 # Stage 2 — Shadow Verification and Reconciliation
 
-Status: **pending Stage 1 deployment verification**
+Status: **next — Stage 1 is deployed and verified**
 
 ## Objective
 

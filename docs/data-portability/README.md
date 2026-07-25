@@ -6,11 +6,11 @@ separate branches, deployments, and AI-agent chats.
 
 ## Current status
 
-- Program status: **Stage 1 implemented on branch; deployment verification pending**
+- Program status: **Stage 1 complete and verified in the deployed application**
 - Current implementation behavior: **localStorage-authoritative IndexedDB mirror**
-- Deployed behavior: **not verified; confirm before merge/deployment**
-- Last completed stage: **Stage 0 — specification and handoff documentation**
-- Next action: **merge, deploy, and verify [Stage 1 — IndexedDB mirror](stages/01-idb-mirror.md)**
+- Deployed behavior: **Stage 1 verified; both durable datasets mirror to IndexedDB**
+- Last completed stage: **[Stage 1 — IndexedDB mirror](stages/01-idb-mirror.md)**
+- Next action: **implement [Stage 2 — shadow verification and reconciliation](stages/02-shadow-verification.md)**
 - Current authoritative topic-archive source: `localStorage`
 - Current authoritative saved-scenario source: `localStorage`
 - IndexedDB topic-archive store exists in this implementation: **yes (schema version 3)**
@@ -22,8 +22,9 @@ Compatibility requirement: Stage 1 topic-only builds have already created databa
 in at least one browser. The corrected schema target is therefore version 3; code must support
 both version 1 → 3 and version 2 → 3 upgrades without recreating or clearing existing stores.
 
-The next implementation branch must do Stage 1 only. It must not switch UI reads to
-IndexedDB and must not remove or clear either existing localStorage dataset.
+The next implementation branch must do Stage 2 only. It may shadow-read and reconcile both
+IndexedDB mirrors, but it must keep production UI reads on localStorage and must not remove or
+clear either existing localStorage dataset.
 
 ## Accepted scope
 
@@ -60,8 +61,8 @@ The backup explicitly excludes:
 | Data | Current location | Current key/store |
 |---|---|---|
 | Saved TEF ads and images | IndexedDB | database `parle-tef`, store `savedAds` |
-| TEF topic archives | localStorage | `parle-tef-topic-archives` |
-| Saved role-play scenarios | localStorage | `parle-scenarios` |
+| TEF topic archives | localStorage authoritative; IndexedDB mirror | `parle-tef-topic-archives` / `topicArchives` |
+| Saved role-play scenarios | localStorage authoritative; IndexedDB mirror | `parle-scenarios` / `scenarios` |
 | API keys | localStorage | `parle_api_key_*` (excluded from backups) |
 
 Primary implementation locations:
@@ -91,8 +92,8 @@ See [backup-format.md](backup-format.md), [migration-plan.md](migration-plan.md)
 | Stage | Purpose | Status |
 |---|---|---|
 | 0 | Specify scope, invariants, and handoff process | Complete (documentation only) |
-| 1 | Add IndexedDB mirrors for topic archives and saved scenarios | Implemented; deployment verification pending |
-| 2 | Shadow-read, compare, and reconcile both datasets | Pending |
+| 1 | Add IndexedDB mirrors for topic archives and saved scenarios | Complete; deployed and verified |
+| 2 | Shadow-read, compare, and reconcile both datasets | Next |
 | 3 | Make IndexedDB primary for both with localStorage fallback | Pending |
 | 4 | Maintain rollback windows and prove both datasets stable | Pending |
 | 5 | Implement versioned export/import | Pending |
@@ -151,3 +152,5 @@ do not infer that the later stage is safe.
 - 2026-07-23: Reserved IndexedDB version 3 for the saved-scenario store because topic-only
   Stage 1 code has already upgraded a browser to version 2. Reusing version 2 would not trigger
   `onupgradeneeded`; both v1 → v3 and v2 → v3 are required compatibility paths.
+- 2026-07-25: Stage 1 was merged through PR #45, deployed, and confirmed working by the
+  operator. Stage 2 is now the next authorized implementation stage.

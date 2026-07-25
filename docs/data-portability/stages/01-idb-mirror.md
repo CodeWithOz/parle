@@ -1,6 +1,6 @@
 # Stage 1 — IndexedDB Mirror
 
-Status: **implementation complete on branch; pending commit, merge, deployment, and post-deployment verification**
+Status: **complete — merged, deployed, and operator-verified**
 
 ## Objective
 
@@ -66,6 +66,7 @@ Then update `../README.md` so Stage 2 is identified as next.
 - Commits:
   - `d4d092e` (`Implement Stage 1 topic archive mirror`)
   - `87ecb81` (merge revised plan and implement saved-scenario mirror)
+  - `9efceb5` (`Record corrected Stage 1 handoff`)
 - Files changed:
   - `App.tsx`
   - `services/scenarioService.ts`
@@ -104,22 +105,20 @@ Then update `../README.md` so Stage 2 is identified as next.
     current record repopulated its editor values.
   - Deleted the disposable legacy scenario through the Role Play UI and confirmed it was removed
     from both localStorage and IndexedDB while the current scenario remained identical.
-- Merge reference: pending
-- Deployment date/environment: pending
-- Post-deployment verification: pending. Before Stage 1 can be marked complete, run and record
-  the remaining browser checks from `test-plan.md`:
-  - Open Past topic suggestions globally and filtered to one saved ad.
-  - Restart both TEF exercise types from saved advertisements.
-  - Complete a session and confirm its topic archive appears exactly once.
-  - Delete an archive and a saved ad through the UI, reload, and confirm both stay deleted.
-  - Close and reopen the browser context and confirm persistence.
-  - Create, edit, and restart a saved role-play scenario with configured AI credentials; confirm
-    both stores remain synchronized after reload.
-- Deviations: none. The implementation intentionally leaves all public reads synchronous and
-  localStorage-backed for both datasets. Each independent mirror reads localStorage only when its
-  queue turn begins and retries if the authoritative source changes during reconciliation.
-  Malformed localStorage is reported as unreadable and does not trigger destructive reconciliation
-  of that dataset's existing mirror.
+- Merge reference: PR #45, merge commit `c8a69b6`
+- Deployment date/environment: confirmed 2026-07-25 in the deployed application; the
+  environment name and original deployment timestamp were not separately supplied.
+- Post-deployment verification: complete by operator confirmation on 2026-07-25. The operator
+  reported that the merged and deployed Stage 1 behavior is working. This closeout records that
+  confirmation as the deployment evidence; it does not claim additional browser checks beyond
+  the pre-merge evidence itemized above.
+- Implementation deviations: none. The implementation intentionally leaves all public reads
+  synchronous and localStorage-backed for both datasets. Each independent mirror reads
+  localStorage only when its queue turn begins and retries if the authoritative source changes
+  during reconciliation. Malformed localStorage is reported as unreadable and does not trigger
+  destructive reconciliation of that dataset's existing mirror.
+- Verification-record note: the post-deployment evidence available for this closeout is the
+  operator's confirmation that Stage 1 is deployed and working; individual production browser
+  check results and the environment name were not supplied.
 
-Stage 1 must not be marked complete, and Stage 2 must not be identified as next, until the
-pending merge, deployment, and post-deployment checks are recorded above.
+Stage 1 is complete. Stage 2 is the next authorized implementation stage.
