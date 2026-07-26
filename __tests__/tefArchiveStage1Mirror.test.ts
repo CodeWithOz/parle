@@ -178,6 +178,24 @@ async function openCurrentDatabase(): Promise<IDBDatabase> {
   return await requestResult(indexedDB.open('parle-tef'));
 }
 
+async function failReadWriteTransactionsForStore(storeName: string) {
+  const db = await openCurrentDatabase();
+  const databasePrototype = Object.getPrototypeOf(db) as IDBDatabase;
+  db.close();
+  const originalTransaction = databasePrototype.transaction;
+  return vi.spyOn(databasePrototype, 'transaction').mockImplementation(function (
+    this: IDBDatabase,
+    ...args: Parameters<IDBDatabase['transaction']>
+  ) {
+    const [storeNames, mode] = args;
+    const names = typeof storeNames === 'string' ? [storeNames] : Array.from(storeNames);
+    if (mode === 'readwrite' && names.includes(storeName)) {
+      throw new Error(`Forced ${storeName} mirror transaction failure`);
+    }
+    return originalTransaction.apply(this, args);
+  });
+}
+
 describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
   beforeEach(() => {
     localStorage.clear();
@@ -510,6 +528,10 @@ describe('Stage 2 durable exercise data shadow verification', () => {
         relationshipInvalidIds: ['archive-1'],
         legacyShapeIds: [],
       },
+      postRepairIntegrity: {
+        relationshipInvalidIds: [],
+        legacyShapeIds: [],
+      },
       repairs: { inserted: 1, updated: 1, deleted: 1 },
     });
     expect(result.scenarios).toMatchObject({
@@ -533,7 +555,9 @@ describe('Stage 2 durable exercise data shadow verification', () => {
       verificationStatus: 'verified',
       mismatchCounts: { missing: 1, extra: 1, differing: 1 },
       repairCounts: { inserted: 1, updated: 1, deleted: 1 },
-      relationshipInvalidRecordCount: 1,
+      preRepairIntegrityCounts: { relationshipInvalid: 1, legacyShape: 0 },
+      postRepairIntegrityCounts: { relationshipInvalid: 0, legacyShape: 0 },
+      relationshipInvalidRecordCount: 0,
     });
     expect(await service.getScenarioMigrationMetadata()).toMatchObject({
       verificationStatus: 'verified',
@@ -557,11 +581,16 @@ describe('Stage 2 durable exercise data shadow verification', () => {
         missingIds: ['orphan-archive'],
         relationshipInvalidIds: ['orphan-archive'],
       },
+      postRepairIntegrity: {
+        relationshipInvalidIds: ['orphan-archive'],
+      },
     });
     expect(await service.getTopicArchiveMirrorSnapshot()).toEqual([orphan]);
     expect(localStorage.getItem(TOPIC_ARCHIVES_KEY)).toBe(serialized);
     expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
       verificationStatus: 'verified',
+      preRepairIntegrityCounts: { relationshipInvalid: 1, legacyShape: 0 },
+      postRepairIntegrityCounts: { relationshipInvalid: 1, legacyShape: 0 },
       relationshipInvalidRecordCount: 1,
     });
   });
@@ -592,5 +621,185 @@ describe('Stage 2 durable exercise data shadow verification', () => {
       verificationStatus: 'verified',
     });
     consoleError.mockRestore();
+  });
+
+  it('already-matching archive and scenario stores verify independently with zero mismatches', async () => {
+    const ad = savedAd('ad-1');
+    const archives = [archive('matching-archive', ad.id)];
+    const scenarios = [currentScenario('matching-scenario')];
+    localStorage.setItem(TOPIC_ARCHIVES_KEY, JSON.stringify(archives));
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify(scenarios));
+    await seedVersionThree({ ads: [ad], archives, scenarios });
+    const service = await import('../services/tefArchiveService');
+
+    const archiveResult = await service.verifyTopicArchiveMirror();
+
+    expect(archiveResult).toMatchObject({
+      success: true,
+      comparison: {
+        missingIds: [],
+        extraIds: [],
+        differingIds: [],
+        relationshipInvalidIds: [],
+        legacyShapeIds: [],
+      },
+      postRepairIntegrity: {
+        relationshipInvalidIds: [],
+        legacyShapeIds: [],
+      },
+      repairs: { inserted: 0, updated: 0, deleted: 0 },
+    });
+    expect(await service.getScenarioMigrationMetadata()).toBeNull();
+
+    const scenarioResult = await service.verifyScenarioMirror();
+
+    expect(scenarioResult).toMatchObject({
+      success: true,
+      comparison: {
+        missingIds: [],
+        extraIds: [],
+        differingIds: [],
+        relationshipInvalidIds: [],
+        legacyShapeIds: [],
+      },
+      postRepairIntegrity: {
+        relationshipInvalidIds: [],
+        legacyShapeIds: [],
+      },
+      repairs: { inserted: 0, updated: 0, deleted: 0 },
+    });
+    expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
+      verificationStatus: 'verified',
+      mismatchCounts: { missing: 0, extra: 0, differing: 0 },
+      repairCounts: { inserted: 0, updated: 0, deleted: 0 },
+      postRepairIntegrityCounts: { relationshipInvalid: 0, legacyShape: 0 },
+    });
+    expect(await service.getScenarioMigrationMetadata()).toMatchObject({
+      verificationStatus: 'verified',
+      mismatchCounts: { missing: 0, extra: 0, differing: 0 },
+      repairCounts: { inserted: 0, updated: 0, deleted: 0 },
+      postRepairIntegrityCounts: { relationshipInvalid: 0, legacyShape: 0 },
+    });
+  });
+
+  it('invalidates archive verification when a later save mirror fails, then re-verifies on repair', async () => {
+    const ad = savedAd('ad-1');
+    const initial = archive('initial-archive', ad.id);
+    localStorage.setItem(TOPIC_ARCHIVES_KEY, JSON.stringify([initial]));
+    await seedVersionThree({ ads: [ad], archives: [initial] });
+    const service = await import('../services/tefArchiveService');
+    await service.verifyTopicArchiveMirror();
+    expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
+      verificationStatus: 'verified',
+    });
+
+    const transactionSpy = await failReadWriteTransactionsForStore('topicArchives');
+    service.saveTopicArchive({
+      adId: ad.id,
+      exerciseType: 'persuasion',
+      topicSuggestions: topics,
+    });
+    const failedMirror = await service.waitForTopicArchiveMirror();
+    transactionSpy.mockRestore();
+
+    expect(failedMirror).toMatchObject({
+      operation: 'save',
+      success: false,
+      error: 'Forced topicArchives mirror transaction failure',
+    });
+    expect(service.listTopicArchives()).toHaveLength(2);
+    expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
+      verificationStatus: 'failed',
+      verificationError: 'Forced topicArchives mirror transaction failure',
+    });
+
+    expect((await service.verifyTopicArchiveMirror()).success).toBe(true);
+    expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
+      verificationStatus: 'verified',
+      sourceRecordCount: 2,
+      destinationRecordCount: 2,
+    });
+  });
+
+  it('invalidates scenario verification when a later save mirror fails, then re-verifies on repair', async () => {
+    const initial = currentScenario('scenario-mutation-failure');
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([initial]));
+    await seedVersionThree({ scenarios: [initial] });
+    const service = await import('../services/tefArchiveService');
+    const scenarioService = await import('../services/scenarioService');
+    await service.verifyScenarioMirror();
+    expect(await service.getScenarioMigrationMetadata()).toMatchObject({
+      verificationStatus: 'verified',
+    });
+
+    const transactionSpy = await failReadWriteTransactionsForStore('scenarios');
+    scenarioService.saveScenario({ ...initial, name: 'Saved locally only at first' });
+    const failedMirror = await service.waitForScenarioMirror();
+    transactionSpy.mockRestore();
+
+    expect(failedMirror).toMatchObject({
+      operation: 'save',
+      success: false,
+      error: 'Forced scenarios mirror transaction failure',
+    });
+    expect(scenarioService.loadScenarios()[0].name).toBe('Saved locally only at first');
+    expect(await service.getScenarioMigrationMetadata()).toMatchObject({
+      verificationStatus: 'failed',
+      verificationError: 'Forced scenarios mirror transaction failure',
+    });
+
+    expect((await service.verifyScenarioMirror()).success).toBe(true);
+    expect(await service.getScenarioMigrationMetadata()).toMatchObject({
+      verificationStatus: 'verified',
+      sourceRecordCount: 1,
+      destinationRecordCount: 1,
+    });
+  });
+
+  it('keeps both datasets dirty when IndexedDB cannot persist failure metadata', async () => {
+    const ad = savedAd('ad-1');
+    const initialArchive = archive('initial-offline-archive', ad.id);
+    const initialScenario = currentScenario('initial-offline-scenario');
+    localStorage.setItem(TOPIC_ARCHIVES_KEY, JSON.stringify([initialArchive]));
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([initialScenario]));
+    await seedVersionThree({
+      ads: [ad],
+      archives: [initialArchive],
+      scenarios: [initialScenario],
+    });
+    const service = await import('../services/tefArchiveService');
+    const scenarioService = await import('../services/scenarioService');
+    await service.verifyDurableDataMirrors();
+
+    const availableIndexedDb = indexedDB;
+    vi.stubGlobal('indexedDB', undefined);
+    service.saveTopicArchive({
+      adId: ad.id,
+      exerciseType: 'persuasion',
+      topicSuggestions: topics,
+    });
+    scenarioService.saveScenario({ ...initialScenario, name: 'Changed while IDB unavailable' });
+    expect((await service.waitForTopicArchiveMirror())?.success).toBe(false);
+    expect((await service.waitForScenarioMirror())?.success).toBe(false);
+
+    vi.stubGlobal('indexedDB', availableIndexedDb);
+    expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
+      verificationStatus: 'failed',
+      verificationError: 'Authoritative localStorage changed after the last verified reconciliation',
+    });
+    expect(await service.getScenarioMigrationMetadata()).toMatchObject({
+      verificationStatus: 'failed',
+      verificationError: 'Authoritative localStorage changed after the last verified reconciliation',
+    });
+
+    const repaired = await service.verifyDurableDataMirrors();
+    expect(repaired.topicArchives.success).toBe(true);
+    expect(repaired.scenarios.success).toBe(true);
+    expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
+      verificationStatus: 'verified',
+    });
+    expect(await service.getScenarioMigrationMetadata()).toMatchObject({
+      verificationStatus: 'verified',
+    });
   });
 });
