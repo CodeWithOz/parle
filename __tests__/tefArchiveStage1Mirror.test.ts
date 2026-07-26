@@ -154,6 +154,7 @@ async function seedVersionTwo(params: {
 }
 
 async function seedVersionThree(params: {
+  ads?: TefSavedAd[];
   archives?: TefTopicArchive[];
   scenarios?: Scenario[];
 } = {}): Promise<void> {
@@ -165,7 +166,8 @@ async function seedVersionThree(params: {
     request.result.createObjectStore('migrationMetadata', { keyPath: 'name' });
   };
   const db = await requestResult(request);
-  const tx = db.transaction(['topicArchives', 'scenarios'], 'readwrite');
+  const tx = db.transaction(['savedAds', 'topicArchives', 'scenarios'], 'readwrite');
+  for (const record of params.ads ?? []) tx.objectStore('savedAds').put(record);
   for (const record of params.archives ?? []) tx.objectStore('topicArchives').put(record);
   for (const record of params.scenarios ?? []) tx.objectStore('scenarios').put(record);
   await transactionDone(tx);
@@ -463,5 +465,132 @@ describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
     expect(mirroredLegacy).not.toHaveProperty('steps');
     expect(mirroredLegacy).not.toHaveProperty('characters');
     expect(mirrored.find((scenario) => scenario.id === current.id)).toEqual(current);
+  });
+});
+
+describe('Stage 2 durable exercise data shadow verification', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.resetModules();
+    vi.stubGlobal('indexedDB', new IDBFactory());
+  });
+
+  it('detects same-count content mismatches and repairs both datasets independently', async () => {
+    const ads = [savedAd('ad-1'), savedAd('ad-2')];
+    const archives = [archive('archive-1', 'ad-1'), archive('archive-2', 'ad-2', 200)];
+    const scenarios = [legacyScenario(), currentScenario()];
+    const serializedArchives = JSON.stringify(archives);
+    const serializedScenarios = JSON.stringify(scenarios);
+    localStorage.setItem(TOPIC_ARCHIVES_KEY, serializedArchives);
+    localStorage.setItem(SCENARIOS_KEY, serializedScenarios);
+    await seedVersionThree({
+      ads,
+      archives: [
+        { ...archive('archive-1', 'missing-ad'), exerciseType: 'questioning' },
+        archive('extra-archive', 'ad-1'),
+      ],
+      scenarios: [
+        { ...legacyScenario(), name: 'Different legacy name' },
+        currentScenario('extra-scenario'),
+      ],
+    });
+    const service = await import('../services/tefArchiveService');
+
+    const result = await service.verifyDurableDataMirrors();
+
+    expect(result.topicArchives).toMatchObject({
+      operation: 'shadow-verify',
+      success: true,
+      sourceRecordCount: 2,
+      destinationRecordCount: 2,
+      comparison: {
+        missingIds: ['archive-2'],
+        extraIds: ['extra-archive'],
+        differingIds: ['archive-1'],
+        relationshipInvalidIds: ['archive-1'],
+        legacyShapeIds: [],
+      },
+      repairs: { inserted: 1, updated: 1, deleted: 1 },
+    });
+    expect(result.scenarios).toMatchObject({
+      operation: 'shadow-verify',
+      success: true,
+      comparison: {
+        missingIds: ['current-scenario'],
+        extraIds: ['extra-scenario'],
+        differingIds: ['legacy-scenario'],
+        legacyShapeIds: ['legacy-scenario'],
+      },
+      repairs: { inserted: 1, updated: 1, deleted: 1 },
+    });
+    expect(await service.getTopicArchiveMirrorSnapshot()).toEqual(expect.arrayContaining(archives));
+    expect(await service.getTopicArchiveMirrorSnapshot()).toHaveLength(2);
+    expect(await service.getScenarioMirrorSnapshot()).toEqual(expect.arrayContaining(scenarios));
+    expect(await service.getScenarioMirrorSnapshot()).toHaveLength(2);
+    expect(localStorage.getItem(TOPIC_ARCHIVES_KEY)).toBe(serializedArchives);
+    expect(localStorage.getItem(SCENARIOS_KEY)).toBe(serializedScenarios);
+    expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
+      verificationStatus: 'verified',
+      mismatchCounts: { missing: 1, extra: 1, differing: 1 },
+      repairCounts: { inserted: 1, updated: 1, deleted: 1 },
+      relationshipInvalidRecordCount: 1,
+    });
+    expect(await service.getScenarioMigrationMetadata()).toMatchObject({
+      verificationStatus: 'verified',
+      mismatchCounts: { missing: 1, extra: 1, differing: 1 },
+      repairCounts: { inserted: 1, updated: 1, deleted: 1 },
+      legacyShapeRecordCount: 1,
+    });
+  });
+
+  it('reports invalid archive relationships without altering the authoritative archive', async () => {
+    const orphan = archive('orphan-archive', 'deleted-ad');
+    const serialized = JSON.stringify([orphan]);
+    localStorage.setItem(TOPIC_ARCHIVES_KEY, serialized);
+    const service = await import('../services/tefArchiveService');
+
+    const result = await service.verifyTopicArchiveMirror();
+
+    expect(result).toMatchObject({
+      success: true,
+      comparison: {
+        missingIds: ['orphan-archive'],
+        relationshipInvalidIds: ['orphan-archive'],
+      },
+    });
+    expect(await service.getTopicArchiveMirrorSnapshot()).toEqual([orphan]);
+    expect(localStorage.getItem(TOPIC_ARCHIVES_KEY)).toBe(serialized);
+    expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
+      verificationStatus: 'verified',
+      relationshipInvalidRecordCount: 1,
+    });
+  });
+
+  it('persists an independent failed verification without mutating malformed localStorage', async () => {
+    const safeScenario = currentScenario();
+    const serializedScenarios = JSON.stringify([safeScenario]);
+    localStorage.setItem(TOPIC_ARCHIVES_KEY, '{malformed');
+    localStorage.setItem(SCENARIOS_KEY, serializedScenarios);
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const service = await import('../services/tefArchiveService');
+
+    const result = await service.verifyDurableDataMirrors();
+
+    expect(result.topicArchives).toMatchObject({
+      success: false,
+      operation: 'shadow-verify',
+      error: 'Authoritative localStorage TEF topic archives are unreadable',
+    });
+    expect(result.scenarios.success).toBe(true);
+    expect(localStorage.getItem(TOPIC_ARCHIVES_KEY)).toBe('{malformed');
+    expect(localStorage.getItem(SCENARIOS_KEY)).toBe(serializedScenarios);
+    expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
+      verificationStatus: 'failed',
+      verificationError: 'Authoritative localStorage TEF topic archives are unreadable',
+    });
+    expect(await service.getScenarioMigrationMetadata()).toMatchObject({
+      verificationStatus: 'verified',
+    });
+    consoleError.mockRestore();
   });
 });

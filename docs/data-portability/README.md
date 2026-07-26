@@ -6,11 +6,11 @@ separate branches, deployments, and AI-agent chats.
 
 ## Current status
 
-- Program status: **Stage 1 complete and verified in the deployed application**
-- Current implementation behavior: **localStorage-authoritative IndexedDB mirror**
+- Program status: **Stage 2 implemented and verified locally; deployment verification pending**
+- Current implementation behavior: **localStorage-authoritative IndexedDB mirror with background shadow verification**
 - Deployed behavior: **Stage 1 verified; both durable datasets mirror to IndexedDB**
 - Last completed stage: **[Stage 1 — IndexedDB mirror](stages/01-idb-mirror.md)**
-- Next action: **implement [Stage 2 — shadow verification and reconciliation](stages/02-shadow-verification.md)**
+- Next action: **deploy and observe [Stage 2 — shadow verification and reconciliation](stages/02-shadow-verification.md)**
 - Current authoritative topic-archive source: `localStorage`
 - Current authoritative saved-scenario source: `localStorage`
 - IndexedDB topic-archive store exists in this implementation: **yes (schema version 3)**
@@ -93,7 +93,7 @@ See [backup-format.md](backup-format.md), [migration-plan.md](migration-plan.md)
 |---|---|---|
 | 0 | Specify scope, invariants, and handoff process | Complete (documentation only) |
 | 1 | Add IndexedDB mirrors for topic archives and saved scenarios | Complete; deployed and verified |
-| 2 | Shadow-read, compare, and reconcile both datasets | Next |
+| 2 | Shadow-read, compare, and reconcile both datasets | Implemented/tested locally; deployment pending |
 | 3 | Make IndexedDB primary for both with localStorage fallback | Pending |
 | 4 | Maintain rollback windows and prove both datasets stable | Pending |
 | 5 | Implement versioned export/import | Pending |

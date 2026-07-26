@@ -22,7 +22,7 @@ import {
   createSavedAdId,
   deleteSavedAd,
   getLatestTopicArchive,
-  initializeDurableDataMirrors,
+  verifyDurableDataMirrors,
   saveTopicArchive,
   touchSavedAdLastUsed,
   upsertSavedAd,
@@ -627,7 +627,9 @@ const App: React.FC = () => {
 
   // Check for API keys on mount; never show modal on load so user can see the app first
   useEffect(() => {
-    void initializeDurableDataMirrors();
+    // Stage 2: asynchronously shadow-read, compare, and reconcile both IDB
+    // mirrors. All user-facing reads remain localStorage-backed.
+    void verifyDurableDataMirrors();
 
     const checkApiKeys = async () => {
       setApiKeyCheckDone(true);
