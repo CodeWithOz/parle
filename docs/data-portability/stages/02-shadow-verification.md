@@ -45,7 +45,11 @@ counts, and repairs. Then update `../README.md` so Stage 3 is next only if evide
 
 - Branch: `codex/data-portability-stage-2`
 - Base commit: `424d614` (`Mark data portability Stage 1 complete`)
-- Commit/merge/deployment references: pending
+- Implementation commits:
+  - `cca0a41` (`Implement data portability Stage 2`)
+  - `0536344` (`Address Stage 2 verification review`)
+- Pull request: [#46](https://github.com/CodeWithOz/parle/pull/46) (draft)
+- Merge/deployment references: pending
 - Implementation:
   - App startup now runs `verifyDurableDataMirrors()` in the background.
   - Topic archives and saved scenarios are still displayed exclusively from their existing
