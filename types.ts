@@ -168,7 +168,36 @@ export interface DurableDataMigrationMetadata {
   lastReconciledAt: number;
   sourceRecordCount: number;
   destinationRecordCount: number;
-  verificationStatus: 'verified';
+  verificationStatus: 'verified' | 'failed';
+  /** Stage 2 shadow-verification details. Absent on metadata written by Stage 1. */
+  lastVerifiedAt?: number;
+  mismatchCounts?: DurableDataMismatchCounts;
+  repairCounts?: DurableDataRepairCounts;
+  /** Integrity observed before reconciliation, including stale mirror-only records. */
+  preRepairIntegrityCounts?: DurableDataIntegrityCounts;
+  /** Current canonical integrity after reconciliation. Stage 3 readiness uses this field. */
+  postRepairIntegrityCounts?: DurableDataIntegrityCounts;
+  /** Backward-compatible flat post-repair counts. */
+  relationshipInvalidRecordCount?: number;
+  legacyShapeRecordCount?: number;
+  verificationError?: string;
+}
+
+export interface DurableDataMismatchCounts {
+  missing: number;
+  extra: number;
+  differing: number;
+}
+
+export interface DurableDataRepairCounts {
+  inserted: number;
+  updated: number;
+  deleted: number;
+}
+
+export interface DurableDataIntegrityCounts {
+  relationshipInvalid: number;
+  legacyShape: number;
 }
 
 export type TopicArchiveMigrationMetadata = DurableDataMigrationMetadata & {

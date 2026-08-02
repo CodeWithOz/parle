@@ -1,6 +1,9 @@
 import type {
   DurableDataMigrationMetadata,
   DurableDataMigrationName,
+  DurableDataIntegrityCounts,
+  DurableDataMismatchCounts,
+  DurableDataRepairCounts,
   Scenario,
   ScenarioMigrationMetadata,
   TefExerciseType,
@@ -12,6 +15,8 @@ import type {
 
 const TOPIC_ARCHIVES_KEY = 'parle-tef-topic-archives';
 const SCENARIOS_KEY = 'parle-scenarios';
+const TOPIC_ARCHIVES_MIRROR_DIRTY_KEY = 'parle-tef-topic-archives-mirror-dirty';
+const SCENARIOS_MIRROR_DIRTY_KEY = 'parle-scenarios-mirror-dirty';
 const MAX_TOPIC_ARCHIVES = 50;
 const MAX_SAVED_ADS_PER_TYPE = 20;
 const DB_NAME = 'parle-tef';
@@ -25,12 +30,32 @@ const SCENARIO_MIGRATION_NAME = 'scenarios-localstorage-to-idb';
 const MAX_MIRROR_STABILITY_ATTEMPTS = 5;
 
 export interface DurableDataMirrorDiagnostic {
-  operation: 'backfill' | 'save' | 'delete' | 'delete-for-ad';
+  operation: 'backfill' | 'shadow-verify' | 'save' | 'delete' | 'delete-for-ad';
   success: boolean;
   sourceRecordCount: number;
   destinationRecordCount?: number;
   completedAt: number;
   error?: string;
+  /** Stage 2 pre-repair shadow comparison. IDs make the result directly testable. */
+  comparison?: DurableDataShadowComparison;
+  /** Integrity of the reconciled canonical IndexedDB mirror. */
+  postRepairIntegrity?: DurableDataIntegrityDiagnostic;
+  repairs?: DurableDataRepairCounts;
+}
+
+export interface DurableDataIntegrityDiagnostic {
+  relationshipInvalidIds: string[];
+  legacyShapeIds: string[];
+}
+
+export interface DurableDataShadowComparison {
+  missingIds: string[];
+  extraIds: string[];
+  differingIds: string[];
+  /** Topic archives whose adId does not resolve in the savedAds store. */
+  relationshipInvalidIds: string[];
+  /** Valid pre-roadmap/pre-character scenarios retained without normalization. */
+  legacyShapeIds: string[];
 }
 
 export type TopicArchiveMirrorDiagnostic = DurableDataMirrorDiagnostic;
@@ -47,38 +72,51 @@ interface MirrorSource<T extends DurableRecord> {
 
 interface MirrorConfig<T extends DurableRecord> {
   storageKey: string;
+  dirtyKey: string;
   storeName: string;
   metadataName: DurableDataMigrationName;
   label: string;
+  inspectRelationships?: (records: T[]) => Promise<string[]>;
+  inspectLegacyShapes?: (records: T[]) => string[];
 }
 
 interface MirrorState {
   queue: Promise<void>;
   lastDiagnostic: DurableDataMirrorDiagnostic | null;
+  dirtyTokenSequence: number;
 }
 
 const topicArchiveMirrorConfig: MirrorConfig<TefTopicArchive> = {
   storageKey: TOPIC_ARCHIVES_KEY,
+  dirtyKey: TOPIC_ARCHIVES_MIRROR_DIRTY_KEY,
   storeName: TOPIC_ARCHIVES_STORE,
   metadataName: TOPIC_ARCHIVE_MIGRATION_NAME,
   label: 'TEF topic archive',
+  inspectRelationships: findArchivesWithMissingAds,
 };
 
 const scenarioMirrorConfig: MirrorConfig<Scenario> = {
   storageKey: SCENARIOS_KEY,
+  dirtyKey: SCENARIOS_MIRROR_DIRTY_KEY,
   storeName: SCENARIOS_STORE,
   metadataName: SCENARIO_MIGRATION_NAME,
   label: 'saved scenario',
+  inspectLegacyShapes: (records) => records
+    .filter((record) => !Object.prototype.hasOwnProperty.call(record, 'characters')
+      || !Object.prototype.hasOwnProperty.call(record, 'steps'))
+    .map((record) => record.id),
 };
 
 const topicArchiveMirrorState: MirrorState = {
   queue: Promise.resolve(),
   lastDiagnostic: null,
+  dirtyTokenSequence: 0,
 };
 
 const scenarioMirrorState: MirrorState = {
   queue: Promise.resolve(),
   lastDiagnostic: null,
+  dirtyTokenSequence: 0,
 };
 
 function createArchiveId(): string {
@@ -280,6 +318,31 @@ function recordCollectionsMatch<T extends DurableRecord>(
   });
 }
 
+function compareRecordCollections<T extends DurableRecord>(
+  authoritative: T[],
+  mirrored: T[]
+): Pick<DurableDataShadowComparison, 'missingIds' | 'extraIds' | 'differingIds'> {
+  const authoritativeById = new Map(authoritative.map((record) => [record.id, record]));
+  const mirroredById = new Map(mirrored.map((record) => [record.id, record]));
+  const missingIds: string[] = [];
+  const differingIds: string[] = [];
+  const extraIds: string[] = [];
+
+  for (const record of authoritative) {
+    const mirroredRecord = mirroredById.get(record.id);
+    if (mirroredRecord === undefined) {
+      missingIds.push(record.id);
+    } else if (canonicalJson(record) !== canonicalJson(mirroredRecord)) {
+      differingIds.push(record.id);
+    }
+  }
+  for (const record of mirrored) {
+    if (!authoritativeById.has(record.id)) extraIds.push(record.id);
+  }
+
+  return { missingIds, extraIds, differingIds };
+}
+
 async function readAllFromStore<T>(storeName: string): Promise<T[]> {
   const db = await openDb();
   try {
@@ -294,6 +357,70 @@ async function readAllFromStore<T>(storeName: string): Promise<T[]> {
   } finally {
     db.close();
   }
+}
+
+async function findArchivesWithMissingAds(archives: TefTopicArchive[]): Promise<string[]> {
+  const ads = await readAllFromStore<TefSavedAd>(SAVED_ADS_STORE);
+  const savedAdIds = new Set(ads.map((ad) => ad.id));
+  return archives
+    .filter((archive) => !savedAdIds.has(archive.adId))
+    .map((archive) => archive.id);
+}
+
+async function createShadowComparison<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  authoritative: T[],
+  mirrored: T[]
+): Promise<DurableDataShadowComparison> {
+  const recordsSeenDuringComparison = [...authoritative, ...mirrored];
+  const integrity = await inspectRecordIntegrity(config, recordsSeenDuringComparison);
+  return {
+    ...compareRecordCollections(authoritative, mirrored),
+    ...integrity,
+  };
+}
+
+async function inspectRecordIntegrity<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  records: T[]
+): Promise<DurableDataIntegrityDiagnostic> {
+  return {
+    relationshipInvalidIds: config.inspectRelationships
+      ? [...new Set(await config.inspectRelationships(records))]
+      : [],
+    legacyShapeIds: config.inspectLegacyShapes
+      ? [...new Set(config.inspectLegacyShapes(records))]
+      : [],
+  };
+}
+
+function mismatchCounts(
+  comparison: DurableDataShadowComparison
+): DurableDataMismatchCounts {
+  return {
+    missing: comparison.missingIds.length,
+    extra: comparison.extraIds.length,
+    differing: comparison.differingIds.length,
+  };
+}
+
+function repairCounts(
+  comparison: DurableDataShadowComparison
+): DurableDataRepairCounts {
+  return {
+    inserted: comparison.missingIds.length,
+    updated: comparison.differingIds.length,
+    deleted: comparison.extraIds.length,
+  };
+}
+
+function integrityCounts(
+  integrity: DurableDataIntegrityDiagnostic
+): DurableDataIntegrityCounts {
+  return {
+    relationshipInvalid: integrity.relationshipInvalidIds.length,
+    legacyShape: integrity.legacyShapeIds.length,
+  };
 }
 
 async function reconcileMirror<T extends DurableRecord>(
@@ -336,16 +463,27 @@ async function reconcileMirror<T extends DurableRecord>(
 async function writeVerifiedMirrorMetadata(
   metadataName: DurableDataMigrationName,
   sourceRecordCount: number,
-  destinationRecordCount: number
+  destinationRecordCount: number,
+  comparison: DurableDataShadowComparison,
+  postRepairIntegrity: DurableDataIntegrityDiagnostic,
+  repairs: DurableDataRepairCounts
 ): Promise<void> {
+  const now = Date.now();
   const metadata: DurableDataMigrationMetadata = {
     name: metadataName,
     version: 1,
     state: 'mirroring',
-    lastReconciledAt: Date.now(),
+    lastReconciledAt: now,
     sourceRecordCount,
     destinationRecordCount,
     verificationStatus: 'verified',
+    lastVerifiedAt: now,
+    mismatchCounts: mismatchCounts(comparison),
+    repairCounts: repairs,
+    preRepairIntegrityCounts: integrityCounts(comparison),
+    postRepairIntegrityCounts: integrityCounts(postRepairIntegrity),
+    relationshipInvalidRecordCount: postRepairIntegrity.relationshipInvalidIds.length,
+    legacyShapeRecordCount: postRepairIntegrity.legacyShapeIds.length,
   };
 
   const metadataDb = await openDb();
@@ -362,12 +500,60 @@ async function writeVerifiedMirrorMetadata(
   }
 }
 
+async function writeFailedVerificationMetadata(
+  config: MirrorConfig<DurableRecord>,
+  sourceRecordCount: number,
+  error: string
+): Promise<boolean> {
+  let destinationRecordCount = 0;
+  let previous: DurableDataMigrationMetadata | null = null;
+  try {
+    [destinationRecordCount, previous] = await Promise.all([
+      readAllFromStore<DurableRecord>(config.storeName).then((records) => records.length),
+      getMigrationMetadata(config.metadataName),
+    ]);
+  } catch {
+    // If IndexedDB itself is unavailable, there is nowhere durable to record
+    // the failed verification. The returned diagnostic still exposes it.
+    return false;
+  }
+
+  const metadata: DurableDataMigrationMetadata = {
+    name: config.metadataName,
+    version: 1,
+    state: 'mirroring',
+    lastReconciledAt: previous?.lastReconciledAt ?? 0,
+    sourceRecordCount,
+    destinationRecordCount,
+    verificationStatus: 'failed',
+    lastVerifiedAt: Date.now(),
+    verificationError: error,
+  };
+
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(MIGRATION_METADATA_STORE, 'readwrite');
+      tx.objectStore(MIGRATION_METADATA_STORE).put(metadata);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('Failed to save failed verification metadata'));
+      tx.onabort = () => reject(tx.error ?? new Error('Failed verification metadata write was aborted'));
+    });
+  } finally {
+    db.close();
+  }
+  return true;
+}
+
 async function mirrorLatestSource<T extends DurableRecord>(
   config: MirrorConfig<T>,
   onSourceRead: (recordCount: number) => void
 ): Promise<{
   sourceRecordCount: number;
   destinationRecordCount: number;
+  comparison: DurableDataShadowComparison;
+  postRepairIntegrity: DurableDataIntegrityDiagnostic;
+  repairs: DurableDataRepairCounts;
 }> {
   for (let attempt = 1; attempt <= MAX_MIRROR_STABILITY_ATTEMPTS; attempt += 1) {
     // Read only when this task owns the queue turn. Capturing at enqueue time
@@ -378,6 +564,15 @@ async function mirrorLatestSource<T extends DurableRecord>(
       throw new Error(`Authoritative localStorage ${config.label}s are unreadable`);
     }
 
+    // Stage 2 shadow-read: capture exact discrepancies before repairing the
+    // mirror. Equal counts are insufficient because IDs/content may differ.
+    const mirrorBeforeReconcile = await readAllFromStore<T>(config.storeName);
+    const comparison = await createShadowComparison(
+      config,
+      source.records,
+      mirrorBeforeReconcile
+    );
+    const repairs = repairCounts(comparison);
     const destinationRecordCount = await reconcileMirror(config, source.records);
     const sourceAfterReconcile = readMirrorSource(config);
     if (!sourceAfterReconcile.readable) {
@@ -387,12 +582,21 @@ async function mirrorLatestSource<T extends DurableRecord>(
       continue;
     }
 
+    const mirrorAfterReconcile = await readAllFromStore<T>(config.storeName);
+    if (!recordCollectionsMatch(source.records, mirrorAfterReconcile)) {
+      continue;
+    }
+    const postRepairIntegrity = await inspectRecordIntegrity(config, mirrorAfterReconcile);
+
     // Metadata is only stamped verified after confirming localStorage still
     // matches the snapshot that was reconciled.
     await writeVerifiedMirrorMetadata(
       config.metadataName,
       source.records.length,
-      destinationRecordCount
+      destinationRecordCount,
+      comparison,
+      postRepairIntegrity,
+      repairs
     );
 
     // Close the remaining cross-tab window: if localStorage or another tab's
@@ -402,9 +606,11 @@ async function mirrorLatestSource<T extends DurableRecord>(
       throw new Error(`Authoritative localStorage ${config.label}s are unreadable`);
     }
     const mirrorAfterMetadata = await readAllFromStore<T>(config.storeName);
+    const integrityAfterMetadata = await inspectRecordIntegrity(config, mirrorAfterMetadata);
     if (
       !recordCollectionsMatch(source.records, sourceAfterMetadata.records) ||
-      !recordCollectionsMatch(source.records, mirrorAfterMetadata)
+      !recordCollectionsMatch(source.records, mirrorAfterMetadata) ||
+      canonicalJson(postRepairIntegrity) !== canonicalJson(integrityAfterMetadata)
     ) {
       continue;
     }
@@ -412,6 +618,9 @@ async function mirrorLatestSource<T extends DurableRecord>(
     return {
       sourceRecordCount: source.records.length,
       destinationRecordCount: mirrorAfterMetadata.length,
+      comparison,
+      postRepairIntegrity,
+      repairs,
     };
   }
 
@@ -422,12 +631,62 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function readMirrorDirtyToken(config: MirrorConfig<DurableRecord>): string | null {
+  try {
+    return localStorage.getItem(config.dirtyKey);
+  } catch {
+    return null;
+  }
+}
+
+function markMirrorDirty(
+  config: MirrorConfig<DurableRecord>,
+  state: MirrorState
+): string | null {
+  state.dirtyTokenSequence += 1;
+  const uniqueSuffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+  const token = `${Date.now()}-${state.dirtyTokenSequence}-${uniqueSuffix}`;
+  try {
+    localStorage.setItem(config.dirtyKey, token);
+    return token;
+  } catch (error) {
+    console.error(`Failed to mark ${config.label} mirror dirty:`, error);
+    return null;
+  }
+}
+
+function clearMirrorDirtyToken(
+  config: MirrorConfig<DurableRecord>,
+  expectedToken: string | null
+): void {
+  if (expectedToken === null) return;
+  try {
+    if (localStorage.getItem(config.dirtyKey) === expectedToken) {
+      localStorage.removeItem(config.dirtyKey);
+    }
+  } catch (error) {
+    console.error(`Failed to clear ${config.label} mirror dirty marker:`, error);
+  }
+}
+
+function isMutationMirrorOperation(
+  operation: DurableDataMirrorDiagnostic['operation']
+): boolean {
+  return operation === 'save' || operation === 'delete' || operation === 'delete-for-ad';
+}
+
 function enqueueMirror<T extends DurableRecord>(
   config: MirrorConfig<T>,
   state: MirrorState,
   operation: DurableDataMirrorDiagnostic['operation']
 ): Promise<DurableDataMirrorDiagnostic> {
   let sourceRecordCount = 0;
+  const durableConfig = config as MirrorConfig<DurableRecord>;
+  const dirtyToken = isMutationMirrorOperation(operation)
+    ? markMirrorDirty(durableConfig, state)
+    : readMirrorDirtyToken(durableConfig);
 
   const diagnosticPromise = state.queue.then(async () => {
     try {
@@ -441,8 +700,12 @@ function enqueueMirror<T extends DurableRecord>(
         sourceRecordCount,
         destinationRecordCount: result.destinationRecordCount,
         completedAt: Date.now(),
+        comparison: result.comparison,
+        postRepairIntegrity: result.postRepairIntegrity,
+        repairs: result.repairs,
       };
       state.lastDiagnostic = diagnostic;
+      clearMirrorDirtyToken(durableConfig, dirtyToken);
       return diagnostic;
     } catch (error) {
       const diagnostic: DurableDataMirrorDiagnostic = {
@@ -453,6 +716,26 @@ function enqueueMirror<T extends DurableRecord>(
         error: errorMessage(error),
       };
       state.lastDiagnostic = diagnostic;
+      let failureMetadataPersisted = false;
+      try {
+        // Any failed mirror operation invalidates prior verification. A later
+        // successful reconciliation writes a fresh verified record.
+        failureMetadataPersisted = await writeFailedVerificationMetadata(
+          durableConfig,
+          sourceRecordCount,
+          errorMessage(error)
+        );
+      } catch (metadataError) {
+        // The diagnostic is still returned when IndexedDB cannot persist its
+        // own failure metadata. Authoritative localStorage data is never changed.
+        console.error(`Failed to persist ${config.label} verification failure:`, metadataError);
+      }
+      if (!failureMetadataPersisted && readMirrorDirtyToken(durableConfig) === null) {
+        // A localStorage latch is the only durable invalidation available when
+        // IndexedDB cannot update its own metadata. It never changes the
+        // authoritative archive/scenario data keys.
+        markMirrorDirty(durableConfig, state);
+      }
       // JSDOM and other non-browser runtimes may not provide IndexedDB at all.
       // The returned diagnostic remains observable without flooding their logs.
       if (typeof indexedDB !== 'undefined') {
@@ -466,10 +749,7 @@ function enqueueMirror<T extends DurableRecord>(
   return diagnosticPromise;
 }
 
-/**
- * Stage 1 startup backfill. localStorage remains authoritative; this only
- * reconciles the IndexedDB mirror and records verified migration metadata.
- */
+/** Stage 1-compatible backfill entry points retained for queued mirror writes/tests. */
 export function initializeTopicArchiveMirror(): Promise<TopicArchiveMirrorDiagnostic> {
   return enqueueMirror(topicArchiveMirrorConfig, topicArchiveMirrorState, 'backfill');
 }
@@ -485,6 +765,30 @@ export async function initializeDurableDataMirrors(): Promise<{
   const [topicArchives, scenarios] = await Promise.all([
     initializeTopicArchiveMirror(),
     initializeScenarioMirror(),
+  ]);
+  return { topicArchives, scenarios };
+}
+
+/**
+ * Stage 2 background verification. Each dataset is shadow-read, compared by ID
+ * and canonical content, diagnosed, and independently reconciled from its
+ * authoritative localStorage source. Production reads remain unchanged.
+ */
+export function verifyTopicArchiveMirror(): Promise<TopicArchiveMirrorDiagnostic> {
+  return enqueueMirror(topicArchiveMirrorConfig, topicArchiveMirrorState, 'shadow-verify');
+}
+
+export function verifyScenarioMirror(): Promise<ScenarioMirrorDiagnostic> {
+  return enqueueMirror(scenarioMirrorConfig, scenarioMirrorState, 'shadow-verify');
+}
+
+export async function verifyDurableDataMirrors(): Promise<{
+  topicArchives: TopicArchiveMirrorDiagnostic;
+  scenarios: ScenarioMirrorDiagnostic;
+}> {
+  const [topicArchives, scenarios] = await Promise.all([
+    verifyTopicArchiveMirror(),
+    verifyScenarioMirror(),
   ]);
   return { topicArchives, scenarios };
 }
@@ -508,7 +812,7 @@ export function getLastScenarioMirrorDiagnostic(): ScenarioMirrorDiagnostic | nu
   return scenarioMirrorState.lastDiagnostic;
 }
 
-/** Diagnostic/test access only. Production topic-history reads stay on localStorage in Stage 1. */
+/** Diagnostic/test access only. Production reads stay on localStorage through Stage 2. */
 export function getTopicArchiveMirrorSnapshot(): Promise<TefTopicArchive[]> {
   return readAllFromStore<TefTopicArchive>(TOPIC_ARCHIVES_STORE);
 }
@@ -520,6 +824,9 @@ export function getScenarioMirrorSnapshot(): Promise<Scenario[]> {
 async function getMigrationMetadata(
   name: DurableDataMigrationName
 ): Promise<DurableDataMigrationMetadata | null> {
+  const config = (name === TOPIC_ARCHIVE_MIGRATION_NAME
+    ? topicArchiveMirrorConfig
+    : scenarioMirrorConfig) as MirrorConfig<DurableRecord>;
   const db = await openDb();
   try {
     const tx = db.transaction(MIGRATION_METADATA_STORE, 'readonly');
@@ -531,7 +838,15 @@ async function getMigrationMetadata(
       tx.onerror = () => reject(tx.error ?? new Error('Failed reading migration metadata'));
       tx.onabort = () => reject(tx.error ?? new Error('Migration metadata read was aborted'));
     });
-    return result ?? null;
+    if (!result) return null;
+    if (readMirrorDirtyToken(config) !== null && result.verificationStatus === 'verified') {
+      return {
+        ...result,
+        verificationStatus: 'failed',
+        verificationError: 'Authoritative localStorage changed after the last verified reconciliation',
+      };
+    }
+    return result;
   } finally {
     db.close();
   }
