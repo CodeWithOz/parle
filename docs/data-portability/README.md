@@ -6,11 +6,11 @@ separate branches, deployments, and AI-agent chats.
 
 ## Current status
 
-- Program status: **Stage 2 implemented and verified locally; deployment verification pending**
+- Program status: **Stage 2 complete, merged, and verified after deployment**
 - Current implementation behavior: **localStorage-authoritative IndexedDB mirror with background shadow verification**
-- Deployed behavior: **Stage 1 verified; both durable datasets mirror to IndexedDB**
-- Last completed stage: **[Stage 1 — IndexedDB mirror](stages/01-idb-mirror.md)**
-- Next action: **deploy and observe [Stage 2 — shadow verification and reconciliation](stages/02-shadow-verification.md)**
+- Deployed behavior: **Stage 2 verified; both durable datasets are shadow-checked and reconciled to their localStorage authorities**
+- Last completed stage: **[Stage 2 — shadow verification and reconciliation](stages/02-shadow-verification.md)**
+- Next action: **implement [Stage 3 — IndexedDB primary reads](stages/03-idb-primary.md)**
 - Current authoritative topic-archive source: `localStorage`
 - Current authoritative saved-scenario source: `localStorage`
 - IndexedDB topic-archive store exists in this implementation: **yes (schema version 3)**
@@ -22,9 +22,9 @@ Compatibility requirement: Stage 1 topic-only builds have already created databa
 in at least one browser. The corrected schema target is therefore version 3; code must support
 both version 1 → 3 and version 2 → 3 upgrades without recreating or clearing existing stores.
 
-The next implementation branch must do Stage 2 only. It may shadow-read and reconcile both
-IndexedDB mirrors, but it must keep production UI reads on localStorage and must not remove or
-clear either existing localStorage dataset.
+The next implementation branch must do Stage 3 only. It may make verified IndexedDB stores the
+primary read sources for both datasets, but it must retain guarded localStorage fallbacks and
+bridge writes and must not remove or clear either existing localStorage dataset.
 
 ## Accepted scope
 
@@ -93,8 +93,8 @@ See [backup-format.md](backup-format.md), [migration-plan.md](migration-plan.md)
 |---|---|---|
 | 0 | Specify scope, invariants, and handoff process | Complete (documentation only) |
 | 1 | Add IndexedDB mirrors for topic archives and saved scenarios | Complete; deployed and verified |
-| 2 | Shadow-read, compare, and reconcile both datasets | Implemented/tested locally; deployment pending |
-| 3 | Make IndexedDB primary for both with localStorage fallback | Pending |
+| 2 | Shadow-read, compare, and reconcile both datasets | Complete; merged, deployed, and verified |
+| 3 | Make IndexedDB primary for both with localStorage fallback | Next authorized stage |
 | 4 | Maintain rollback windows and prove both datasets stable | Pending |
 | 5 | Implement versioned export/import | Pending |
 
@@ -154,3 +154,6 @@ do not infer that the later stage is safe.
   `onupgradeneeded`; both v1 → v3 and v2 → v3 are required compatibility paths.
 - 2026-07-25: Stage 1 was merged through PR #45, deployed, and confirmed working by the
   operator. Stage 2 is now the next authorized implementation stage.
+- 2026-08-02: Stage 2 was merged through PR #46 and confirmed working by the operator after
+  deployment. Manual divergence exercises reconciled topic archives and saved scenarios as
+  expected. Stage 3 is now the next authorized implementation stage.

@@ -1,6 +1,6 @@
 # Stage 2 — Shadow Verification and Reconciliation
 
-Status: **implemented and verified locally — deployment verification pending**
+Status: **complete — merged, deployed, and verified**
 
 ## Objective
 
@@ -48,8 +48,8 @@ counts, and repairs. Then update `../README.md` so Stage 3 is next only if evide
 - Implementation commits:
   - `cca0a41` (`Implement data portability Stage 2`)
   - `0536344` (`Address Stage 2 verification review`)
-- Pull request: [#46](https://github.com/CodeWithOz/parle/pull/46) (draft)
-- Merge/deployment references: pending
+- Pull request: [#46](https://github.com/CodeWithOz/parle/pull/46) (merged)
+- Merge commit: `a4d4722` (`Merge pull request #46 from CodeWithOz/codex/data-portability-stage-2`)
 - Implementation:
   - App startup now runs `verifyDurableDataMirrors()` in the background.
   - Topic archives and saved scenarios are still displayed exclusively from their existing
@@ -101,5 +101,12 @@ counts, and repairs. Then update `../README.md` so Stage 3 is next only if evide
     to prevent theoretical same-millisecond, same-sequence collisions across tabs.
   - Manual review confirmed and addressed two pre-deployment findings: stale verified metadata
     after mutation mirror failures, and ambiguous pre/post-repair integrity counts.
-- Manual browser/deployment verification: pending. Stage 3 remains unauthorized until the
-  Stage 2 deployment is observed and this record is updated with real per-dataset results.
+### Deployment verification (2026-08-02)
+
+- The operator merged PR #46 into `main` and confirmed that the application continued to work
+  after deployment.
+- Before merge, manual browser exercises introduced divergences between localStorage and
+  IndexedDB for topic archives and saved scenarios. The Stage 2 reconciliation behavior
+  repaired the tested divergences as expected for both datasets.
+- No unresolved data-loss or reconciliation issue was reported. Stage 2 is complete, and
+  Stage 3 is the next authorized implementation stage.

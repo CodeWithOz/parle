@@ -1,6 +1,6 @@
 # Stage 3 — IndexedDB Primary Reads
 
-Status: **pending Stage 2 deployment verification**
+Status: **next authorized implementation stage**
 
 ## Objective
 
