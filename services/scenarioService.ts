@@ -1,7 +1,5 @@
 import { Scenario, ScenarioStep } from '../types';
-import { mirrorScenarioDelete, mirrorScenarioSave } from './tefArchiveService';
-
-const STORAGE_KEY = 'parle-scenarios';
+import { deleteSavedScenario, listSavedScenarios, saveSavedScenario } from './tefArchiveService';
 
 /**
  * Defensive accessor for a scenario's roadmap steps. Normalizes a possibly
@@ -40,75 +38,19 @@ export const generateId = (): string => {
 };
 
 /**
- * Load all saved scenarios from localStorage
+ * Load saved scenarios from the Stage 3 IndexedDB-primary repository.
  */
-export const loadScenarios = (): Scenario[] => {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored);
-    }
-  } catch (error) {
-    console.error('Error loading scenarios from localStorage:', error);
-  }
-  return [];
-};
+export const loadScenarios = (): Promise<Scenario[]> => listSavedScenarios();
 
 /**
- * Save a scenario to localStorage
+ * Save a scenario through the IndexedDB-primary repository.
  */
-export const saveScenario = (scenario: Scenario): Scenario[] => {
-  const scenarios = loadScenarios();
-  const existingIndex = scenarios.findIndex(s => s.id === scenario.id);
-
-  if (existingIndex >= 0) {
-    scenarios[existingIndex] = scenario;
-  } else {
-    scenarios.unshift(scenario);
-  }
-
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
-  } catch (error) {
-    // If quota exceeded, try removing oldest scenario and retry once
-    if (error instanceof DOMException && error.name === 'QuotaExceededError') {
-      if (scenarios.length > 0) {
-        scenarios.pop(); // Remove oldest scenario (last in array)
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
-        } catch (retryError) {
-          console.error('Error saving scenario after retry:', retryError);
-          throw new Error('Failed to save scenario: storage quota exceeded');
-        }
-      } else {
-        throw new Error('Failed to save scenario: storage quota exceeded');
-      }
-    } else {
-      console.error('Error saving scenario:', error);
-      throw error;
-    }
-  }
-
-  mirrorScenarioSave();
-  return scenarios;
-};
+export const saveScenario = (scenario: Scenario): Promise<Scenario[]> => saveSavedScenario(scenario);
 
 /**
- * Delete a scenario from localStorage
+ * Delete a scenario through the IndexedDB-primary repository.
  */
-export const deleteScenario = (scenarioId: string): Scenario[] => {
-  const scenarios = loadScenarios().filter(s => s.id !== scenarioId);
-  
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(scenarios));
-  } catch (error) {
-    console.error('Error deleting scenario:', error);
-    throw new Error('Failed to delete scenario from storage');
-  }
-
-  mirrorScenarioDelete();
-  return scenarios;
-};
+export const deleteScenario = (scenarioId: string): Promise<Scenario[]> => deleteSavedScenario(scenarioId);
 
 /**
  * Generate the system instruction for scenario practice mode

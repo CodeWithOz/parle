@@ -164,7 +164,7 @@ export type DurableDataMigrationName =
 export interface DurableDataMigrationMetadata {
   name: DurableDataMigrationName;
   version: 1;
-  state: 'mirroring';
+  state: 'mirroring' | 'idb-primary';
   lastReconciledAt: number;
   sourceRecordCount: number;
   destinationRecordCount: number;

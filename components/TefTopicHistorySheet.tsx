@@ -30,27 +30,41 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
   const [adCache, setAdCache] = useState<Record<string, TefSavedAd | null>>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [storageError, setStorageError] = useState<string | null>(null);
+  const archiveFetchTokenRef = useRef(0);
   const adFetchTokenRef = useRef(0);
 
-  const refresh = useCallback(() => {
-    setArchives(listTopicArchives(filterAdId ?? undefined));
+  const refresh = useCallback(async (preferredArchiveId?: string | null) => {
+    const fetchToken = ++archiveFetchTokenRef.current;
+    setLoading(true);
+    setStorageError(null);
+    try {
+      const nextArchives = await listTopicArchives(filterAdId ?? undefined);
+      if (fetchToken !== archiveFetchTokenRef.current) return;
+      setArchives(nextArchives);
+      setSelectedId(
+        preferredArchiveId && nextArchives.some((archive) => archive.id === preferredArchiveId)
+          ? preferredArchiveId
+          : null
+      );
+    } catch (error) {
+      if (fetchToken !== archiveFetchTokenRef.current) return;
+      setStorageError(error instanceof Error ? error.message : 'Unable to load topic history');
+    } finally {
+      if (fetchToken === archiveFetchTokenRef.current) setLoading(false);
+    }
   }, [filterAdId]);
 
   useEffect(() => {
     if (open) {
-      refresh();
-      const archivesForView = listTopicArchives(filterAdId ?? undefined);
-      if (
-        initialArchiveId &&
-        archivesForView.some((a) => a.id === initialArchiveId)
-      ) {
-        setSelectedId(initialArchiveId);
-      } else {
-        setSelectedId(null);
-      }
+      void refresh(initialArchiveId);
       setLightboxOpen(false);
     }
-  }, [open, refresh, initialArchiveId, filterAdId]);
+    return () => {
+      archiveFetchTokenRef.current += 1;
+    };
+  }, [open, refresh, initialArchiveId]);
 
   useEffect(() => {
     if (!open || archives.length === 0) {
@@ -58,7 +72,7 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
       return;
     }
     const fetchToken = ++adFetchTokenRef.current;
-    const adIds = [...new Set(archives.map((a) => a.adId))];
+    const adIds: string[] = Array.from(new Set(archives.map((archive) => archive.adId)));
     void Promise.allSettled(
       adIds.map(async (id) => [id, await getSavedAd(id)] as const)
     ).then((results) => {
@@ -90,7 +104,7 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
       ? 'bg-parle-blue-100 text-parle-blue-700'
       : 'bg-parle-red-100 text-parle-red-700';
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (!selected) return;
     if (
       !confirmDelete(
@@ -99,9 +113,13 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
     ) {
       return;
     }
-    deleteTopicArchive(selected.id);
-    setSelectedId(null);
-    refresh();
+    try {
+      await deleteTopicArchive(selected.id);
+      setSelectedId(null);
+      await refresh();
+    } catch (error) {
+      setStorageError(error instanceof Error ? error.message : 'Unable to delete topic archive');
+    }
   };
 
   return (
@@ -134,7 +152,23 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
         </div>
 
         <div className="overflow-y-auto overscroll-y-contain flex-1 min-h-0 p-5">
-          {!selected ? (
+          {loading ? (
+            <div className="p-6 text-center text-sm text-parle-navy-500" role="status">
+              Loading topic history…
+            </div>
+          ) : storageError ? (
+            <div className="p-4 rounded-xl border border-parle-red-200 bg-parle-red-50 text-center">
+              <p className="text-sm text-parle-red-700">Topic history is unavailable.</p>
+              <p className="text-xs text-parle-red-600 mt-1">{storageError}</p>
+              <button
+                type="button"
+                onClick={() => void refresh(initialArchiveId)}
+                className="mt-3 text-xs font-medium text-parle-blue-600 hover:text-parle-blue-700"
+              >
+                Try again
+              </button>
+            </div>
+          ) : !selected ? (
             <>
               {archives.length === 0 ? (
                 <div className="p-4 rounded-xl border border-dashed border-parle-navy-200 text-center">

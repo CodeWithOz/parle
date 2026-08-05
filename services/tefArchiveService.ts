@@ -86,6 +86,14 @@ interface MirrorState {
   dirtyTokenSequence: number;
 }
 
+export type DurableDataReadSource = 'indexeddb' | 'localstorage-fallback';
+
+export interface DurableDataReadResult<T> {
+  records: T[];
+  source: DurableDataReadSource;
+  fallbackReason?: 'indexeddb-unavailable' | 'migration-unverified' | 'unexpected-empty-store';
+}
+
 const topicArchiveMirrorConfig: MirrorConfig<TefTopicArchive> = {
   storageKey: TOPIC_ARCHIVES_KEY,
   dirtyKey: TOPIC_ARCHIVES_MIRROR_DIRTY_KEY,
@@ -269,10 +277,6 @@ function readMirrorSource<T extends DurableRecord>(config: MirrorConfig<T>): Mir
   }
 }
 
-function loadTopicArchivesRaw(): TefTopicArchive[] {
-  return readMirrorSource(topicArchiveMirrorConfig).records;
-}
-
 function persistTopicArchives(archives: TefTopicArchive[]): void {
   try {
     localStorage.setItem(TOPIC_ARCHIVES_KEY, JSON.stringify(archives));
@@ -354,6 +358,32 @@ async function readAllFromStore<T>(storeName: string): Promise<T[]> {
       tx.onabort = () => reject(tx.error ?? new Error(`Reading ${storeName} was aborted`));
     });
     return records;
+  } finally {
+    db.close();
+  }
+}
+
+async function mutateAllInStore<T extends DurableRecord>(
+  storeName: string,
+  mutate: (records: T[]) => T[]
+): Promise<T[]> {
+  const db = await openDb();
+  try {
+    return await new Promise<T[]>((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      const request = store.getAll();
+      let next: T[] = [];
+      request.onsuccess = () => {
+        next = mutate((request.result as T[]) ?? []);
+        store.clear();
+        for (const record of next) store.put(record);
+      };
+      request.onerror = () => reject(request.error ?? new Error(`Failed reading ${storeName}`));
+      tx.oncomplete = () => resolve(next);
+      tx.onerror = () => reject(tx.error ?? new Error(`Failed writing ${storeName}`));
+      tx.onabort = () => reject(tx.error ?? new Error(`Writing ${storeName} was aborted`));
+    });
   } finally {
     db.close();
   }
@@ -852,6 +882,142 @@ async function getMigrationMetadata(
   }
 }
 
+async function markMigrationIdbPrimary(
+  metadata: DurableDataMigrationMetadata
+): Promise<void> {
+  if (metadata.state === 'idb-primary') return;
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(MIGRATION_METADATA_STORE, 'readwrite');
+      tx.objectStore(MIGRATION_METADATA_STORE).put({ ...metadata, state: 'idb-primary' });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('Failed to mark migration IndexedDB-primary'));
+      tx.onabort = () => reject(tx.error ?? new Error('Migration metadata update was aborted'));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+async function readPrimaryDataset<T extends DurableRecord>(
+  config: MirrorConfig<T>
+): Promise<DurableDataReadResult<T>> {
+  const fallback = readMirrorSource(config);
+  const useFallback = (
+    fallbackReason: NonNullable<DurableDataReadResult<T>['fallbackReason']>
+  ): DurableDataReadResult<T> => {
+    if (!fallback.readable) {
+      throw new Error(
+        `Unable to read ${config.label}s: IndexedDB cannot be used and the localStorage fallback is unreadable`
+      );
+    }
+    return { records: fallback.records, source: 'localstorage-fallback', fallbackReason };
+  };
+
+  let metadata: DurableDataMigrationMetadata | null;
+  try {
+    metadata = await getMigrationMetadata(config.metadataName);
+  } catch {
+    return useFallback('indexeddb-unavailable');
+  }
+
+  if (metadata?.verificationStatus !== 'verified') {
+    return useFallback('migration-unverified');
+  }
+
+  let records: T[];
+  try {
+    records = await readAllFromStore<T>(config.storeName);
+  } catch {
+    return useFallback('indexeddb-unavailable');
+  }
+
+  if (records.length === 0 && fallback.readable && fallback.records.length > 0) {
+    return useFallback('unexpected-empty-store');
+  }
+
+  // Record cutover only after a verified primary read. A metadata-write failure
+  // must never turn a valid dataset read into an empty or error result.
+  try {
+    await markMigrationIdbPrimary(metadata);
+  } catch (error) {
+    console.error(`Failed to record ${config.label} IndexedDB-primary state:`, error);
+  }
+  return { records, source: 'indexeddb' };
+}
+
+function persistRollbackBridge<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  records: T[]
+): void {
+  if (config === topicArchiveMirrorConfig) {
+    persistTopicArchives(records as unknown as TefTopicArchive[]);
+    return;
+  }
+  try {
+    localStorage.setItem(config.storageKey, JSON.stringify(records));
+  } catch (error) {
+    if (isQuotaExceeded(error) && records.length > 0) {
+      localStorage.setItem(config.storageKey, JSON.stringify(records.slice(0, -1)));
+      return;
+    }
+    throw error;
+  }
+}
+
+async function mutatePrimaryDataset<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  state: MirrorState,
+  operation: DurableDataMirrorDiagnostic['operation'],
+  mutate: (records: T[]) => T[]
+): Promise<T[]> {
+  const mutationPromise = state.queue.then(async () => {
+    const current = await readPrimaryDataset(config);
+    const fallbackNext = mutate([...current.records]);
+
+    if (current.source === 'indexeddb') {
+      let committed: T[];
+      try {
+        // Compute from the records observed inside this read-write transaction.
+        // IndexedDB serializes it with other tabs, preventing lost updates.
+        committed = await mutateAllInStore(config.storeName, mutate);
+      } catch {
+        // Preserve the user mutation in the rollback store and latch the dataset
+        // dirty when IndexedDB fails mid-operation. The queued repair is safe to
+        // retry and primary reads fall back until it succeeds.
+        persistRollbackBridge(config, fallbackNext);
+        void enqueueMirror(config, state, operation);
+        return fallbackNext;
+      }
+      // IndexedDB committed first; the localStorage copy remains the rollback bridge.
+      // Never roll back the primary store from an earlier snapshot if the bridge
+      // itself fails, because doing so could erase another tab's committed data.
+      try {
+        persistRollbackBridge(config, committed);
+      } catch (bridgeError) {
+        console.error(`Failed to update ${config.label} rollback bridge:`, bridgeError);
+      }
+      return committed;
+    }
+
+    // During a documented fallback condition, keep the operation available via
+    // localStorage and queue a verified repair rather than treating a failed or
+    // unexpectedly empty primary read as an empty authoritative dataset.
+    persistRollbackBridge(config, fallbackNext);
+    void enqueueMirror(config, state, operation);
+    return fallbackNext;
+  });
+
+  // Serialize same-dataset mutations so concurrent saves cannot both read the
+  // same snapshot and overwrite one another. Keep the queue usable after errors.
+  state.queue = mutationPromise.then(
+    () => undefined,
+    () => undefined
+  );
+  return mutationPromise;
+}
+
 export async function getTopicArchiveMigrationMetadata(): Promise<TopicArchiveMigrationMetadata | null> {
   return await getMigrationMetadata(TOPIC_ARCHIVE_MIGRATION_NAME) as TopicArchiveMigrationMetadata | null;
 }
@@ -868,22 +1034,41 @@ export function mirrorScenarioDelete(): void {
   void enqueueMirror(scenarioMirrorConfig, scenarioMirrorState, 'delete');
 }
 
-export function listTopicArchives(adId?: string): TefTopicArchive[] {
-  const all = loadTopicArchivesRaw();
-  const filtered = adId ? all.filter((a) => a.adId === adId) : all;
-  return filtered.sort((a, b) => b.createdAt - a.createdAt);
+export async function readTopicArchives(): Promise<DurableDataReadResult<TefTopicArchive>> {
+  const result = await readPrimaryDataset(topicArchiveMirrorConfig);
+  return {
+    ...result,
+    records: [...result.records].sort((a, b) => b.createdAt - a.createdAt),
+  };
 }
 
-export function getLatestTopicArchive(adId: string): TefTopicArchive | null {
-  const forAd = listTopicArchives(adId);
+export async function listTopicArchives(adId?: string): Promise<TefTopicArchive[]> {
+  const { records } = await readTopicArchives();
+  return adId ? records.filter((archive) => archive.adId === adId) : records;
+}
+
+export async function getLatestTopicArchive(adId: string): Promise<TefTopicArchive | null> {
+  const forAd = await listTopicArchives(adId);
   return forAd.length > 0 ? forAd[0] : null;
 }
 
-export function saveTopicArchive(params: {
+export async function readSavedScenarios(): Promise<DurableDataReadResult<Scenario>> {
+  const result = await readPrimaryDataset(scenarioMirrorConfig);
+  return {
+    ...result,
+    records: [...result.records].sort((a, b) => b.createdAt - a.createdAt),
+  };
+}
+
+export async function listSavedScenarios(): Promise<Scenario[]> {
+  return (await readSavedScenarios()).records;
+}
+
+export async function saveTopicArchive(params: {
   adId: string;
   exerciseType: TefExerciseType;
   topicSuggestions: TefTopicSuggestion[];
-}): TefTopicArchive {
+}): Promise<TefTopicArchive> {
   const archive: TefTopicArchive = {
     id: createArchiveId(),
     adId: params.adId,
@@ -892,28 +1077,60 @@ export function saveTopicArchive(params: {
     topicSuggestions: params.topicSuggestions,
   };
 
-  let archives = loadTopicArchivesRaw();
-  archives.unshift(archive);
-
-  if (archives.length > MAX_TOPIC_ARCHIVES) {
-    archives = archives.slice(0, MAX_TOPIC_ARCHIVES);
-  }
-
-  persistTopicArchives(archives);
-  void enqueueMirror(topicArchiveMirrorConfig, topicArchiveMirrorState, 'save');
+  await mutatePrimaryDataset(
+    topicArchiveMirrorConfig,
+    topicArchiveMirrorState,
+    'save',
+    (archives) => [archive, ...archives]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, MAX_TOPIC_ARCHIVES)
+  );
   return archive;
 }
 
-export function deleteTopicArchive(archiveId: string): void {
-  const archives = loadTopicArchivesRaw().filter((a) => a.id !== archiveId);
-  persistTopicArchives(archives);
-  void enqueueMirror(topicArchiveMirrorConfig, topicArchiveMirrorState, 'delete');
+export async function deleteTopicArchive(archiveId: string): Promise<void> {
+  await mutatePrimaryDataset(
+    topicArchiveMirrorConfig,
+    topicArchiveMirrorState,
+    'delete',
+    (archives) => archives
+      .filter((archive) => archive.id !== archiveId)
+      .sort((a, b) => b.createdAt - a.createdAt)
+  );
 }
 
-export function deleteTopicArchivesForAd(adId: string): void {
-  const archives = loadTopicArchivesRaw().filter((a) => a.adId !== adId);
-  persistTopicArchives(archives);
-  void enqueueMirror(topicArchiveMirrorConfig, topicArchiveMirrorState, 'delete-for-ad');
+export async function deleteTopicArchivesForAd(adId: string): Promise<void> {
+  await mutatePrimaryDataset(
+    topicArchiveMirrorConfig,
+    topicArchiveMirrorState,
+    'delete-for-ad',
+    (archives) => archives
+      .filter((archive) => archive.adId !== adId)
+      .sort((a, b) => b.createdAt - a.createdAt)
+  );
+}
+
+export async function saveSavedScenario(scenario: Scenario): Promise<Scenario[]> {
+  return mutatePrimaryDataset(
+    scenarioMirrorConfig,
+    scenarioMirrorState,
+    'save',
+    (scenarios) => {
+      const withoutExisting = scenarios.filter((item) => item.id !== scenario.id);
+      return [scenario, ...withoutExisting].sort((a, b) => b.createdAt - a.createdAt);
+    }
+  );
+}
+
+export async function deleteSavedScenario(scenarioId: string): Promise<Scenario[]> {
+  return mutatePrimaryDataset(
+    scenarioMirrorConfig,
+    scenarioMirrorState,
+    'delete',
+    (scenarios) => scenarios
+      .filter((scenario) => scenario.id !== scenarioId)
+      .sort((a, b) => b.createdAt - a.createdAt)
+  );
 }
 
 export async function listSavedAds(exerciseType: TefExerciseType): Promise<TefSavedAd[]> {
@@ -970,7 +1187,7 @@ export async function touchSavedAdLastUsed(id: string): Promise<void> {
 
 export async function deleteSavedAd(id: string): Promise<void> {
   await runWriteTransaction((store) => idbDelete(store, id));
-  deleteTopicArchivesForAd(id);
+  await deleteTopicArchivesForAd(id);
 }
 
 export function createSavedAdId(): string {

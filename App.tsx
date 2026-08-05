@@ -22,7 +22,6 @@ import {
   createSavedAdId,
   deleteSavedAd,
   getLatestTopicArchive,
-  verifyDurableDataMirrors,
   saveTopicArchive,
   touchSavedAdLastUsed,
   upsertSavedAd,
@@ -149,6 +148,8 @@ const App: React.FC = () => {
   const [tefAdTopicArchiveSaved, setTefAdTopicArchiveSaved] = useState(false);
   const [tefQuestioningTopicArchiveSaved, setTefQuestioningTopicArchiveSaved] = useState(false);
   const currentTefAdIdRef = useRef<string | null>(null);
+  const practiceGuideRequestIdRef = useRef(0);
+  const openTopicsRequestIdRef = useRef(0);
 
   // Snapshot refs for retry/regenerate after messages state is cleared
   const tefQuestioningMessagesSnapshotRef = useRef<Message[]>([]);
@@ -167,8 +168,17 @@ const App: React.FC = () => {
   const activeScenarioRef = useRef<Scenario | null>(null);
   activeScenarioRef.current = activeScenario;
   const loadPracticeGuideForAd = useCallback((adId: string) => {
-    const latest = getLatestTopicArchive(adId);
-    setPracticeGuide(latest?.topicSuggestions ?? null);
+    const requestId = ++practiceGuideRequestIdRef.current;
+    void getLatestTopicArchive(adId)
+      .then((latest) => {
+        if (requestId !== practiceGuideRequestIdRef.current) return;
+        setPracticeGuide(latest?.topicSuggestions ?? null);
+      })
+      .catch((error) => {
+        if (requestId !== practiceGuideRequestIdRef.current) return;
+        console.error('Failed to load practice guide:', error);
+        setPracticeGuide(null);
+      });
   }, []);
 
   const openTopicHistory = useCallback(
@@ -182,23 +192,33 @@ const App: React.FC = () => {
 
   const openTopicsForSavedAd = useCallback(
     (ad: TefSavedAd) => {
-      const latest = getLatestTopicArchive(ad.id);
-      openTopicHistory(ad.id, { archiveId: latest?.id ?? null });
+      const requestId = ++openTopicsRequestIdRef.current;
+      void getLatestTopicArchive(ad.id)
+        .then((latest) => {
+          if (requestId !== openTopicsRequestIdRef.current) return;
+          openTopicHistory(ad.id, { archiveId: latest?.id ?? null });
+        })
+        .catch((error) => {
+          if (requestId !== openTopicsRequestIdRef.current) return;
+          console.error('Failed to select latest topic archive:', error);
+          openTopicHistory(ad.id);
+        });
     },
     [openTopicHistory]
   );
 
   const closeTopicHistory = useCallback(() => {
+    openTopicsRequestIdRef.current += 1;
     setShowTopicHistory(false);
     setTopicHistoryFilterAdId(null);
     setTopicHistoryInitialArchiveId(null);
   }, []);
 
   const persistReviewTopics = useCallback(
-    (adId: string, exerciseType: 'persuasion' | 'questioning', review: TefReview): boolean => {
+    async (adId: string, exerciseType: 'persuasion' | 'questioning', review: TefReview): Promise<boolean> => {
       if (!adId || review.topicSuggestions.length === 0) return false;
       try {
-        saveTopicArchive({
+        await saveTopicArchive({
           adId,
           exerciseType,
           topicSuggestions: review.topicSuggestions,
@@ -338,12 +358,13 @@ const App: React.FC = () => {
       elapsedSeconds: tefQuestioningElapsedRef.current,
       signal: abortController.signal,
     })
-      .then((r) => {
+      .then(async (r) => {
         if (currentRequestId !== tefQuestioningReviewRequestIdRef.current) return;
         if (r) {
           setTefQuestioningReviews([r]);
           setTefQuestioningReviewIndex(0);
-          if (adId && persistReviewTopics(adId, 'questioning', r)) {
+          if (adId && await persistReviewTopics(adId, 'questioning', r)) {
+            if (currentRequestId !== tefQuestioningReviewRequestIdRef.current) return;
             setTefQuestioningTopicArchiveSaved(true);
             loadPracticeGuideForAd(adId);
           }
@@ -382,7 +403,7 @@ const App: React.FC = () => {
       elapsedSeconds: tefQuestioningElapsedRef.current,
       signal: abortController.signal,
     })
-      .then((r) => {
+      .then(async (r) => {
         if (currentRequestId !== tefQuestioningReviewRequestIdRef.current) return;
         if (r) {
           setTefQuestioningReviews((prev) => {
@@ -390,7 +411,8 @@ const App: React.FC = () => {
             setTefQuestioningReviewIndex(next.length - 1);
             return next;
           });
-          if (adId && persistReviewTopics(adId, 'questioning', r)) {
+          if (adId && await persistReviewTopics(adId, 'questioning', r)) {
+            if (currentRequestId !== tefQuestioningReviewRequestIdRef.current) return;
             setTefQuestioningTopicArchiveSaved(true);
             loadPracticeGuideForAd(adId);
           }
@@ -447,12 +469,13 @@ const App: React.FC = () => {
       elapsedSeconds: tefElapsed,
       signal: abortController.signal,
     })
-      .then((r) => {
+      .then(async (r) => {
         if (currentRequestId !== tefAdReviewRequestIdRef.current) return;
         if (r) {
           setTefAdReviews([r]);
           setTefAdReviewIndex(0);
-          if (adId && persistReviewTopics(adId, 'persuasion', r)) {
+          if (adId && await persistReviewTopics(adId, 'persuasion', r)) {
+            if (currentRequestId !== tefAdReviewRequestIdRef.current) return;
             setTefAdTopicArchiveSaved(true);
             loadPracticeGuideForAd(adId);
           }
@@ -491,7 +514,7 @@ const App: React.FC = () => {
       elapsedSeconds: tefElapsed,
       signal: abortController.signal,
     })
-      .then((r) => {
+      .then(async (r) => {
         if (currentRequestId !== tefAdReviewRequestIdRef.current) return;
         if (r) {
           setTefAdReviews((prev) => {
@@ -499,7 +522,8 @@ const App: React.FC = () => {
             setTefAdReviewIndex(next.length - 1);
             return next;
           });
-          if (adId && persistReviewTopics(adId, 'persuasion', r)) {
+          if (adId && await persistReviewTopics(adId, 'persuasion', r)) {
+            if (currentRequestId !== tefAdReviewRequestIdRef.current) return;
             setTefAdTopicArchiveSaved(true);
             loadPracticeGuideForAd(adId);
           }
@@ -627,10 +651,6 @@ const App: React.FC = () => {
 
   // Check for API keys on mount; never show modal on load so user can see the app first
   useEffect(() => {
-    // Stage 2: asynchronously shadow-read, compare, and reconcile both IDB
-    // mirrors. All user-facing reads remain localStorage-backed.
-    void verifyDurableDataMirrors();
-
     const checkApiKeys = async () => {
       setApiKeyCheckDone(true);
       if (hasApiKeyOrEnv('gemini')) {
