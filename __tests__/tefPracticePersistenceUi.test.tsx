@@ -56,10 +56,10 @@ describe('PracticeModeSheet · topic history entry', () => {
 });
 
 describe('TefTopicHistorySheet', () => {
-  it('shows empty state when no archives', () => {
-    vi.spyOn(tefArchiveService, 'listTopicArchives').mockReturnValue([]);
+  it('shows empty state when no archives', async () => {
+    vi.spyOn(tefArchiveService, 'listTopicArchives').mockResolvedValue([]);
     render(<TefTopicHistorySheet open={true} onClose={() => {}} />);
-    expect(screen.getByText(/Complete a session to save topic suggestions/)).toBeTruthy();
+    expect(await screen.findByText(/Complete a session to save topic suggestions/)).toBeTruthy();
     vi.restoreAllMocks();
   });
 });
@@ -174,7 +174,7 @@ describe('App.tsx · practiceGuide state loaded from topic archive', () => {
     const src = await import('../App.tsx?raw');
     const text = src.default as string;
     expect(text).toMatch(/loadPracticeGuideForAd/);
-    expect(text).toMatch(/if \(adId && persistReviewTopics\(adId,[\s\S]{0,200}loadPracticeGuideForAd\(adId\)/);
+    expect(text).toMatch(/if \(adId && await persistReviewTopics\(adId,[\s\S]{0,260}loadPracticeGuideForAd\(adId\)/);
   });
 });
 

@@ -339,7 +339,7 @@ describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
     const service = await import('../services/tefArchiveService');
     await service.initializeTopicArchiveMirror();
 
-    const created = service.saveTopicArchive({
+    const created = await service.saveTopicArchive({
       adId: 'ad-1',
       exerciseType: 'persuasion',
       topicSuggestions: topics,
@@ -347,9 +347,9 @@ describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
     await service.waitForTopicArchiveMirror();
     expect((await service.getTopicArchiveMirrorSnapshot()).map((item) => item.id)).toEqual([created.id]);
 
-    service.deleteTopicArchive(created.id);
+    await service.deleteTopicArchive(created.id);
     await service.waitForTopicArchiveMirror();
-    expect(service.listTopicArchives()).toEqual([]);
+    expect(await service.listTopicArchives()).toEqual([]);
     expect(await service.getTopicArchiveMirrorSnapshot()).toEqual([]);
   });
 
@@ -359,7 +359,7 @@ describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
     await service.initializeScenarioMirror();
     const created = currentScenario('scenario-to-mutate');
 
-    scenarioService.saveScenario(created);
+    await scenarioService.saveScenario(created);
     await service.waitForScenarioMirror();
     expect(await service.getScenarioMirrorSnapshot()).toEqual([created]);
 
@@ -368,13 +368,13 @@ describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
       name: 'Updated bakery',
       steps: [...(created.steps ?? []), { id: 'step-4', text: 'Say goodbye' }],
     };
-    scenarioService.saveScenario(updated);
+    await scenarioService.saveScenario(updated);
     await service.waitForScenarioMirror();
     expect(await service.getScenarioMirrorSnapshot()).toEqual([updated]);
 
-    scenarioService.deleteScenario(updated.id);
+    await scenarioService.deleteScenario(updated.id);
     await service.waitForScenarioMirror();
-    expect(scenarioService.loadScenarios()).toEqual([]);
+    expect(await scenarioService.loadScenarios()).toEqual([]);
     expect(await service.getScenarioMirrorSnapshot()).toEqual([]);
   });
 
@@ -694,7 +694,7 @@ describe('Stage 2 durable exercise data shadow verification', () => {
     });
 
     const transactionSpy = await failReadWriteTransactionsForStore('topicArchives');
-    service.saveTopicArchive({
+    await service.saveTopicArchive({
       adId: ad.id,
       exerciseType: 'persuasion',
       topicSuggestions: topics,
@@ -707,7 +707,7 @@ describe('Stage 2 durable exercise data shadow verification', () => {
       success: false,
       error: 'Forced topicArchives mirror transaction failure',
     });
-    expect(service.listTopicArchives()).toHaveLength(2);
+    expect(await service.listTopicArchives()).toHaveLength(2);
     expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
       verificationStatus: 'failed',
       verificationError: 'Forced topicArchives mirror transaction failure',
@@ -733,7 +733,7 @@ describe('Stage 2 durable exercise data shadow verification', () => {
     });
 
     const transactionSpy = await failReadWriteTransactionsForStore('scenarios');
-    scenarioService.saveScenario({ ...initial, name: 'Saved locally only at first' });
+    await scenarioService.saveScenario({ ...initial, name: 'Saved locally only at first' });
     const failedMirror = await service.waitForScenarioMirror();
     transactionSpy.mockRestore();
 
@@ -742,7 +742,7 @@ describe('Stage 2 durable exercise data shadow verification', () => {
       success: false,
       error: 'Forced scenarios mirror transaction failure',
     });
-    expect(scenarioService.loadScenarios()[0].name).toBe('Saved locally only at first');
+    expect((await scenarioService.loadScenarios())[0].name).toBe('Saved locally only at first');
     expect(await service.getScenarioMigrationMetadata()).toMatchObject({
       verificationStatus: 'failed',
       verificationError: 'Forced scenarios mirror transaction failure',
@@ -773,12 +773,12 @@ describe('Stage 2 durable exercise data shadow verification', () => {
 
     const availableIndexedDb = indexedDB;
     vi.stubGlobal('indexedDB', undefined);
-    service.saveTopicArchive({
+    await service.saveTopicArchive({
       adId: ad.id,
       exerciseType: 'persuasion',
       topicSuggestions: topics,
     });
-    scenarioService.saveScenario({ ...initialScenario, name: 'Changed while IDB unavailable' });
+    await scenarioService.saveScenario({ ...initialScenario, name: 'Changed while IDB unavailable' });
     expect((await service.waitForTopicArchiveMirror())?.success).toBe(false);
     expect((await service.waitForScenarioMirror())?.success).toBe(false);
 

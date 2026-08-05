@@ -26,7 +26,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ScenarioSetup } from '../components/ScenarioSetup';
 import type { Scenario } from '../types';
 import * as scenarioService from '../services/scenarioService';
@@ -39,9 +39,9 @@ vi.mock('../services/scenarioService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/scenarioService')>();
   return {
     ...actual,
-    loadScenarios: vi.fn(),
-    saveScenario: vi.fn((s: Scenario) => [s]),
-    deleteScenario: vi.fn(),
+    loadScenarios: vi.fn(async () => []),
+    saveScenario: vi.fn(async (s: Scenario) => [s]),
+    deleteScenario: vi.fn(async () => []),
   };
 });
 
@@ -105,7 +105,7 @@ const scenarioWithSteps: Scenario = {
 
 describe('ScenarioSetup: quick-start branching (via direct saved-scenarios mock)', () => {
   it('calls onStartPractice directly when the saved scenario already has steps', async () => {
-    vi.mocked(scenarioService.loadScenarios).mockReturnValue([scenarioWithSteps]);
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenarioWithSteps]);
     const props = renderScenarioSetup({});
 
     fireEvent.click(await screen.findByText(/show saved scenarios/i));
@@ -116,7 +116,7 @@ describe('ScenarioSetup: quick-start branching (via direct saved-scenarios mock)
   });
 
   it('calls onRegenerateRoadmap instead of onStartPractice when the saved scenario has no steps', async () => {
-    vi.mocked(scenarioService.loadScenarios).mockReturnValue([scenarioWithoutSteps]);
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenarioWithoutSteps]);
     const props = renderScenarioSetup({});
 
     fireEvent.click(await screen.findByText(/show saved scenarios/i));
@@ -128,7 +128,7 @@ describe('ScenarioSetup: quick-start branching (via direct saved-scenarios mock)
 
   it('calls onRegenerateRoadmap when the saved scenario has an empty steps array', async () => {
     const emptySteps = { ...scenarioWithoutSteps, steps: [] };
-    vi.mocked(scenarioService.loadScenarios).mockReturnValue([emptySteps]);
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([emptySteps]);
     const props = renderScenarioSetup({});
 
     fireEvent.click(await screen.findByText(/show saved scenarios/i));
@@ -139,7 +139,7 @@ describe('ScenarioSetup: quick-start branching (via direct saved-scenarios mock)
 });
 
 describe('ScenarioSetup: "Start Practice" reuses the id/createdAt of the scenario being regenerated', () => {
-  it('saves with the existing id and createdAt instead of generating new ones', () => {
+  it('saves with the existing id and createdAt instead of generating new ones', async () => {
     renderScenarioSetup({
       aiSummary: 'You visited a bakery and bought bread.',
       currentName: 'Bakery Visit',
@@ -150,12 +150,12 @@ describe('ScenarioSetup: "Start Practice" reuses the id/createdAt of the scenari
 
     fireEvent.click(screen.getByRole('button', { name: /^start practice$/i }));
 
-    expect(scenarioService.saveScenario).toHaveBeenCalledWith(
+    await waitFor(() => expect(scenarioService.saveScenario).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'existing-no-steps', createdAt: 1000 })
-    );
+    ));
   });
 
-  it('generates a new id when not regenerating an existing scenario (fresh creation, unchanged)', () => {
+  it('generates a new id when not regenerating an existing scenario (fresh creation, unchanged)', async () => {
     renderScenarioSetup({
       aiSummary: 'A fresh scenario summary.',
       currentName: 'New Scenario',
@@ -166,7 +166,7 @@ describe('ScenarioSetup: "Start Practice" reuses the id/createdAt of the scenari
 
     fireEvent.click(screen.getByRole('button', { name: /^start practice$/i }));
 
-    expect(scenarioService.saveScenario).toHaveBeenCalled();
+    await waitFor(() => expect(scenarioService.saveScenario).toHaveBeenCalled());
     const savedArg = vi.mocked(scenarioService.saveScenario).mock.calls[0][0];
     expect(savedArg.id).not.toBe('existing-no-steps');
   });
