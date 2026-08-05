@@ -1,6 +1,6 @@
 # Stage 3 — IndexedDB Primary Reads
 
-Status: **next authorized implementation stage**
+Status: **implemented on branch; merge and deployment verification pending**
 
 ## Objective
 
@@ -37,3 +37,30 @@ including stale close/reopen behavior and an IndexedDB-failure fallback exercise
 
 Record branch, commits, changed consumers, tests, merge, deployment, fallback observations,
 and post-deployment data comparison. Then update `../README.md` so Stage 4 is next.
+
+- Branch: `codex/data-portability-stage-3`
+- Commits: `284fa75` (IndexedDB-primary implementation), `0fa1585` (Stage 3
+  regression coverage), plus this completion-record commit
+- Changed repository/service paths: `services/tefArchiveService.ts`,
+  `services/scenarioService.ts`, and migration metadata in `types.ts`
+- Changed consumers: `App.tsx`, `components/TefTopicHistorySheet.tsx`, and
+  `components/ScenarioSetup.tsx`
+- Primary-read behavior: independently verified topic/scenario datasets read asynchronously
+  from IndexedDB; localStorage is used only when IndexedDB is unavailable, migration metadata
+  is unverified/dirty, or a verified IndexedDB store is unexpectedly empty while its rollback
+  copy contains records
+- Mutation behavior: verified datasets commit serialized mutations to IndexedDB first and
+  then update the localStorage rollback bridge; fallback-mode mutations update localStorage,
+  latch the dataset dirty, and queue verified repair
+- Automated coverage: permanent Stage 1/2 migration coverage retained; Stage 3 coverage added
+  for primary reads, independent guarded fallbacks, IndexedDB failure, malformed fallback,
+  unexpected-empty non-overwrite, concurrent writes, async loading/error UI, and stale
+  close/reopen discard
+- Automated test result: `npx vitest run --reporter=dot --silent` passed (53 files,
+  632 tests)
+- Build result: `npm run build` passed; the existing large-chunk advisory remains non-blocking
+- Manual browser checks: local Chrome smoke check passed for empty topic history, empty saved
+  scenarios, and an IndexedDB-unavailable scenario fallback seeded in the isolated browser
+  context (`Show Saved Scenarios (1)` rendered from the localStorage rollback copy)
+- Merge/deployment: pending
+- Post-deployment fallback observations and data comparison: pending
