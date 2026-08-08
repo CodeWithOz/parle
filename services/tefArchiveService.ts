@@ -17,6 +17,8 @@ const TOPIC_ARCHIVES_KEY = 'parle-tef-topic-archives';
 const SCENARIOS_KEY = 'parle-scenarios';
 const TOPIC_ARCHIVES_MIRROR_DIRTY_KEY = 'parle-tef-topic-archives-mirror-dirty';
 const SCENARIOS_MIRROR_DIRTY_KEY = 'parle-scenarios-mirror-dirty';
+const TOPIC_ARCHIVES_BRIDGE_DIRTY_KEY = 'parle-tef-topic-archives-bridge-dirty';
+const SCENARIOS_BRIDGE_DIRTY_KEY = 'parle-scenarios-bridge-dirty';
 const MAX_TOPIC_ARCHIVES = 50;
 const MAX_SAVED_ADS_PER_TYPE = 20;
 const DB_NAME = 'parle-tef';
@@ -28,6 +30,7 @@ const MIGRATION_METADATA_STORE = 'migrationMetadata';
 const TOPIC_ARCHIVE_MIGRATION_NAME = 'topic-archives-localstorage-to-idb';
 const SCENARIO_MIGRATION_NAME = 'scenarios-localstorage-to-idb';
 const MAX_MIRROR_STABILITY_ATTEMPTS = 5;
+const rollbackBridgeDirtyInMemory = new Set<string>();
 
 export interface DurableDataMirrorDiagnostic {
   operation: 'backfill' | 'shadow-verify' | 'save' | 'delete' | 'delete-for-ad';
@@ -73,6 +76,7 @@ interface MirrorSource<T extends DurableRecord> {
 interface MirrorConfig<T extends DurableRecord> {
   storageKey: string;
   dirtyKey: string;
+  bridgeDirtyKey: string;
   storeName: string;
   metadataName: DurableDataMigrationName;
   label: string;
@@ -97,6 +101,7 @@ export interface DurableDataReadResult<T> {
 const topicArchiveMirrorConfig: MirrorConfig<TefTopicArchive> = {
   storageKey: TOPIC_ARCHIVES_KEY,
   dirtyKey: TOPIC_ARCHIVES_MIRROR_DIRTY_KEY,
+  bridgeDirtyKey: TOPIC_ARCHIVES_BRIDGE_DIRTY_KEY,
   storeName: TOPIC_ARCHIVES_STORE,
   metadataName: TOPIC_ARCHIVE_MIGRATION_NAME,
   label: 'TEF topic archive',
@@ -106,6 +111,7 @@ const topicArchiveMirrorConfig: MirrorConfig<TefTopicArchive> = {
 const scenarioMirrorConfig: MirrorConfig<Scenario> = {
   storageKey: SCENARIOS_KEY,
   dirtyKey: SCENARIOS_MIRROR_DIRTY_KEY,
+  bridgeDirtyKey: SCENARIOS_BRIDGE_DIRTY_KEY,
   storeName: SCENARIOS_STORE,
   metadataName: SCENARIO_MIGRATION_NAME,
   label: 'saved scenario',
@@ -669,6 +675,45 @@ function readMirrorDirtyToken(config: MirrorConfig<DurableRecord>): string | nul
   }
 }
 
+function isRollbackBridgeDirty(config: MirrorConfig<DurableRecord>): boolean {
+  if (rollbackBridgeDirtyInMemory.has(config.bridgeDirtyKey)) return true;
+  try {
+    return localStorage.getItem(config.bridgeDirtyKey) !== null
+      || sessionStorage.getItem(config.bridgeDirtyKey) !== null;
+  } catch {
+    return true;
+  }
+}
+
+function markRollbackBridgeDirty(config: MirrorConfig<DurableRecord>): void {
+  rollbackBridgeDirtyInMemory.add(config.bridgeDirtyKey);
+  const marker = String(Date.now());
+  try {
+    localStorage.setItem(config.bridgeDirtyKey, marker);
+  } catch (error) {
+    console.error(`Failed to mark ${config.label} rollback bridge dirty:`, error);
+  }
+  try {
+    sessionStorage.setItem(config.bridgeDirtyKey, marker);
+  } catch (error) {
+    console.error(`Failed to mark ${config.label} session rollback bridge dirty:`, error);
+  }
+}
+
+function clearRollbackBridgeDirty(config: MirrorConfig<DurableRecord>): void {
+  rollbackBridgeDirtyInMemory.delete(config.bridgeDirtyKey);
+  try {
+    localStorage.removeItem(config.bridgeDirtyKey);
+  } catch (error) {
+    console.error(`Failed to clear ${config.label} rollback bridge marker:`, error);
+  }
+  try {
+    sessionStorage.removeItem(config.bridgeDirtyKey);
+  } catch (error) {
+    console.error(`Failed to clear ${config.label} session rollback bridge marker:`, error);
+  }
+}
+
 function markMirrorDirty(
   config: MirrorConfig<DurableRecord>,
   state: MirrorState
@@ -907,6 +952,11 @@ async function readPrimaryDataset<T extends DurableRecord>(
   const useFallback = (
     fallbackReason: NonNullable<DurableDataReadResult<T>['fallbackReason']>
   ): DurableDataReadResult<T> => {
+    if (isRollbackBridgeDirty(config as MirrorConfig<DurableRecord>)) {
+      throw new Error(
+        `Unable to read ${config.label}s: IndexedDB cannot be used and the localStorage rollback bridge is stale`
+      );
+    }
     if (!fallback.readable) {
       throw new Error(
         `Unable to read ${config.label}s: IndexedDB cannot be used and the localStorage fallback is unreadable`
@@ -935,6 +985,17 @@ async function readPrimaryDataset<T extends DurableRecord>(
 
   if (records.length === 0 && fallback.readable && fallback.records.length > 0) {
     return useFallback('unexpected-empty-store');
+  }
+
+  if (isRollbackBridgeDirty(config as MirrorConfig<DurableRecord>)) {
+    try {
+      persistRollbackBridge(config, records);
+      clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
+    } catch (error) {
+      // IndexedDB remains authoritative. Keep the durable marker so a later
+      // fallback cannot silently serve the stale rollback copy.
+      console.error(`Failed to repair ${config.label} rollback bridge:`, error);
+    }
   }
 
   // Record cutover only after a verified primary read. A metadata-write failure
@@ -987,6 +1048,7 @@ async function mutatePrimaryDataset<T extends DurableRecord>(
         // dirty when IndexedDB fails mid-operation. The queued repair is safe to
         // retry and primary reads fall back until it succeeds.
         persistRollbackBridge(config, fallbackNext);
+        clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
         void enqueueMirror(config, state, operation);
         return fallbackNext;
       }
@@ -995,8 +1057,10 @@ async function mutatePrimaryDataset<T extends DurableRecord>(
       // itself fails, because doing so could erase another tab's committed data.
       try {
         persistRollbackBridge(config, committed);
+        clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
       } catch (bridgeError) {
         console.error(`Failed to update ${config.label} rollback bridge:`, bridgeError);
+        markRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
       }
       return committed;
     }
@@ -1005,6 +1069,7 @@ async function mutatePrimaryDataset<T extends DurableRecord>(
     // localStorage and queue a verified repair rather than treating a failed or
     // unexpectedly empty primary read as an empty authoritative dataset.
     persistRollbackBridge(config, fallbackNext);
+    clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
     void enqueueMirror(config, state, operation);
     return fallbackNext;
   });

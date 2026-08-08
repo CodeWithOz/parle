@@ -48,6 +48,7 @@ vi.mock('../services/scenarioService', async (importOriginal) => {
 function baseProps(overrides: Record<string, unknown> = {}) {
   return {
     onStartPractice: vi.fn(),
+    onOpenApiKeyModal: vi.fn(),
     onClose: vi.fn(),
     isRecordingDescription: false,
     isTranscribingDescription: false,
@@ -136,6 +137,17 @@ describe('ScenarioSetup: quick-start branching (via direct saved-scenarios mock)
 
     expect(props.onRegenerateRoadmap).toHaveBeenCalledWith(emptySteps);
   });
+
+  it('opens API key setup and does not start when Gemini credentials are missing', async () => {
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenarioWithSteps]);
+    const props = renderScenarioSetup({ geminiKeyMissing: true });
+
+    fireEvent.click(await screen.findByText(/show saved scenarios/i));
+    fireEvent.click(screen.getByRole('button', { name: /start practicing bakery visit/i }));
+
+    expect(props.onOpenApiKeyModal).toHaveBeenCalledOnce();
+    expect(props.onStartPractice).not.toHaveBeenCalled();
+  });
 });
 
 describe('ScenarioSetup: "Start Practice" reuses the id/createdAt of the scenario being regenerated', () => {
@@ -169,5 +181,28 @@ describe('ScenarioSetup: "Start Practice" reuses the id/createdAt of the scenari
     await waitFor(() => expect(scenarioService.saveScenario).toHaveBeenCalled());
     const savedArg = vi.mocked(scenarioService.saveScenario).mock.calls[0][0];
     expect(savedArg.id).not.toBe('existing-no-steps');
+  });
+
+  it('prevents re-entry while the asynchronous save is still in flight', async () => {
+    let resolveSave!: (scenarios: Scenario[]) => void;
+    vi.mocked(scenarioService.saveScenario).mockReturnValueOnce(
+      new Promise((resolve) => { resolveSave = resolve; })
+    );
+    renderScenarioSetup({
+      aiSummary: 'A fresh scenario summary.',
+      currentName: 'New Scenario',
+      currentDescription: 'A brand new scenario',
+      roadmapSteps: ['Step one'],
+    });
+
+    const start = screen.getByRole('button', { name: /^start practice$/i });
+    fireEvent.click(start);
+    fireEvent.click(start);
+
+    expect(scenarioService.saveScenario).toHaveBeenCalledTimes(1);
+    expect(start).toBeDisabled();
+
+    resolveSave([]);
+    await waitFor(() => expect(start).not.toBeDisabled());
   });
 });

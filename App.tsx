@@ -183,6 +183,8 @@ const App: React.FC = () => {
 
   const openTopicHistory = useCallback(
     (filterAdId: string | null = null, options?: { archiveId?: string | null }) => {
+      // Direct navigation supersedes any pending saved-ad latest-archive lookup.
+      openTopicsRequestIdRef.current += 1;
       setTopicHistoryFilterAdId(filterAdId);
       setTopicHistoryInitialArchiveId(options?.archiveId ?? null);
       setShowTopicHistory(true);
@@ -2703,6 +2705,7 @@ const App: React.FC = () => {
       {scenarioMode === 'setup' && (
         <ScenarioSetup
           onStartPractice={handleStartPractice}
+          onOpenApiKeyModal={() => setShowApiKeyModal(true)}
           onClose={handleCloseScenarioSetup}
           isRecordingDescription={isRecordingDescription}
           isTranscribingDescription={isTranscribingDescription}

@@ -187,6 +187,16 @@ describe('App.tsx · PracticeModeSheet receives onOpenTopicHistory prop', () => 
   });
 });
 
+describe('App.tsx · topic-history stale selection guard', () => {
+  it('invalidates a pending saved-ad lookup before direct history navigation', async () => {
+    const src = await import('../App.tsx?raw');
+    const text = src.default as string;
+    expect(text).toMatch(
+      /const openTopicHistory[\s\S]{0,220}openTopicsRequestIdRef\.current \+= 1[\s\S]{0,120}setTopicHistoryFilterAdId/
+    );
+  });
+});
+
 describe('App.tsx · post-exercise review abort and stale discard', () => {
   it('uses per-request AbortController and request id guards for TEF reviews', async () => {
     const src = await import('../App.tsx?raw');

@@ -4,6 +4,7 @@ import type { Scenario, TefTopicArchive } from '../types';
 
 const TOPIC_ARCHIVES_KEY = 'parle-tef-topic-archives';
 const SCENARIOS_KEY = 'parle-scenarios';
+const SCENARIOS_BRIDGE_DIRTY_KEY = 'parle-scenarios-bridge-dirty';
 
 const archive = (id: string, createdAt = 100): TefTopicArchive => ({
   id,
@@ -141,5 +142,43 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
     expect(await service.listSavedScenarios()).toHaveLength(2);
     expect(JSON.parse(localStorage.getItem(TOPIC_ARCHIVES_KEY) ?? '[]')).toHaveLength(2);
     expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toHaveLength(2);
+  });
+
+  it('never serves a stale rollback bridge and repairs it from IndexedDB', async () => {
+    localStorage.setItem(SCENARIOS_KEY, '[]');
+    const service = await import('../services/tefArchiveService');
+    await service.verifyScenarioMirror();
+
+    const originalSetItem = Storage.prototype.setItem;
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (this === localStorage && key === SCENARIOS_KEY) {
+        throw new Error('Forced rollback bridge failure');
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    await service.saveSavedScenario(scenario('idb-committed'));
+    setItemSpy.mockRestore();
+
+    expect(await service.getScenarioMirrorSnapshot()).toEqual([
+      expect.objectContaining({ id: 'idb-committed' }),
+    ]);
+    expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toEqual([]);
+    expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).not.toBeNull();
+
+    const availableIndexedDb = indexedDB;
+    vi.stubGlobal('indexedDB', undefined);
+    await expect(service.readSavedScenarios()).rejects.toThrow(/rollback bridge is stale/);
+
+    vi.stubGlobal('indexedDB', availableIndexedDb);
+    expect(await service.listSavedScenarios()).toEqual([
+      expect.objectContaining({ id: 'idb-committed' }),
+    ]);
+    expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toEqual([
+      expect.objectContaining({ id: 'idb-committed' }),
+    ]);
+    expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).toBeNull();
+    consoleError.mockRestore();
   });
 });

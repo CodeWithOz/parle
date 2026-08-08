@@ -62,6 +62,7 @@ import { ScenarioSetup } from '../components/ScenarioSetup';
 function baseProps(overrides: Record<string, unknown> = {}) {
   return {
     onStartPractice: vi.fn(),
+    onOpenApiKeyModal: vi.fn(),
     onClose: vi.fn(),
     isRecordingDescription: false,
     isTranscribingDescription: false,
