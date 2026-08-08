@@ -787,11 +787,11 @@ describe('Stage 2 durable exercise data shadow verification', () => {
     vi.stubGlobal('indexedDB', availableIndexedDb);
     expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
       verificationStatus: 'failed',
-      verificationError: 'IndexedDB recovery has pending local mutations',
+      verificationError: 'Authoritative localStorage changed after the last verified reconciliation',
     });
     expect(await service.getScenarioMigrationMetadata()).toMatchObject({
       verificationStatus: 'failed',
-      verificationError: 'IndexedDB recovery has pending local mutations',
+      verificationError: 'Authoritative localStorage changed after the last verified reconciliation',
     });
 
     const repaired = await service.verifyDurableDataMirrors();

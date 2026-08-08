@@ -92,6 +92,7 @@ interface MirrorConfig<T extends DurableRecord> {
 
 interface PendingMutation {
   id: string;
+  createdAt?: number;
   kind: 'upsert' | 'delete-id' | 'delete-for-ad';
   record?: DurableRecord;
   targetId?: string;
@@ -153,6 +154,16 @@ const scenarioMirrorState: MirrorState = {
 
 function createArchiveId(): string {
   return `scenario_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+}
+
+function createPendingMutation(
+  mutation: Omit<PendingMutation, 'id' | 'createdAt'>
+): PendingMutation {
+  const createdAt = Date.now();
+  const suffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+  return { ...mutation, id: `mutation_${createdAt}_${suffix}`, createdAt };
 }
 
 function isQuotaExceeded(error: unknown): boolean {
@@ -755,11 +766,23 @@ function hasIdbPrimaryAuthority(
 
 function readPendingMutations(config: MirrorConfig<DurableRecord>): PendingMutation[] {
   try {
-    const raw = localStorage.getItem(config.pendingMutationsKey);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) throw new Error('pending mutation journal is not an array');
-    return parsed as PendingMutation[];
+    const pending: PendingMutation[] = [];
+    const keyPrefix = `${config.pendingMutationsKey}:`;
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (!key?.startsWith(keyPrefix)) continue;
+      const rawIntent = localStorage.getItem(key);
+      if (!rawIntent) continue;
+      const intent = JSON.parse(rawIntent) as PendingMutation;
+      if (!intent || typeof intent.id !== 'string') {
+        throw new Error(`invalid mutation entry ${key}`);
+      }
+      pending.push(intent);
+    }
+
+    return pending.sort((left, right) =>
+      (left.createdAt ?? 0) - (right.createdAt ?? 0) || left.id.localeCompare(right.id)
+    );
   } catch (error) {
     throw new Error(`Unable to read ${config.label} recovery journal: ${errorMessage(error)}`);
   }
@@ -769,12 +792,24 @@ function appendPendingMutation(
   config: MirrorConfig<DurableRecord>,
   intent: PendingMutation
 ): void {
-  const pending = readPendingMutations(config);
-  localStorage.setItem(config.pendingMutationsKey, JSON.stringify([...pending, intent]));
+  // Fail closed before publishing the intent. If the tab crashes after this
+  // point, no localStorage snapshot can be treated as a complete fallback.
+  markRollbackBridgeDirty(config);
+  localStorage.setItem(
+    `${config.pendingMutationsKey}:${encodeURIComponent(intent.id)}`,
+    JSON.stringify(intent)
+  );
 }
 
-function clearPendingMutations(config: MirrorConfig<DurableRecord>): void {
-  localStorage.removeItem(config.pendingMutationsKey);
+function removePendingMutations(
+  config: MirrorConfig<DurableRecord>,
+  processed: PendingMutation[]
+): void {
+  for (const intent of processed) {
+    localStorage.removeItem(
+      `${config.pendingMutationsKey}:${encodeURIComponent(intent.id)}`
+    );
+  }
 }
 
 function applyPendingMutation<T extends DurableRecord>(
@@ -889,9 +924,6 @@ function enqueueMirror<T extends DurableRecord>(
       };
       state.lastDiagnostic = diagnostic;
       clearMirrorDirtyToken(durableConfig, dirtyToken);
-      if (readPendingMutations(durableConfig).length > 0) {
-        clearPendingMutations(durableConfig);
-      }
       return diagnostic;
     } catch (error) {
       const diagnostic: DurableDataMirrorDiagnostic = {
@@ -991,7 +1023,8 @@ async function recoverDatasetAtStartup<T extends DurableRecord>(
   }
 
   const durableConfig = config as MirrorConfig<DurableRecord>;
-  const hasPending = readPendingMutations(durableConfig).length > 0;
+  const pendingAtStart = readPendingMutations(durableConfig);
+  const hasPending = pendingAtStart.length > 0;
   if (hasIdbPrimaryAuthority(durableConfig, metadata)) {
     if (metadata?.verificationStatus === 'verified'
       && readMirrorDirtyToken(durableConfig) === null
@@ -1010,7 +1043,7 @@ async function recoverDatasetAtStartup<T extends DurableRecord>(
     || hasPending) {
     const diagnostic = await enqueueMirror(config, state, 'backfill');
     if (!diagnostic.success) throw new Error(diagnostic.error ?? `${config.label} recovery failed`);
-    if (hasPending) clearPendingMutations(durableConfig);
+    if (hasPending) removePendingMutations(durableConfig, pendingAtStart);
   }
 }
 
@@ -1161,6 +1194,8 @@ async function recoverPrimaryDataset<T extends DurableRecord>(
 ): Promise<T[]> {
   const durableConfig = config as MirrorConfig<DurableRecord>;
   const pending = readPendingMutations(durableConfig);
+  // This latch is set before replay so every crash boundary fails closed.
+  markRollbackBridgeDirty(durableConfig);
   const records = pending.length > 0
     ? await mutateAllInStore(config.storeName, (current) => pending.reduce(
       (next, intent) => applyPendingMutation(config, next, intent),
@@ -1168,19 +1203,23 @@ async function recoverPrimaryDataset<T extends DurableRecord>(
     ))
     : await readAllFromStore<T>(config.storeName);
 
-  if (pending.length > 0) clearPendingMutations(durableConfig);
-
+  let bridgeComplete = false;
   try {
-    const bridgeComplete = persistRollbackBridge(config, records);
-    if (bridgeComplete) clearRollbackBridgeDirty(durableConfig);
-    else markRollbackBridgeDirty(durableConfig);
+    bridgeComplete = persistRollbackBridge(config, records);
   } catch (error) {
-    markRollbackBridgeDirty(durableConfig);
     console.error(`Failed to rebuild ${config.label} rollback bridge:`, error);
   }
 
-  clearMirrorDirtyToken(durableConfig, readMirrorDirtyToken(durableConfig));
   await writePrimaryRecoveryMetadata(config, records);
+  if (bridgeComplete && pending.length > 0) {
+    removePendingMutations(durableConfig, pending);
+  }
+  clearMirrorDirtyToken(durableConfig, readMirrorDirtyToken(durableConfig));
+  if (bridgeComplete && readPendingMutations(durableConfig).length === 0) {
+    clearRollbackBridgeDirty(durableConfig);
+  } else {
+    markRollbackBridgeDirty(durableConfig);
+  }
   return records;
 }
 
@@ -1191,7 +1230,8 @@ async function readPrimaryDataset<T extends DurableRecord>(
   const useFallback = (
     fallbackReason: NonNullable<DurableDataReadResult<T>['fallbackReason']>
   ): DurableDataReadResult<T> => {
-    if (isRollbackBridgeDirty(config as MirrorConfig<DurableRecord>)) {
+    const durableConfig = config as MirrorConfig<DurableRecord>;
+    if (isRollbackBridgeDirty(durableConfig) || readPendingMutations(durableConfig).length > 0) {
       throw new Error(
         `Unable to read ${config.label}s: IndexedDB cannot be used and the localStorage rollback bridge is stale`
       );
@@ -1332,7 +1372,9 @@ async function mutatePrimaryDataset<T extends DurableRecord>(
       // itself fails, because doing so could erase another tab's committed data.
       try {
         const bridgeComplete = persistRollbackBridge(config, committed);
-        if (bridgeComplete) {
+        if (bridgeComplete && readPendingMutations(
+          config as MirrorConfig<DurableRecord>
+        ).length === 0) {
           clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
         } else {
           markRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
@@ -1347,14 +1389,17 @@ async function mutatePrimaryDataset<T extends DurableRecord>(
     // A fallback mutation is journaled as an idempotent intent. Never reconcile
     // the whole localStorage snapshot into IndexedDB after the Stage 3 cutover.
     const durableConfig = config as MirrorConfig<DurableRecord>;
-    appendPendingMutation(durableConfig, intent);
+    const isPostCutover = hasIdbPrimaryAuthority(durableConfig);
+    if (isPostCutover) appendPendingMutation(durableConfig, intent);
     const bridgeComplete = persistRollbackBridge(config, fallbackNext);
-    if (!bridgeComplete || hasIdbPrimaryAuthority(durableConfig)) {
+    if (!bridgeComplete || isPostCutover) {
       markRollbackBridgeDirty(durableConfig);
     }
-    queuePrimaryRecovery(config, state, intent.kind === 'delete-for-ad'
+    const operation = intent.kind === 'delete-for-ad'
       ? 'delete-for-ad'
-      : intent.kind === 'delete-id' ? 'delete' : 'save');
+      : intent.kind === 'delete-id' ? 'delete' : 'save';
+    if (isPostCutover) queuePrimaryRecovery(config, state, operation);
+    else void enqueueMirror(config, state, operation);
     return fallbackNext;
   });
 
@@ -1450,7 +1495,7 @@ export async function saveTopicArchive(params: {
   await mutatePrimaryDataset(
     topicArchiveMirrorConfig,
     topicArchiveMirrorState,
-    { id: createArchiveId(), kind: 'upsert', record: archive }
+    createPendingMutation({ kind: 'upsert', record: archive })
   );
   return archive;
 }
@@ -1459,7 +1504,7 @@ export async function deleteTopicArchive(archiveId: string): Promise<void> {
   await mutatePrimaryDataset(
     topicArchiveMirrorConfig,
     topicArchiveMirrorState,
-    { id: createArchiveId(), kind: 'delete-id', targetId: archiveId }
+    createPendingMutation({ kind: 'delete-id', targetId: archiveId })
   );
 }
 
@@ -1467,7 +1512,7 @@ export async function deleteTopicArchivesForAd(adId: string): Promise<void> {
   await mutatePrimaryDataset(
     topicArchiveMirrorConfig,
     topicArchiveMirrorState,
-    { id: createArchiveId(), kind: 'delete-for-ad', adId }
+    createPendingMutation({ kind: 'delete-for-ad', adId })
   );
 }
 
@@ -1475,7 +1520,7 @@ export async function saveSavedScenario(scenario: Scenario): Promise<Scenario[]>
   return mutatePrimaryDataset(
     scenarioMirrorConfig,
     scenarioMirrorState,
-    { id: createArchiveId(), kind: 'upsert', record: scenario }
+    createPendingMutation({ kind: 'upsert', record: scenario })
   );
 }
 
@@ -1483,7 +1528,7 @@ export async function deleteSavedScenario(scenarioId: string): Promise<Scenario[
   return mutatePrimaryDataset(
     scenarioMirrorConfig,
     scenarioMirrorState,
-    { id: createArchiveId(), kind: 'delete-id', targetId: scenarioId }
+    createPendingMutation({ kind: 'delete-id', targetId: scenarioId })
   );
 }
 

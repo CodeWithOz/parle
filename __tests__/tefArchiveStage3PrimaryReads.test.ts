@@ -31,6 +31,9 @@ const scenario = (id: string, createdAt = 100): Scenario => ({
   isActive: true,
 });
 
+const pendingScenarioKey = (intentId: string) =>
+  `${SCENARIOS_PENDING_KEY}:${encodeURIComponent(intentId)}`;
+
 async function clearStore(storeName: string): Promise<void> {
   const request = indexedDB.open('parle-tef', 3);
   const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -44,6 +47,30 @@ async function clearStore(storeName: string): Promise<void> {
     tx.onerror = () => reject(tx.error);
   });
   db.close();
+}
+
+async function failNextReadWriteTransactionForStore(storeName: string) {
+  const request = indexedDB.open('parle-tef', 3);
+  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+  const databasePrototype = Object.getPrototypeOf(db) as IDBDatabase;
+  db.close();
+  const originalTransaction = databasePrototype.transaction;
+  let shouldFail = true;
+  return vi.spyOn(databasePrototype, 'transaction').mockImplementation(function (
+    this: IDBDatabase,
+    ...args: Parameters<IDBDatabase['transaction']>
+  ) {
+    const [storeNames, mode] = args;
+    const names = typeof storeNames === 'string' ? [storeNames] : Array.from(storeNames);
+    if (shouldFail && mode === 'readwrite' && names.includes(storeName)) {
+      shouldFail = false;
+      throw new Error(`Forced ${storeName} recovery transaction failure`);
+    }
+    return originalTransaction.apply(this, args);
+  });
 }
 
 describe('Stage 3 IndexedDB-primary durable reads', () => {
@@ -239,11 +266,14 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
     const updatedB = { ...scenario('b', 200), description: 'Updated after the outage' };
     const createdC = scenario('c', 300);
     localStorage.setItem(SCENARIOS_KEY, JSON.stringify([scenario('a', 100), createdC]));
-    localStorage.setItem(SCENARIOS_PENDING_KEY, JSON.stringify([
-      { id: 'intent-update-b', kind: 'upsert', record: updatedB },
-      { id: 'intent-create-c', kind: 'upsert', record: createdC },
-      { id: 'intent-delete-a', kind: 'delete-id', targetId: 'a' },
-    ]));
+    const journal = [
+      { id: 'intent-update-b', createdAt: 1, kind: 'upsert', record: updatedB },
+      { id: 'intent-create-c', createdAt: 2, kind: 'upsert', record: createdC },
+      { id: 'intent-delete-a', createdAt: 3, kind: 'delete-id', targetId: 'a' },
+    ];
+    for (const intent of journal) {
+      localStorage.setItem(pendingScenarioKey(intent.id), JSON.stringify(intent));
+    }
     localStorage.setItem(SCENARIOS_BRIDGE_DIRTY_KEY, '1');
 
     await service.recoverDurableDataAtStartup();
@@ -261,7 +291,9 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
         expect.objectContaining({ id: 'c' }),
       ])
     );
-    expect(localStorage.getItem(SCENARIOS_PENDING_KEY)).toBeNull();
+    for (const intent of journal) {
+      expect(localStorage.getItem(pendingScenarioKey(intent.id))).toBeNull();
+    }
     expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).toBeNull();
   });
 
@@ -307,5 +339,151 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
     ]));
     expect(await service.getScenarioMirrorSnapshot()).toHaveLength(2);
     expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toHaveLength(2);
+  });
+
+  it('removes only replayed intent keys when another tab journals during recovery', async () => {
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([scenario('a')]));
+    const service = await import('../services/tefArchiveService');
+    await service.verifyScenarioMirror();
+    await service.readSavedScenarios();
+
+    const firstIntent = {
+      id: 'intent-first',
+      createdAt: 1,
+      kind: 'upsert',
+      record: scenario('first', 200),
+    };
+    const concurrentIntent = {
+      id: 'intent-concurrent',
+      createdAt: 2,
+      kind: 'upsert',
+      record: scenario('concurrent', 300),
+    };
+    localStorage.setItem(pendingScenarioKey(firstIntent.id), JSON.stringify(firstIntent));
+    localStorage.setItem(SCENARIOS_BRIDGE_DIRTY_KEY, '1');
+
+    const originalSetItem = Storage.prototype.setItem;
+    let injected = false;
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (this === localStorage && key === SCENARIOS_KEY && !injected) {
+        injected = true;
+        originalSetItem.call(
+          localStorage,
+          pendingScenarioKey(concurrentIntent.id),
+          JSON.stringify(concurrentIntent)
+        );
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    try {
+      await service.recoverDurableDataAtStartup();
+    } finally {
+      setItemSpy.mockRestore();
+    }
+
+    expect(localStorage.getItem(pendingScenarioKey(firstIntent.id))).toBeNull();
+    expect(localStorage.getItem(pendingScenarioKey(concurrentIntent.id))).not.toBeNull();
+    expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).not.toBeNull();
+    expect(await service.getScenarioMirrorSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'a' }),
+      expect.objectContaining({ id: 'first' }),
+    ]));
+    expect((await service.getScenarioMirrorSnapshot()).some(
+      (item) => item.id === 'concurrent'
+    )).toBe(false);
+
+    await service.recoverDurableDataAtStartup();
+
+    expect(localStorage.getItem(pendingScenarioKey(concurrentIntent.id))).toBeNull();
+    expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).toBeNull();
+    expect(await service.getScenarioMirrorSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'a' }),
+      expect.objectContaining({ id: 'first' }),
+      expect.objectContaining({ id: 'concurrent' }),
+    ]));
+  });
+
+  it('retains replayed intent keys until an exact rollback bridge is secured', async () => {
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([scenario('a')]));
+    const service = await import('../services/tefArchiveService');
+    await service.verifyScenarioMirror();
+    await service.readSavedScenarios();
+
+    const intent = {
+      id: 'intent-survives-bridge-failure',
+      createdAt: 1,
+      kind: 'upsert',
+      record: scenario('survivor', 200),
+    };
+    localStorage.setItem(pendingScenarioKey(intent.id), JSON.stringify(intent));
+    localStorage.setItem(SCENARIOS_BRIDGE_DIRTY_KEY, '1');
+
+    const originalSetItem = Storage.prototype.setItem;
+    let quotaFailures = 0;
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (this === localStorage && key === SCENARIOS_KEY && quotaFailures < 2) {
+        quotaFailures += 1;
+        throw new DOMException('Forced quota failure', 'QuotaExceededError');
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    try {
+      await service.recoverDurableDataAtStartup();
+    } finally {
+      setItemSpy.mockRestore();
+    }
+
+    expect(await service.getScenarioMirrorSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'survivor' }),
+    ]));
+    expect(localStorage.getItem(pendingScenarioKey(intent.id))).not.toBeNull();
+    expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).not.toBeNull();
+
+    await service.recoverDurableDataAtStartup();
+
+    expect(localStorage.getItem(pendingScenarioKey(intent.id))).toBeNull();
+    expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).toBeNull();
+    expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'survivor' })])
+    );
+  });
+
+  it('retains replayed intent keys when metadata persistence is interrupted', async () => {
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([scenario('a')]));
+    const service = await import('../services/tefArchiveService');
+    await service.verifyScenarioMirror();
+    await service.readSavedScenarios();
+
+    const intent = {
+      id: 'intent-survives-metadata-failure',
+      createdAt: 1,
+      kind: 'upsert',
+      record: scenario('metadata-survivor', 200),
+    };
+    localStorage.setItem(pendingScenarioKey(intent.id), JSON.stringify(intent));
+    localStorage.setItem(SCENARIOS_BRIDGE_DIRTY_KEY, '1');
+    const transactionSpy = await failNextReadWriteTransactionForStore('migrationMetadata');
+
+    try {
+      await expect(service.recoverDurableDataAtStartup()).rejects.toThrow(/recovery failed/);
+    } finally {
+      transactionSpy.mockRestore();
+    }
+
+    expect(await service.getScenarioMirrorSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'metadata-survivor' }),
+    ]));
+    expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'metadata-survivor' })])
+    );
+    expect(localStorage.getItem(pendingScenarioKey(intent.id))).not.toBeNull();
+    expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).not.toBeNull();
+
+    await service.recoverDurableDataAtStartup();
+
+    expect(localStorage.getItem(pendingScenarioKey(intent.id))).toBeNull();
+    expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).toBeNull();
   });
 });

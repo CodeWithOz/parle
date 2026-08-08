@@ -51,19 +51,21 @@ and post-deployment data comparison. Then update `../README.md` so Stage 4 is ne
   is unverified/dirty, or a verified IndexedDB store is unexpectedly empty while its rollback
   copy contains records; a rollback bridge marked stale is never exposed as a fallback
 - Mutation behavior: verified datasets commit serialized mutations to IndexedDB first and
-  then update the localStorage rollback bridge; interrupted/fallback mutations persist an
-  idempotent operation journal and replay additions, updates, and deletions against the latest
-  IndexedDB state instead of replacing IndexedDB from a localStorage snapshot
+  then update the localStorage rollback bridge; interrupted/fallback mutations persist each
+  idempotent operation under its own journal key and replay additions, updates, and deletions
+  against the latest IndexedDB state instead of replacing IndexedDB from a localStorage snapshot
 - Recovery behavior: startup recovery remains authority-aware — pre-cutover datasets may be
   backfilled from localStorage, while `idb-primary` datasets replay their journal and rebuild
-  the rollback bridge from IndexedDB; quota-truncated bridges remain marked stale
+  the rollback bridge from IndexedDB; processed journal keys are removed only after the exact
+  bridge and metadata are secured, while concurrent keys and quota-truncated bridges remain stale
 - Automated coverage: permanent Stage 1/2 migration coverage retained; Stage 3 coverage added
   for primary reads, independent guarded fallbacks, IndexedDB failure, malformed fallback,
   unexpected-empty non-overwrite, concurrent writes, async loading/error UI, stale
   close/reopen discard, crash-journal replay, non-destructive post-cutover verification,
-  bridge quota truncation, and restart recovery from legacy dirty metadata
+  bridge quota truncation, restart recovery from legacy dirty metadata, concurrent journal
+  insertion, and interruption before bridge or metadata completion
 - Automated test result: `npx vitest run --reporter=dot --silent` passed (53 files,
-  643 tests)
+  646 tests)
 - Build result: `npm run build` passed; the existing large-chunk advisory remains non-blocking
 - Manual browser checks: local Chrome smoke check passed for empty topic history, empty saved
   scenarios, and an IndexedDB-unavailable scenario fallback seeded in the isolated browser
