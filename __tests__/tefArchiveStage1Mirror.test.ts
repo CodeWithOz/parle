@@ -199,6 +199,7 @@ async function failReadWriteTransactionsForStore(storeName: string) {
 describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     vi.resetModules();
     vi.stubGlobal('indexedDB', new IDBFactory());
   });
@@ -489,6 +490,7 @@ describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
 describe('Stage 2 durable exercise data shadow verification', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     vi.resetModules();
     vi.stubGlobal('indexedDB', new IDBFactory());
   });
@@ -682,7 +684,7 @@ describe('Stage 2 durable exercise data shadow verification', () => {
     });
   });
 
-  it('invalidates archive verification when a later save mirror fails, then re-verifies on repair', async () => {
+  it('journals an archive save when the primary transaction fails, then recovers on read', async () => {
     const ad = savedAd('ad-1');
     const initial = archive('initial-archive', ad.id);
     localStorage.setItem(TOPIC_ARCHIVES_KEY, JSON.stringify([initial]));
@@ -709,8 +711,8 @@ describe('Stage 2 durable exercise data shadow verification', () => {
     });
     expect(await service.listTopicArchives()).toHaveLength(2);
     expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
-      verificationStatus: 'failed',
-      verificationError: 'Forced topicArchives mirror transaction failure',
+      state: 'idb-primary',
+      verificationStatus: 'verified',
     });
 
     expect((await service.verifyTopicArchiveMirror()).success).toBe(true);
@@ -721,7 +723,7 @@ describe('Stage 2 durable exercise data shadow verification', () => {
     });
   });
 
-  it('invalidates scenario verification when a later save mirror fails, then re-verifies on repair', async () => {
+  it('journals a scenario save when the primary transaction fails, then recovers on read', async () => {
     const initial = currentScenario('scenario-mutation-failure');
     localStorage.setItem(SCENARIOS_KEY, JSON.stringify([initial]));
     await seedVersionThree({ scenarios: [initial] });
@@ -744,8 +746,8 @@ describe('Stage 2 durable exercise data shadow verification', () => {
     });
     expect((await scenarioService.loadScenarios())[0].name).toBe('Saved locally only at first');
     expect(await service.getScenarioMigrationMetadata()).toMatchObject({
-      verificationStatus: 'failed',
-      verificationError: 'Forced scenarios mirror transaction failure',
+      state: 'idb-primary',
+      verificationStatus: 'verified',
     });
 
     expect((await service.verifyScenarioMirror()).success).toBe(true);
@@ -785,11 +787,11 @@ describe('Stage 2 durable exercise data shadow verification', () => {
     vi.stubGlobal('indexedDB', availableIndexedDb);
     expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
       verificationStatus: 'failed',
-      verificationError: 'Authoritative localStorage changed after the last verified reconciliation',
+      verificationError: 'IndexedDB recovery has pending local mutations',
     });
     expect(await service.getScenarioMigrationMetadata()).toMatchObject({
       verificationStatus: 'failed',
-      verificationError: 'Authoritative localStorage changed after the last verified reconciliation',
+      verificationError: 'IndexedDB recovery has pending local mutations',
     });
 
     const repaired = await service.verifyDurableDataMirrors();

@@ -19,6 +19,10 @@ const TOPIC_ARCHIVES_MIRROR_DIRTY_KEY = 'parle-tef-topic-archives-mirror-dirty';
 const SCENARIOS_MIRROR_DIRTY_KEY = 'parle-scenarios-mirror-dirty';
 const TOPIC_ARCHIVES_BRIDGE_DIRTY_KEY = 'parle-tef-topic-archives-bridge-dirty';
 const SCENARIOS_BRIDGE_DIRTY_KEY = 'parle-scenarios-bridge-dirty';
+const TOPIC_ARCHIVES_PRIMARY_KEY = 'parle-tef-topic-archives-idb-primary';
+const SCENARIOS_PRIMARY_KEY = 'parle-scenarios-idb-primary';
+const TOPIC_ARCHIVES_PENDING_KEY = 'parle-tef-topic-archives-pending-mutations';
+const SCENARIOS_PENDING_KEY = 'parle-scenarios-pending-mutations';
 const MAX_TOPIC_ARCHIVES = 50;
 const MAX_SAVED_ADS_PER_TYPE = 20;
 const DB_NAME = 'parle-tef';
@@ -77,11 +81,21 @@ interface MirrorConfig<T extends DurableRecord> {
   storageKey: string;
   dirtyKey: string;
   bridgeDirtyKey: string;
+  primaryKey: string;
+  pendingMutationsKey: string;
   storeName: string;
   metadataName: DurableDataMigrationName;
   label: string;
   inspectRelationships?: (records: T[]) => Promise<string[]>;
   inspectLegacyShapes?: (records: T[]) => string[];
+}
+
+interface PendingMutation {
+  id: string;
+  kind: 'upsert' | 'delete-id' | 'delete-for-ad';
+  record?: DurableRecord;
+  targetId?: string;
+  adId?: string;
 }
 
 interface MirrorState {
@@ -102,6 +116,8 @@ const topicArchiveMirrorConfig: MirrorConfig<TefTopicArchive> = {
   storageKey: TOPIC_ARCHIVES_KEY,
   dirtyKey: TOPIC_ARCHIVES_MIRROR_DIRTY_KEY,
   bridgeDirtyKey: TOPIC_ARCHIVES_BRIDGE_DIRTY_KEY,
+  primaryKey: TOPIC_ARCHIVES_PRIMARY_KEY,
+  pendingMutationsKey: TOPIC_ARCHIVES_PENDING_KEY,
   storeName: TOPIC_ARCHIVES_STORE,
   metadataName: TOPIC_ARCHIVE_MIGRATION_NAME,
   label: 'TEF topic archive',
@@ -112,6 +128,8 @@ const scenarioMirrorConfig: MirrorConfig<Scenario> = {
   storageKey: SCENARIOS_KEY,
   dirtyKey: SCENARIOS_MIRROR_DIRTY_KEY,
   bridgeDirtyKey: SCENARIOS_BRIDGE_DIRTY_KEY,
+  primaryKey: SCENARIOS_PRIMARY_KEY,
+  pendingMutationsKey: SCENARIOS_PENDING_KEY,
   storeName: SCENARIOS_STORE,
   metadataName: SCENARIO_MIGRATION_NAME,
   label: 'saved scenario',
@@ -558,7 +576,7 @@ async function writeFailedVerificationMetadata(
   const metadata: DurableDataMigrationMetadata = {
     name: config.metadataName,
     version: 1,
-    state: 'mirroring',
+    state: hasIdbPrimaryAuthority(config, previous) ? 'idb-primary' : 'mirroring',
     lastReconciledAt: previous?.lastReconciledAt ?? 0,
     sourceRecordCount,
     destinationRecordCount,
@@ -715,6 +733,75 @@ function clearRollbackBridgeDirty(config: MirrorConfig<DurableRecord>): void {
   }
 }
 
+function markIdbPrimary(config: MirrorConfig<DurableRecord>): void {
+  try {
+    localStorage.setItem(config.primaryKey, '1');
+  } catch (error) {
+    console.error(`Failed to persist ${config.label} primary-authority marker:`, error);
+  }
+}
+
+function hasIdbPrimaryAuthority(
+  config: MirrorConfig<DurableRecord>,
+  metadata?: DurableDataMigrationMetadata | null
+): boolean {
+  if (metadata?.state === 'idb-primary') return true;
+  try {
+    return localStorage.getItem(config.primaryKey) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function readPendingMutations(config: MirrorConfig<DurableRecord>): PendingMutation[] {
+  try {
+    const raw = localStorage.getItem(config.pendingMutationsKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) throw new Error('pending mutation journal is not an array');
+    return parsed as PendingMutation[];
+  } catch (error) {
+    throw new Error(`Unable to read ${config.label} recovery journal: ${errorMessage(error)}`);
+  }
+}
+
+function appendPendingMutation(
+  config: MirrorConfig<DurableRecord>,
+  intent: PendingMutation
+): void {
+  const pending = readPendingMutations(config);
+  localStorage.setItem(config.pendingMutationsKey, JSON.stringify([...pending, intent]));
+}
+
+function clearPendingMutations(config: MirrorConfig<DurableRecord>): void {
+  localStorage.removeItem(config.pendingMutationsKey);
+}
+
+function applyPendingMutation<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  records: T[],
+  intent: PendingMutation
+): T[] {
+  if (intent.kind === 'delete-id') {
+    return records.filter((record) => record.id !== intent.targetId);
+  }
+  if (intent.kind === 'delete-for-ad') {
+    return (records as unknown as TefTopicArchive[])
+      .filter((record) => record.adId !== intent.adId) as unknown as T[];
+  }
+
+  const record = intent.record as T | undefined;
+  if (!record) throw new Error(`Invalid ${config.label} upsert recovery intent`);
+  const updated = [record, ...records.filter((item) => item.id !== record.id)];
+  if (config === topicArchiveMirrorConfig) {
+    return (updated as unknown as TefTopicArchive[])
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, MAX_TOPIC_ARCHIVES) as unknown as T[];
+  }
+  return (updated as unknown as Scenario[])
+    .sort((a, b) => b.createdAt - a.createdAt) as unknown as T[];
+}
+
 function markMirrorDirty(
   config: MirrorConfig<DurableRecord>,
   state: MirrorState
@@ -766,6 +853,26 @@ function enqueueMirror<T extends DurableRecord>(
 
   const diagnosticPromise = state.queue.then(async () => {
     try {
+      let metadata: DurableDataMigrationMetadata | null = null;
+      try {
+        metadata = await getMigrationMetadata(config.metadataName);
+      } catch {
+        // The normal mirror path below will produce the standard diagnostic.
+      }
+      if (hasIdbPrimaryAuthority(durableConfig, metadata)) {
+        const records = await recoverPrimaryDataset(config);
+        const diagnostic: DurableDataMirrorDiagnostic = {
+          operation,
+          success: true,
+          sourceRecordCount: records.length,
+          destinationRecordCount: records.length,
+          completedAt: Date.now(),
+        };
+        state.lastDiagnostic = diagnostic;
+        clearMirrorDirtyToken(durableConfig, dirtyToken);
+        return diagnostic;
+      }
+
       const result = await mirrorLatestSource(config, (recordCount) => {
         sourceRecordCount = recordCount;
       });
@@ -782,6 +889,9 @@ function enqueueMirror<T extends DurableRecord>(
       };
       state.lastDiagnostic = diagnostic;
       clearMirrorDirtyToken(durableConfig, dirtyToken);
+      if (readPendingMutations(durableConfig).length > 0) {
+        clearPendingMutations(durableConfig);
+      }
       return diagnostic;
     } catch (error) {
       const diagnostic: DurableDataMirrorDiagnostic = {
@@ -869,6 +979,58 @@ export async function verifyDurableDataMirrors(): Promise<{
   return { topicArchives, scenarios };
 }
 
+async function recoverDatasetAtStartup<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  state: MirrorState
+): Promise<void> {
+  let metadata: DurableDataMigrationMetadata | null = null;
+  try {
+    metadata = await getMigrationMetadata(config.metadataName);
+  } catch {
+    return;
+  }
+
+  const durableConfig = config as MirrorConfig<DurableRecord>;
+  const hasPending = readPendingMutations(durableConfig).length > 0;
+  if (hasIdbPrimaryAuthority(durableConfig, metadata)) {
+    if (metadata?.verificationStatus === 'verified'
+      && readMirrorDirtyToken(durableConfig) === null
+      && !isRollbackBridgeDirty(durableConfig)
+      && !hasPending) {
+      return;
+    }
+    const recovery = state.queue.then(() => recoverPrimaryDataset(config));
+    state.queue = recovery.then(() => undefined, () => undefined);
+    await recovery;
+    return;
+  }
+
+  if (metadata?.verificationStatus !== 'verified'
+    || readMirrorDirtyToken(durableConfig) !== null
+    || hasPending) {
+    const diagnostic = await enqueueMirror(config, state, 'backfill');
+    if (!diagnostic.success) throw new Error(diagnostic.error ?? `${config.label} recovery failed`);
+    if (hasPending) clearPendingMutations(durableConfig);
+  }
+}
+
+/**
+ * Repairs interrupted durable-data work without reversing the Stage 3 authority.
+ * Pre-cutover datasets may still backfill from localStorage; post-cutover datasets
+ * only replay journaled operations into the latest IndexedDB transaction and then
+ * rebuild the rollback bridge from IndexedDB.
+ */
+export async function recoverDurableDataAtStartup(): Promise<void> {
+  const results = await Promise.allSettled([
+    recoverDatasetAtStartup(topicArchiveMirrorConfig, topicArchiveMirrorState),
+    recoverDatasetAtStartup(scenarioMirrorConfig, scenarioMirrorState),
+  ]);
+  const failures = results.filter((result) => result.status === 'rejected');
+  if (failures.length > 0) {
+    throw new Error(`Durable data recovery failed for ${failures.length} dataset(s)`);
+  }
+}
+
 /** Waits for queued fire-and-forget mirrors from synchronous public mutations. */
 export async function waitForTopicArchiveMirror(): Promise<TopicArchiveMirrorDiagnostic | null> {
   await topicArchiveMirrorState.queue;
@@ -915,11 +1077,19 @@ async function getMigrationMetadata(
       tx.onabort = () => reject(tx.error ?? new Error('Migration metadata read was aborted'));
     });
     if (!result) return null;
-    if (readMirrorDirtyToken(config) !== null && result.verificationStatus === 'verified') {
+    const pendingMutationCount = readPendingMutations(config).length;
+    const legacyDirty = readMirrorDirtyToken(config) !== null;
+    const rollbackBridgeDirty = isRollbackBridgeDirty(config);
+    if ((legacyDirty || pendingMutationCount > 0 || rollbackBridgeDirty)
+      && result.verificationStatus === 'verified') {
       return {
         ...result,
         verificationStatus: 'failed',
-        verificationError: 'Authoritative localStorage changed after the last verified reconciliation',
+        verificationError: pendingMutationCount > 0
+          ? 'IndexedDB recovery has pending local mutations'
+          : rollbackBridgeDirty
+            ? 'The localStorage rollback bridge is stale'
+            : 'Authoritative localStorage changed after the last verified reconciliation',
       };
     }
     return result;
@@ -929,21 +1099,89 @@ async function getMigrationMetadata(
 }
 
 async function markMigrationIdbPrimary(
+  config: MirrorConfig<DurableRecord>,
   metadata: DurableDataMigrationMetadata
 ): Promise<void> {
-  if (metadata.state === 'idb-primary') return;
+  if (metadata.state !== 'idb-primary') {
+    const db = await openDb();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(MIGRATION_METADATA_STORE, 'readwrite');
+        tx.objectStore(MIGRATION_METADATA_STORE).put({ ...metadata, state: 'idb-primary' });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error ?? new Error('Failed to mark migration IndexedDB-primary'));
+        tx.onabort = () => reject(tx.error ?? new Error('Migration metadata update was aborted'));
+      });
+    } finally {
+      db.close();
+    }
+  }
+  markIdbPrimary(config);
+}
+
+async function writePrimaryRecoveryMetadata<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  records: T[]
+): Promise<void> {
+  const integrity = await inspectRecordIntegrity(config, records);
+  const now = Date.now();
+  const metadata: DurableDataMigrationMetadata = {
+    name: config.metadataName,
+    version: 1,
+    state: 'idb-primary',
+    lastReconciledAt: now,
+    sourceRecordCount: records.length,
+    destinationRecordCount: records.length,
+    verificationStatus: 'verified',
+    lastVerifiedAt: now,
+    mismatchCounts: { missing: 0, extra: 0, differing: 0 },
+    repairCounts: { inserted: 0, updated: 0, deleted: 0 },
+    preRepairIntegrityCounts: integrityCounts(integrity),
+    postRepairIntegrityCounts: integrityCounts(integrity),
+    relationshipInvalidRecordCount: integrity.relationshipInvalidIds.length,
+    legacyShapeRecordCount: integrity.legacyShapeIds.length,
+  };
   const db = await openDb();
   try {
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(MIGRATION_METADATA_STORE, 'readwrite');
-      tx.objectStore(MIGRATION_METADATA_STORE).put({ ...metadata, state: 'idb-primary' });
+      tx.objectStore(MIGRATION_METADATA_STORE).put(metadata);
       tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error ?? new Error('Failed to mark migration IndexedDB-primary'));
-      tx.onabort = () => reject(tx.error ?? new Error('Migration metadata update was aborted'));
+      tx.onerror = () => reject(tx.error ?? new Error('Failed to save primary recovery metadata'));
+      tx.onabort = () => reject(tx.error ?? new Error('Primary recovery metadata write was aborted'));
     });
   } finally {
     db.close();
   }
+  markIdbPrimary(config as MirrorConfig<DurableRecord>);
+}
+
+async function recoverPrimaryDataset<T extends DurableRecord>(
+  config: MirrorConfig<T>
+): Promise<T[]> {
+  const durableConfig = config as MirrorConfig<DurableRecord>;
+  const pending = readPendingMutations(durableConfig);
+  const records = pending.length > 0
+    ? await mutateAllInStore(config.storeName, (current) => pending.reduce(
+      (next, intent) => applyPendingMutation(config, next, intent),
+      current
+    ))
+    : await readAllFromStore<T>(config.storeName);
+
+  if (pending.length > 0) clearPendingMutations(durableConfig);
+
+  try {
+    const bridgeComplete = persistRollbackBridge(config, records);
+    if (bridgeComplete) clearRollbackBridgeDirty(durableConfig);
+    else markRollbackBridgeDirty(durableConfig);
+  } catch (error) {
+    markRollbackBridgeDirty(durableConfig);
+    console.error(`Failed to rebuild ${config.label} rollback bridge:`, error);
+  }
+
+  clearMirrorDirtyToken(durableConfig, readMirrorDirtyToken(durableConfig));
+  await writePrimaryRecoveryMetadata(config, records);
+  return records;
 }
 
 async function readPrimaryDataset<T extends DurableRecord>(
@@ -971,6 +1209,22 @@ async function readPrimaryDataset<T extends DurableRecord>(
     metadata = await getMigrationMetadata(config.metadataName);
   } catch {
     return useFallback('indexeddb-unavailable');
+  }
+
+  const durableConfig = config as MirrorConfig<DurableRecord>;
+  if (
+    hasIdbPrimaryAuthority(durableConfig, metadata)
+    && (metadata?.verificationStatus !== 'verified'
+      || readMirrorDirtyToken(durableConfig) !== null
+      || readPendingMutations(durableConfig).length > 0)
+  ) {
+    try {
+      const recovered = await recoverPrimaryDataset(config);
+      return { records: recovered, source: 'indexeddb' };
+    } catch (error) {
+      console.error(`Failed to recover ${config.label} IndexedDB primary data:`, error);
+      return useFallback('indexeddb-unavailable');
+    }
   }
 
   if (metadata?.verificationStatus !== 'verified') {
@@ -1006,7 +1260,7 @@ async function readPrimaryDataset<T extends DurableRecord>(
   // Record cutover only after a verified primary read. A metadata-write failure
   // must never turn a valid dataset read into an empty or error result.
   try {
-    await markMigrationIdbPrimary(metadata);
+    await markMigrationIdbPrimary(config as MirrorConfig<DurableRecord>, metadata);
   } catch (error) {
     console.error(`Failed to record ${config.label} IndexedDB-primary state:`, error);
   }
@@ -1025,8 +1279,16 @@ function persistRollbackBridge<T extends DurableRecord>(
     return true;
   } catch (error) {
     if (isQuotaExceeded(error) && records.length > 0) {
-      localStorage.setItem(config.storageKey, JSON.stringify(records.slice(0, -1)));
-      return false;
+      try {
+        localStorage.setItem(config.storageKey, JSON.stringify(records.slice(0, -1)));
+        return false;
+      } catch (retryError) {
+        if (isQuotaExceeded(retryError)) {
+          console.error(`Error saving ${config.label}s after trim:`, retryError);
+          return false;
+        }
+        throw retryError;
+      }
     }
     throw error;
   }
@@ -1035,26 +1297,34 @@ function persistRollbackBridge<T extends DurableRecord>(
 async function mutatePrimaryDataset<T extends DurableRecord>(
   config: MirrorConfig<T>,
   state: MirrorState,
-  operation: DurableDataMirrorDiagnostic['operation'],
-  mutate: (records: T[]) => T[]
+  intent: PendingMutation
 ): Promise<T[]> {
   const mutationPromise = state.queue.then(async () => {
     const current = await readPrimaryDataset(config);
-    const fallbackNext = mutate([...current.records]);
+    const fallbackNext = applyPendingMutation(config, [...current.records], intent);
 
     if (current.source === 'indexeddb') {
       let committed: T[];
       try {
         // Compute from the records observed inside this read-write transaction.
         // IndexedDB serializes it with other tabs, preventing lost updates.
-        committed = await mutateAllInStore(config.storeName, mutate);
+        committed = await mutateAllInStore(
+          config.storeName,
+          (records) => applyPendingMutation(config, records, intent)
+        );
       } catch {
-        // Preserve the user mutation in the rollback store and latch the dataset
-        // dirty when IndexedDB fails mid-operation. The queued repair is safe to
-        // retry and primary reads fall back until it succeeds.
-        persistRollbackBridge(config, fallbackNext);
-        clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
-        void enqueueMirror(config, state, operation);
+        // Persist the operation itself, not a localStorage snapshot. Recovery
+        // replays it against the newest IndexedDB state, preserving records that
+        // may have been committed by another tab while this bridge was stale.
+        const durableConfig = config as MirrorConfig<DurableRecord>;
+        appendPendingMutation(durableConfig, intent);
+        const bridgeComplete = persistRollbackBridge(config, fallbackNext);
+        if (!bridgeComplete || hasIdbPrimaryAuthority(durableConfig)) {
+          markRollbackBridgeDirty(durableConfig);
+        }
+        queuePrimaryRecovery(config, state, intent.kind === 'delete-for-ad'
+          ? 'delete-for-ad'
+          : intent.kind === 'delete-id' ? 'delete' : 'save');
         return fallbackNext;
       }
       // IndexedDB committed first; the localStorage copy remains the rollback bridge.
@@ -1074,12 +1344,17 @@ async function mutatePrimaryDataset<T extends DurableRecord>(
       return committed;
     }
 
-    // During a documented fallback condition, keep the operation available via
-    // localStorage and queue a verified repair rather than treating a failed or
-    // unexpectedly empty primary read as an empty authoritative dataset.
-    persistRollbackBridge(config, fallbackNext);
-    clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
-    void enqueueMirror(config, state, operation);
+    // A fallback mutation is journaled as an idempotent intent. Never reconcile
+    // the whole localStorage snapshot into IndexedDB after the Stage 3 cutover.
+    const durableConfig = config as MirrorConfig<DurableRecord>;
+    appendPendingMutation(durableConfig, intent);
+    const bridgeComplete = persistRollbackBridge(config, fallbackNext);
+    if (!bridgeComplete || hasIdbPrimaryAuthority(durableConfig)) {
+      markRollbackBridgeDirty(durableConfig);
+    }
+    queuePrimaryRecovery(config, state, intent.kind === 'delete-for-ad'
+      ? 'delete-for-ad'
+      : intent.kind === 'delete-id' ? 'delete' : 'save');
     return fallbackNext;
   });
 
@@ -1090,6 +1365,27 @@ async function mutatePrimaryDataset<T extends DurableRecord>(
     () => undefined
   );
   return mutationPromise;
+}
+
+function queuePrimaryRecovery<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  state: MirrorState,
+  operation: DurableDataMirrorDiagnostic['operation']
+): void {
+  const recovery = state.queue.then(() => recoverPrimaryDataset(config));
+  state.queue = recovery.then(
+    () => undefined,
+    (error) => {
+      state.lastDiagnostic = {
+        operation,
+        success: false,
+        sourceRecordCount: readMirrorSource(config).records.length,
+        completedAt: Date.now(),
+        error: errorMessage(error),
+      };
+      console.error(`${config.label} operation replay is pending:`, error);
+    }
+  );
 }
 
 export async function getTopicArchiveMigrationMetadata(): Promise<TopicArchiveMigrationMetadata | null> {
@@ -1154,10 +1450,7 @@ export async function saveTopicArchive(params: {
   await mutatePrimaryDataset(
     topicArchiveMirrorConfig,
     topicArchiveMirrorState,
-    'save',
-    (archives) => [archive, ...archives]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, MAX_TOPIC_ARCHIVES)
+    { id: createArchiveId(), kind: 'upsert', record: archive }
   );
   return archive;
 }
@@ -1166,10 +1459,7 @@ export async function deleteTopicArchive(archiveId: string): Promise<void> {
   await mutatePrimaryDataset(
     topicArchiveMirrorConfig,
     topicArchiveMirrorState,
-    'delete',
-    (archives) => archives
-      .filter((archive) => archive.id !== archiveId)
-      .sort((a, b) => b.createdAt - a.createdAt)
+    { id: createArchiveId(), kind: 'delete-id', targetId: archiveId }
   );
 }
 
@@ -1177,10 +1467,7 @@ export async function deleteTopicArchivesForAd(adId: string): Promise<void> {
   await mutatePrimaryDataset(
     topicArchiveMirrorConfig,
     topicArchiveMirrorState,
-    'delete-for-ad',
-    (archives) => archives
-      .filter((archive) => archive.adId !== adId)
-      .sort((a, b) => b.createdAt - a.createdAt)
+    { id: createArchiveId(), kind: 'delete-for-ad', adId }
   );
 }
 
@@ -1188,11 +1475,7 @@ export async function saveSavedScenario(scenario: Scenario): Promise<Scenario[]>
   return mutatePrimaryDataset(
     scenarioMirrorConfig,
     scenarioMirrorState,
-    'save',
-    (scenarios) => {
-      const withoutExisting = scenarios.filter((item) => item.id !== scenario.id);
-      return [scenario, ...withoutExisting].sort((a, b) => b.createdAt - a.createdAt);
-    }
+    { id: createArchiveId(), kind: 'upsert', record: scenario }
   );
 }
 
@@ -1200,10 +1483,7 @@ export async function deleteSavedScenario(scenarioId: string): Promise<Scenario[
   return mutatePrimaryDataset(
     scenarioMirrorConfig,
     scenarioMirrorState,
-    'delete',
-    (scenarios) => scenarios
-      .filter((scenario) => scenario.id !== scenarioId)
-      .sort((a, b) => b.createdAt - a.createdAt)
+    { id: createArchiveId(), kind: 'delete-id', targetId: scenarioId }
   );
 }
 

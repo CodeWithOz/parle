@@ -22,6 +22,7 @@ import {
   createSavedAdId,
   deleteSavedAd,
   getLatestTopicArchive,
+  recoverDurableDataAtStartup,
   saveTopicArchive,
   touchSavedAdLastUsed,
   upsertSavedAd,
@@ -654,6 +655,11 @@ const App: React.FC = () => {
   // Check for API keys on mount; never show modal on load so user can see the app first
   useEffect(() => {
     const checkApiKeys = async () => {
+      try {
+        await recoverDurableDataAtStartup();
+      } catch (error) {
+        console.error('Failed to recover durable local data:', error);
+      }
       setApiKeyCheckDone(true);
       if (hasApiKeyOrEnv('gemini')) {
         try {

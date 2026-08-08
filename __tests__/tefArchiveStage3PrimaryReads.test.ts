@@ -5,6 +5,9 @@ import type { Scenario, TefTopicArchive } from '../types';
 const TOPIC_ARCHIVES_KEY = 'parle-tef-topic-archives';
 const SCENARIOS_KEY = 'parle-scenarios';
 const SCENARIOS_BRIDGE_DIRTY_KEY = 'parle-scenarios-bridge-dirty';
+const SCENARIOS_MIRROR_DIRTY_KEY = 'parle-scenarios-mirror-dirty';
+const SCENARIOS_PRIMARY_KEY = 'parle-scenarios-idb-primary';
+const SCENARIOS_PENDING_KEY = 'parle-scenarios-pending-mutations';
 
 const archive = (id: string, createdAt = 100): TefTopicArchive => ({
   id,
@@ -46,6 +49,7 @@ async function clearStore(storeName: string): Promise<void> {
 describe('Stage 3 IndexedDB-primary durable reads', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     vi.stubGlobal('indexedDB', new IDBFactory());
     vi.resetModules();
   });
@@ -220,5 +224,88 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
       expect.objectContaining({ id: 'quota-committed' }),
     ]);
     expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).toBeNull();
+  });
+
+  it('replays crash-journal mutations onto the latest IndexedDB state without snapshot deletion', async () => {
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([
+      scenario('a', 100),
+      scenario('b', 200),
+    ]));
+    const service = await import('../services/tefArchiveService');
+    await service.verifyScenarioMirror();
+    await service.readSavedScenarios();
+    expect(localStorage.getItem(SCENARIOS_PRIMARY_KEY)).toBe('1');
+
+    const updatedB = { ...scenario('b', 200), description: 'Updated after the outage' };
+    const createdC = scenario('c', 300);
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([scenario('a', 100), createdC]));
+    localStorage.setItem(SCENARIOS_PENDING_KEY, JSON.stringify([
+      { id: 'intent-update-b', kind: 'upsert', record: updatedB },
+      { id: 'intent-create-c', kind: 'upsert', record: createdC },
+      { id: 'intent-delete-a', kind: 'delete-id', targetId: 'a' },
+    ]));
+    localStorage.setItem(SCENARIOS_BRIDGE_DIRTY_KEY, '1');
+
+    await service.recoverDurableDataAtStartup();
+
+    const recovered = await service.getScenarioMirrorSnapshot();
+    expect(recovered).toHaveLength(2);
+    expect(recovered).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'b', description: 'Updated after the outage' }),
+      expect.objectContaining({ id: 'c' }),
+    ]));
+    expect(recovered.some((item) => item.id === 'a')).toBe(false);
+    expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'b', description: 'Updated after the outage' }),
+        expect.objectContaining({ id: 'c' }),
+      ])
+    );
+    expect(localStorage.getItem(SCENARIOS_PENDING_KEY)).toBeNull();
+    expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).toBeNull();
+  });
+
+  it('repairs a legacy dirty post-cutover dataset from IndexedDB at startup', async () => {
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([scenario('must-survive')]));
+    const service = await import('../services/tefArchiveService');
+    await service.verifyScenarioMirror();
+    await service.readSavedScenarios();
+
+    localStorage.setItem(SCENARIOS_KEY, '[]');
+    localStorage.setItem(SCENARIOS_MIRROR_DIRTY_KEY, 'legacy-dirty-token');
+
+    await service.recoverDurableDataAtStartup();
+
+    expect(await service.getScenarioMirrorSnapshot()).toEqual([
+      expect.objectContaining({ id: 'must-survive' }),
+    ]);
+    expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toEqual([
+      expect.objectContaining({ id: 'must-survive' }),
+    ]);
+    expect(localStorage.getItem(SCENARIOS_MIRROR_DIRTY_KEY)).toBeNull();
+    expect(await service.getScenarioMigrationMetadata()).toMatchObject({
+      state: 'idb-primary',
+      verificationStatus: 'verified',
+    });
+  });
+
+  it('never runs destructive localStorage-to-IndexedDB verification after cutover', async () => {
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([
+      scenario('a', 100),
+      scenario('b', 200),
+    ]));
+    const service = await import('../services/tefArchiveService');
+    await service.verifyScenarioMirror();
+    await service.readSavedScenarios();
+
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([scenario('a', 100)]));
+    await service.verifyScenarioMirror();
+
+    expect(await service.getScenarioMirrorSnapshot()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'a' }),
+      expect.objectContaining({ id: 'b' }),
+    ]));
+    expect(await service.getScenarioMirrorSnapshot()).toHaveLength(2);
+    expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toHaveLength(2);
   });
 });

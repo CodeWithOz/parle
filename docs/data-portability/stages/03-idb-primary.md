@@ -40,7 +40,8 @@ and post-deployment data comparison. Then update `../README.md` so Stage 4 is ne
 
 - Branch: `codex/data-portability-stage-3`
 - Commits: `284fa75` (IndexedDB-primary implementation), `0fa1585` (Stage 3
-  regression coverage), plus this completion-record commit
+  regression coverage), `0586331` and `59f2577` (CodeRabbit fixes), plus the
+  completion-record and authority-safe recovery commits
 - Changed repository/service paths: `services/tefArchiveService.ts`,
   `services/scenarioService.ts`, and migration metadata in `types.ts`
 - Changed consumers: `App.tsx`, `components/TefTopicHistorySheet.tsx`, and
@@ -48,16 +49,21 @@ and post-deployment data comparison. Then update `../README.md` so Stage 4 is ne
 - Primary-read behavior: independently verified topic/scenario datasets read asynchronously
   from IndexedDB; localStorage is used only when IndexedDB is unavailable, migration metadata
   is unverified/dirty, or a verified IndexedDB store is unexpectedly empty while its rollback
-  copy contains records
+  copy contains records; a rollback bridge marked stale is never exposed as a fallback
 - Mutation behavior: verified datasets commit serialized mutations to IndexedDB first and
-  then update the localStorage rollback bridge; fallback-mode mutations update localStorage,
-  latch the dataset dirty, and queue verified repair
+  then update the localStorage rollback bridge; interrupted/fallback mutations persist an
+  idempotent operation journal and replay additions, updates, and deletions against the latest
+  IndexedDB state instead of replacing IndexedDB from a localStorage snapshot
+- Recovery behavior: startup recovery remains authority-aware — pre-cutover datasets may be
+  backfilled from localStorage, while `idb-primary` datasets replay their journal and rebuild
+  the rollback bridge from IndexedDB; quota-truncated bridges remain marked stale
 - Automated coverage: permanent Stage 1/2 migration coverage retained; Stage 3 coverage added
   for primary reads, independent guarded fallbacks, IndexedDB failure, malformed fallback,
-  unexpected-empty non-overwrite, concurrent writes, async loading/error UI, and stale
-  close/reopen discard
+  unexpected-empty non-overwrite, concurrent writes, async loading/error UI, stale
+  close/reopen discard, crash-journal replay, non-destructive post-cutover verification,
+  bridge quota truncation, and restart recovery from legacy dirty metadata
 - Automated test result: `npx vitest run --reporter=dot --silent` passed (53 files,
-  632 tests)
+  643 tests)
 - Build result: `npm run build` passed; the existing large-chunk advisory remains non-blocking
 - Manual browser checks: local Chrome smoke check passed for empty topic history, empty saved
   scenarios, and an IndexedDB-unavailable scenario fallback seeded in the isolated browser
