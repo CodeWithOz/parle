@@ -283,15 +283,16 @@ function readMirrorSource<T extends DurableRecord>(config: MirrorConfig<T>): Mir
   }
 }
 
-function persistTopicArchives(archives: TefTopicArchive[]): void {
+function persistTopicArchives(archives: TefTopicArchive[]): boolean {
   try {
     localStorage.setItem(TOPIC_ARCHIVES_KEY, JSON.stringify(archives));
+    return true;
   } catch (error) {
     if (isQuotaExceeded(error) && archives.length > 0) {
       const trimmed = archives.slice(0, Math.max(1, archives.length - 1));
       try {
         localStorage.setItem(TOPIC_ARCHIVES_KEY, JSON.stringify(trimmed));
-        return;
+        return false;
       } catch (retryError) {
         console.error('Error saving topic archives after trim:', retryError);
         throw new Error('Failed to save topic archive: storage quota exceeded');
@@ -989,8 +990,12 @@ async function readPrimaryDataset<T extends DurableRecord>(
 
   if (isRollbackBridgeDirty(config as MirrorConfig<DurableRecord>)) {
     try {
-      persistRollbackBridge(config, records);
-      clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
+      const bridgeComplete = persistRollbackBridge(config, records);
+      if (bridgeComplete) {
+        clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
+      } else {
+        markRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
+      }
     } catch (error) {
       // IndexedDB remains authoritative. Keep the durable marker so a later
       // fallback cannot silently serve the stale rollback copy.
@@ -1011,17 +1016,17 @@ async function readPrimaryDataset<T extends DurableRecord>(
 function persistRollbackBridge<T extends DurableRecord>(
   config: MirrorConfig<T>,
   records: T[]
-): void {
+): boolean {
   if (config === topicArchiveMirrorConfig) {
-    persistTopicArchives(records as unknown as TefTopicArchive[]);
-    return;
+    return persistTopicArchives(records as unknown as TefTopicArchive[]);
   }
   try {
     localStorage.setItem(config.storageKey, JSON.stringify(records));
+    return true;
   } catch (error) {
     if (isQuotaExceeded(error) && records.length > 0) {
       localStorage.setItem(config.storageKey, JSON.stringify(records.slice(0, -1)));
-      return;
+      return false;
     }
     throw error;
   }
@@ -1056,8 +1061,12 @@ async function mutatePrimaryDataset<T extends DurableRecord>(
       // Never roll back the primary store from an earlier snapshot if the bridge
       // itself fails, because doing so could erase another tab's committed data.
       try {
-        persistRollbackBridge(config, committed);
-        clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
+        const bridgeComplete = persistRollbackBridge(config, committed);
+        if (bridgeComplete) {
+          clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
+        } else {
+          markRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
+        }
       } catch (bridgeError) {
         console.error(`Failed to update ${config.label} rollback bridge:`, bridgeError);
         markRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);

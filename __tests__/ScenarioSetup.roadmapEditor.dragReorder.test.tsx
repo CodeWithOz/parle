@@ -17,6 +17,10 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ScenarioSetup } from '../components/ScenarioSetup';
 
+vi.mock('../services/apiKeyService', () => ({
+  hasApiKeyOrEnv: vi.fn(() => true),
+}));
+
 function baseProps(overrides: Record<string, unknown> = {}) {
   return {
     onStartPractice: vi.fn(),

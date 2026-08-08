@@ -30,6 +30,11 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ScenarioSetup } from '../components/ScenarioSetup';
 import type { Scenario } from '../types';
 import * as scenarioService from '../services/scenarioService';
+import { hasApiKeyOrEnv } from '../services/apiKeyService';
+
+vi.mock('../services/apiKeyService', () => ({
+  hasApiKeyOrEnv: vi.fn(() => true),
+}));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -148,9 +153,57 @@ describe('ScenarioSetup: quick-start branching (via direct saved-scenarios mock)
     expect(props.onOpenApiKeyModal).toHaveBeenCalledOnce();
     expect(props.onStartPractice).not.toHaveBeenCalled();
   });
+
+  it('checks the current Gemini credential state when quick-starting', async () => {
+    vi.mocked(hasApiKeyOrEnv).mockReturnValueOnce(false);
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenarioWithSteps]);
+    const props = renderScenarioSetup({ geminiKeyMissing: false });
+
+    fireEvent.click(await screen.findByText(/show saved scenarios/i));
+    fireEvent.click(screen.getByRole('button', { name: /start practicing bakery visit/i }));
+
+    expect(hasApiKeyOrEnv).toHaveBeenCalledWith('gemini');
+    expect(props.onOpenApiKeyModal).toHaveBeenCalledOnce();
+    expect(props.onStartPractice).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a rejected quick-start and restores the start controls', async () => {
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenarioWithSteps]);
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    const props = renderScenarioSetup({
+      onStartPractice: vi.fn().mockRejectedValue(new Error('Gemini startup failed')),
+    });
+
+    fireEvent.click(await screen.findByText(/show saved scenarios/i));
+    const start = screen.getByRole('button', { name: /start practicing bakery visit/i });
+    fireEvent.click(start);
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(
+      'Failed to start scenario: Gemini startup failed'
+    ));
+    expect(start).not.toBeDisabled();
+    expect(props.onStartPractice).toHaveBeenCalledOnce();
+    alertSpy.mockRestore();
+  });
 });
 
 describe('ScenarioSetup: "Start Practice" reuses the id/createdAt of the scenario being regenerated', () => {
+  it('checks the current Gemini credential state before saving the roadmap scenario', async () => {
+    vi.mocked(hasApiKeyOrEnv).mockReturnValueOnce(false);
+    const props = renderScenarioSetup({
+      aiSummary: 'A fresh scenario summary.',
+      currentName: 'New Scenario',
+      currentDescription: 'A brand new scenario',
+      roadmapSteps: ['Step one'],
+      geminiKeyMissing: false,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^start practice$/i }));
+
+    expect(props.onOpenApiKeyModal).toHaveBeenCalledOnce();
+    expect(scenarioService.saveScenario).not.toHaveBeenCalled();
+  });
+
   it('saves with the existing id and createdAt instead of generating new ones', async () => {
     renderScenarioSetup({
       aiSummary: 'You visited a bakery and bought bread.',

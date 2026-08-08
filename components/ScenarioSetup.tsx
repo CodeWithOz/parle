@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Scenario, Character } from '../types';
 import { loadScenarios, saveScenario, deleteScenario, generateId } from '../services/scenarioService';
+import { hasApiKeyOrEnv } from '../services/apiKeyService';
 
 interface ScenarioSetupProps {
   onStartPractice: (scenario: Scenario) => void | Promise<void>;
@@ -144,7 +145,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 
   const handleQuickStart = async (scenario: Scenario, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (geminiKeyMissing) {
+    if (geminiKeyMissing || !hasApiKeyOrEnv('gemini')) {
       onOpenApiKeyModal();
       return;
     }
@@ -155,6 +156,9 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
       setIsStartingPractice(true);
       try {
         await onStartPractice(scenario);
+      } catch (error) {
+        console.error('Error starting saved scenario:', error);
+        alert(`Failed to start scenario: ${error instanceof Error ? error.message : 'Unknown error'}`);
       } finally {
         startingPracticeRef.current = false;
         setIsStartingPractice(false);
@@ -244,7 +248,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 
   const handleStartPractice = async () => {
     if (startingPracticeRef.current) return;
-    if (geminiKeyMissing) {
+    if (geminiKeyMissing || !hasApiKeyOrEnv('gemini')) {
       onOpenApiKeyModal();
       return;
     }

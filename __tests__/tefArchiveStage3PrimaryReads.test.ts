@@ -150,6 +150,7 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
     await service.verifyScenarioMirror();
 
     const originalSetItem = Storage.prototype.setItem;
+    const availableIndexedDb = indexedDB;
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
       if (this === localStorage && key === SCENARIOS_KEY) {
@@ -157,28 +158,67 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
       }
       return originalSetItem.call(this, key, value);
     });
+    let setItemSpyRestored = false;
 
-    await service.saveSavedScenario(scenario('idb-committed'));
-    setItemSpy.mockRestore();
+    try {
+      await service.saveSavedScenario(scenario('idb-committed'));
+      setItemSpy.mockRestore();
+      setItemSpyRestored = true;
 
-    expect(await service.getScenarioMirrorSnapshot()).toEqual([
-      expect.objectContaining({ id: 'idb-committed' }),
-    ]);
+      expect(await service.getScenarioMirrorSnapshot()).toEqual([
+        expect.objectContaining({ id: 'idb-committed' }),
+      ]);
+      expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toEqual([]);
+      expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).not.toBeNull();
+
+      vi.stubGlobal('indexedDB', undefined);
+      await expect(service.readSavedScenarios()).rejects.toThrow(/rollback bridge is stale/);
+
+      vi.stubGlobal('indexedDB', availableIndexedDb);
+      expect(await service.listSavedScenarios()).toEqual([
+        expect.objectContaining({ id: 'idb-committed' }),
+      ]);
+      expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toEqual([
+        expect.objectContaining({ id: 'idb-committed' }),
+      ]);
+      expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).toBeNull();
+    } finally {
+      if (!setItemSpyRestored) setItemSpy.mockRestore();
+      consoleError.mockRestore();
+      vi.stubGlobal('indexedDB', availableIndexedDb);
+    }
+  });
+
+  it('keeps the bridge dirty when quota fallback stores only a truncated copy', async () => {
+    localStorage.setItem(SCENARIOS_KEY, '[]');
+    const service = await import('../services/tefArchiveService');
+    await service.verifyScenarioMirror();
+
+    const originalSetItem = Storage.prototype.setItem;
+    let forcedQuotaFailure = false;
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (key, value) {
+      if (this === localStorage && key === SCENARIOS_KEY && !forcedQuotaFailure) {
+        forcedQuotaFailure = true;
+        throw new DOMException('Forced quota failure', 'QuotaExceededError');
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    try {
+      await service.saveSavedScenario(scenario('quota-committed'));
+    } finally {
+      setItemSpy.mockRestore();
+    }
+
     expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toEqual([]);
     expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).not.toBeNull();
 
-    const availableIndexedDb = indexedDB;
-    vi.stubGlobal('indexedDB', undefined);
-    await expect(service.readSavedScenarios()).rejects.toThrow(/rollback bridge is stale/);
-
-    vi.stubGlobal('indexedDB', availableIndexedDb);
     expect(await service.listSavedScenarios()).toEqual([
-      expect.objectContaining({ id: 'idb-committed' }),
+      expect.objectContaining({ id: 'quota-committed' }),
     ]);
     expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toEqual([
-      expect.objectContaining({ id: 'idb-committed' }),
+      expect.objectContaining({ id: 'quota-committed' }),
     ]);
     expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).toBeNull();
-    consoleError.mockRestore();
   });
 });
