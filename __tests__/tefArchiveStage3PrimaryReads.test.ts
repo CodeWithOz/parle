@@ -8,6 +8,7 @@ const SCENARIOS_BRIDGE_DIRTY_KEY = 'parle-scenarios-bridge-dirty';
 const SCENARIOS_MIRROR_DIRTY_KEY = 'parle-scenarios-mirror-dirty';
 const SCENARIOS_PRIMARY_KEY = 'parle-scenarios-idb-primary';
 const SCENARIOS_PENDING_KEY = 'parle-scenarios-pending-mutations';
+const SCENARIOS_QUARANTINE_KEY = 'parle-scenarios-quarantined-mutations';
 
 const archive = (id: string, createdAt = 100): TefTopicArchive => ({
   id,
@@ -34,12 +35,16 @@ const scenario = (id: string, createdAt = 100): Scenario => ({
 const pendingScenarioKey = (intentId: string) =>
   `${SCENARIOS_PENDING_KEY}:${encodeURIComponent(intentId)}`;
 
-async function clearStore(storeName: string): Promise<void> {
-  const request = indexedDB.open('parle-tef', 3);
-  const db = await new Promise<IDBDatabase>((resolve, reject) => {
+async function openCurrentDatabase(): Promise<IDBDatabase> {
+  const request = indexedDB.open('parle-tef');
+  return await new Promise<IDBDatabase>((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);
   });
+}
+
+async function clearStore(storeName: string): Promise<void> {
+  const db = await openCurrentDatabase();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction(storeName, 'readwrite');
     tx.objectStore(storeName).clear();
@@ -50,11 +55,7 @@ async function clearStore(storeName: string): Promise<void> {
 }
 
 async function failNextReadWriteTransactionForStore(storeName: string) {
-  const request = indexedDB.open('parle-tef', 3);
-  const db = await new Promise<IDBDatabase>((resolve, reject) => {
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
+  const db = await openCurrentDatabase();
   const databasePrototype = Object.getPrototypeOf(db) as IDBDatabase;
   db.close();
   const originalTransaction = databasePrototype.transaction;
@@ -103,7 +104,7 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
     expect(await service.getScenarioMigrationMetadata()).toMatchObject({ state: 'idb-primary' });
   });
 
-  it('falls back independently when one dataset is unverified', async () => {
+  it('completes Stage 2 reconciliation independently before each dataset cuts over', async () => {
     localStorage.setItem(TOPIC_ARCHIVES_KEY, JSON.stringify([archive('verified-topic')]));
     localStorage.setItem(SCENARIOS_KEY, JSON.stringify([scenario('unverified-scenario')]));
     const service = await import('../services/tefArchiveService');
@@ -111,10 +112,24 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
 
     expect((await service.readTopicArchives()).source).toBe('indexeddb');
     expect(await service.readSavedScenarios()).toMatchObject({
-      source: 'localstorage-fallback',
-      fallbackReason: 'migration-unverified',
+      source: 'indexeddb',
       records: [{ id: 'unverified-scenario' }],
     });
+  });
+
+  it('does not cut over from Stage 1 metadata before a current Stage 2 reconciliation', async () => {
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([scenario('stage-1-copy', 100)]));
+    const service = await import('../services/tefArchiveService');
+    await service.initializeScenarioMirror();
+
+    const latestLocal = scenario('changed-before-stage-2', 200);
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([latestLocal]));
+
+    expect(await service.readSavedScenarios()).toMatchObject({
+      source: 'indexeddb',
+      records: [{ id: 'changed-before-stage-2' }],
+    });
+    expect(await service.getScenarioMirrorSnapshot()).toEqual([latestLocal]);
   });
 
   it('uses fallback for an unexpectedly empty verified store without overwriting either copy', async () => {
@@ -467,7 +482,9 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
     const transactionSpy = await failNextReadWriteTransactionForStore('migrationMetadata');
 
     try {
-      await expect(service.recoverDurableDataAtStartup()).rejects.toThrow(/recovery failed/);
+      await expect(service.recoverDurableDataAtStartup()).rejects.toThrow(
+        /Forced migrationMetadata recovery transaction failure/
+      );
     } finally {
       transactionSpy.mockRestore();
     }
@@ -485,5 +502,43 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
 
     expect(localStorage.getItem(pendingScenarioKey(intent.id))).toBeNull();
     expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).toBeNull();
+  });
+
+  it('quarantines malformed journal entries and still replays valid mutations', async () => {
+    localStorage.setItem(SCENARIOS_KEY, JSON.stringify([scenario('a')]));
+    const service = await import('../services/tefArchiveService');
+    await service.verifyScenarioMirror();
+    await service.readSavedScenarios();
+
+    const malformedKey = pendingScenarioKey('malformed');
+    const validIntent = {
+      id: 'valid-after-malformed',
+      createdAt: 2,
+      kind: 'upsert',
+      record: scenario('recovered-valid', 200),
+    };
+    localStorage.setItem(malformedKey, '{broken-json');
+    localStorage.setItem(pendingScenarioKey(validIntent.id), JSON.stringify(validIntent));
+
+    expect(await service.readSavedScenarios()).toMatchObject({
+      source: 'indexeddb',
+      records: expect.arrayContaining([
+        expect.objectContaining({ id: 'a' }),
+        expect.objectContaining({ id: 'recovered-valid' }),
+      ]),
+    });
+    expect(localStorage.getItem(malformedKey)).toBeNull();
+    expect(localStorage.getItem(pendingScenarioKey(validIntent.id))).toBeNull();
+
+    const quarantineKeys = Array.from(
+      { length: localStorage.length },
+      (_, index) => localStorage.key(index)
+    ).filter((key): key is string => key?.startsWith(`${SCENARIOS_QUARANTINE_KEY}:`) ?? false);
+    expect(quarantineKeys).toHaveLength(1);
+    expect(localStorage.getItem(SCENARIOS_BRIDGE_DIRTY_KEY)).not.toBeNull();
+
+    expect(await service.listSavedScenarios()).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'recovered-valid' }),
+    ]));
   });
 });

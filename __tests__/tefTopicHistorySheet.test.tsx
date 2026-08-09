@@ -244,6 +244,18 @@ describe('TefTopicHistorySheet · detail view', () => {
       expect(screen.queryByText(/← All sessions/i)).toBeNull();
     });
   });
+
+  it('keeps delete failures inline without replacing the selected archive detail', async () => {
+    mockDelete.mockRejectedValueOnce(new Error('Forced delete failure'));
+    render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
+    fireEvent.click((await screen.findByText(/1 topics/)).closest('button')!);
+    fireEvent.click(await screen.findByText(/delete this archive/i));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Forced delete failure');
+    expect(screen.getByText(/← All sessions/i)).toBeTruthy();
+    expect(screen.getByText(/delete this archive/i)).toBeTruthy();
+    expect(screen.queryByText(/Topic history is unavailable/i)).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------

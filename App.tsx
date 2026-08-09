@@ -168,18 +168,17 @@ const App: React.FC = () => {
   const tefQuestioningElapsedRef = useRef(0);
   const activeScenarioRef = useRef<Scenario | null>(null);
   activeScenarioRef.current = activeScenario;
-  const loadPracticeGuideForAd = useCallback((adId: string) => {
+  const loadPracticeGuideForAd = useCallback(async (adId: string) => {
     const requestId = ++practiceGuideRequestIdRef.current;
-    void getLatestTopicArchive(adId)
-      .then((latest) => {
-        if (requestId !== practiceGuideRequestIdRef.current) return;
-        setPracticeGuide(latest?.topicSuggestions ?? null);
-      })
-      .catch((error) => {
-        if (requestId !== practiceGuideRequestIdRef.current) return;
-        console.error('Failed to load practice guide:', error);
-        setPracticeGuide(null);
-      });
+    try {
+      const latest = await getLatestTopicArchive(adId);
+      if (requestId !== practiceGuideRequestIdRef.current) return;
+      setPracticeGuide(latest?.topicSuggestions ?? null);
+    } catch (error) {
+      if (requestId !== practiceGuideRequestIdRef.current) return;
+      console.error('Failed to load practice guide:', error);
+      setPracticeGuide(null);
+    }
   }, []);
 
   const openTopicHistory = useCallback(
@@ -194,18 +193,17 @@ const App: React.FC = () => {
   );
 
   const openTopicsForSavedAd = useCallback(
-    (ad: TefSavedAd) => {
+    async (ad: TefSavedAd) => {
       const requestId = ++openTopicsRequestIdRef.current;
-      void getLatestTopicArchive(ad.id)
-        .then((latest) => {
-          if (requestId !== openTopicsRequestIdRef.current) return;
-          openTopicHistory(ad.id, { archiveId: latest?.id ?? null });
-        })
-        .catch((error) => {
-          if (requestId !== openTopicsRequestIdRef.current) return;
-          console.error('Failed to select latest topic archive:', error);
-          openTopicHistory(ad.id);
-        });
+      try {
+        const latest = await getLatestTopicArchive(ad.id);
+        if (requestId !== openTopicsRequestIdRef.current) return;
+        openTopicHistory(ad.id, { archiveId: latest?.id ?? null });
+      } catch (error) {
+        if (requestId !== openTopicsRequestIdRef.current) return;
+        console.error('Failed to select latest topic archive:', error);
+        openTopicHistory(ad.id);
+      }
     },
     [openTopicHistory]
   );
@@ -369,7 +367,7 @@ const App: React.FC = () => {
           if (adId && await persistReviewTopics(adId, 'questioning', r)) {
             if (currentRequestId !== tefQuestioningReviewRequestIdRef.current) return;
             setTefQuestioningTopicArchiveSaved(true);
-            loadPracticeGuideForAd(adId);
+            await loadPracticeGuideForAd(adId);
           }
         }
       })
@@ -409,15 +407,13 @@ const App: React.FC = () => {
       .then(async (r) => {
         if (currentRequestId !== tefQuestioningReviewRequestIdRef.current) return;
         if (r) {
-          setTefQuestioningReviews((prev) => {
-            const next = [...prev, r];
-            setTefQuestioningReviewIndex(next.length - 1);
-            return next;
-          });
+          const nextReviewIndex = tefQuestioningReviews.length;
+          setTefQuestioningReviews((prev) => [...prev, r]);
+          setTefQuestioningReviewIndex(nextReviewIndex);
           if (adId && await persistReviewTopics(adId, 'questioning', r)) {
             if (currentRequestId !== tefQuestioningReviewRequestIdRef.current) return;
             setTefQuestioningTopicArchiveSaved(true);
-            loadPracticeGuideForAd(adId);
+            await loadPracticeGuideForAd(adId);
           }
         }
       })
@@ -480,7 +476,7 @@ const App: React.FC = () => {
           if (adId && await persistReviewTopics(adId, 'persuasion', r)) {
             if (currentRequestId !== tefAdReviewRequestIdRef.current) return;
             setTefAdTopicArchiveSaved(true);
-            loadPracticeGuideForAd(adId);
+            await loadPracticeGuideForAd(adId);
           }
         }
       })
@@ -520,15 +516,13 @@ const App: React.FC = () => {
       .then(async (r) => {
         if (currentRequestId !== tefAdReviewRequestIdRef.current) return;
         if (r) {
-          setTefAdReviews((prev) => {
-            const next = [...prev, r];
-            setTefAdReviewIndex(next.length - 1);
-            return next;
-          });
+          const nextReviewIndex = tefAdReviews.length;
+          setTefAdReviews((prev) => [...prev, r]);
+          setTefAdReviewIndex(nextReviewIndex);
           if (adId && await persistReviewTopics(adId, 'persuasion', r)) {
             if (currentRequestId !== tefAdReviewRequestIdRef.current) return;
             setTefAdTopicArchiveSaved(true);
-            loadPracticeGuideForAd(adId);
+            await loadPracticeGuideForAd(adId);
           }
         }
       })
@@ -1827,12 +1821,12 @@ const App: React.FC = () => {
         confirmation,
       });
       currentTefAdIdRef.current = adId;
-      loadPracticeGuideForAd(adId);
+      await loadPracticeGuideForAd(adId);
       setRecentAdsRefreshToken((t) => t + 1);
     } catch (error) {
       console.error('Failed to save TEF ad:', error);
       currentTefAdIdRef.current = adId;
-      loadPracticeGuideForAd(adId);
+      await loadPracticeGuideForAd(adId);
     }
 
     setTefAdMode('practice');
@@ -1935,7 +1929,7 @@ const App: React.FC = () => {
     setAppState(AppState.IDLE);
   };
 
-  const handleRestartTefAdFromSummary = () => {
+  const handleRestartTefAdFromSummary = async () => {
     const scenarioToRestart = activeScenarioRef.current;
     if (!scenarioToRestart) {
       handleDismissTefAdSummary();
@@ -1985,7 +1979,7 @@ const App: React.FC = () => {
     setShowTefAdSummary(false);
     setTefAdTopicArchiveSaved(false);
     const adId = currentTefAdIdRef.current;
-    if (adId) loadPracticeGuideForAd(adId);
+    if (adId) await loadPracticeGuideForAd(adId);
     setAppState(AppState.IDLE);
   };
 
@@ -2071,12 +2065,12 @@ const App: React.FC = () => {
         confirmation,
       });
       currentTefAdIdRef.current = adId;
-      loadPracticeGuideForAd(adId);
+      await loadPracticeGuideForAd(adId);
       setRecentAdsRefreshToken((t) => t + 1);
     } catch (error) {
       console.error('Failed to save TEF ad:', error);
       currentTefAdIdRef.current = adId;
-      loadPracticeGuideForAd(adId);
+      await loadPracticeGuideForAd(adId);
     }
 
     // Enter practice mode
@@ -2164,7 +2158,7 @@ const App: React.FC = () => {
     setAppState(AppState.IDLE);
   };
 
-  const handleRestartTefQuestioningFromSummary = () => {
+  const handleRestartTefQuestioningFromSummary = async () => {
     const scenarioToRestart = activeScenarioRef.current;
     if (!scenarioToRestart) {
       handleDismissTefQuestioningSummary();
@@ -2215,7 +2209,7 @@ const App: React.FC = () => {
     setShowTefQuestioningSummary(false);
     setTefQuestioningTopicArchiveSaved(false);
     const adId = currentTefAdIdRef.current;
-    if (adId) loadPracticeGuideForAd(adId);
+    if (adId) await loadPracticeGuideForAd(adId);
     setAppState(AppState.IDLE);
   };
 

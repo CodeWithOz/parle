@@ -1,10 +1,14 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { PracticeGuidePanel } from '../components/PracticeGuidePanel';
 import { TefTopicSuggestionsList } from '../components/TefTopicSuggestionsList';
 import { PracticeModeSheet } from '../components/PracticeModeSheet';
 import { TefTopicHistorySheet } from '../components/TefTopicHistorySheet';
 import * as tefArchiveService from '../services/tefArchiveService';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('PracticeGuidePanel', () => {
   const topics = [
@@ -60,7 +64,6 @@ describe('TefTopicHistorySheet', () => {
     vi.spyOn(tefArchiveService, 'listTopicArchives').mockResolvedValue([]);
     render(<TefTopicHistorySheet open={true} onClose={() => {}} />);
     expect(await screen.findByText(/Complete a session to save topic suggestions/)).toBeTruthy();
-    vi.restoreAllMocks();
   });
 });
 
@@ -71,6 +74,23 @@ describe('App.tsx · TEF persistence integration', () => {
     expect(src.default).toMatch(/persistReviewTopics\(adId, 'questioning', r\)/);
     expect(src.default).toMatch(/upsertSavedAd/);
     expect(src.default).toMatch(/loadPracticeGuideForAd/);
+  });
+
+  it('keeps review array updaters pure and updates the index afterward', async () => {
+    const src = await import('../App.tsx?raw');
+    const text = src.default as string;
+    expect(text).not.toMatch(/setTefQuestioningReviews\s*\(\s*\([^)]*\)\s*=>\s*\{[\s\S]{0,180}setTefQuestioningReviewIndex/);
+    expect(text).not.toMatch(/setTefAdReviews\s*\(\s*\([^)]*\)\s*=>\s*\{[\s\S]{0,180}setTefAdReviewIndex/);
+    expect(text).toMatch(/setTefQuestioningReviews\(\(prev\) => \[\.\.\.prev, r\]\);\s*setTefQuestioningReviewIndex/);
+    expect(text).toMatch(/setTefAdReviews\(\(prev\) => \[\.\.\.prev, r\]\);\s*setTefAdReviewIndex/);
+  });
+
+  it('awaits getLatestTopicArchive inside async entry points', async () => {
+    const src = await import('../App.tsx?raw');
+    const text = src.default as string;
+    expect(text).toMatch(/useCallback\(async \(adId: string\)[\s\S]{0,160}await getLatestTopicArchive\(adId\)/);
+    expect(text).toMatch(/async \(ad: TefSavedAd\)[\s\S]{0,160}await getLatestTopicArchive\(ad\.id\)/);
+    expect(text).not.toMatch(/void getLatestTopicArchive/);
   });
 });
 

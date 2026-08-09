@@ -63,9 +63,10 @@ and post-deployment data comparison. Then update `../README.md` so Stage 4 is ne
   unexpected-empty non-overwrite, concurrent writes, async loading/error UI, stale
   close/reopen discard, crash-journal replay, non-destructive post-cutover verification,
   bridge quota truncation, restart recovery from legacy dirty metadata, concurrent journal
-  insertion, and interruption before bridge or metadata completion
+  insertion, malformed-journal quarantine, Stage 2 reconciliation gating, and interruption
+  before bridge or metadata completion
 - Automated test result: `npx vitest run --reporter=dot --silent` passed (53 files,
-  646 tests)
+  651 tests)
 - Build result: `npm run build` passed; the existing large-chunk advisory remains non-blocking
 - Manual browser checks: local Chrome smoke check passed for empty topic history, empty saved
   scenarios, and an IndexedDB-unavailable scenario fallback seeded in the isolated browser

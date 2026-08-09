@@ -31,14 +31,15 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [storageError, setStorageError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const archiveFetchTokenRef = useRef(0);
   const adFetchTokenRef = useRef(0);
 
   const refresh = useCallback(async (preferredArchiveId?: string | null) => {
     const fetchToken = ++archiveFetchTokenRef.current;
     setLoading(true);
-    setStorageError(null);
+    setLoadError(null);
     try {
       const nextArchives = await listTopicArchives(filterAdId ?? undefined);
       if (fetchToken !== archiveFetchTokenRef.current) return;
@@ -50,7 +51,7 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
       );
     } catch (error) {
       if (fetchToken !== archiveFetchTokenRef.current) return;
-      setStorageError(error instanceof Error ? error.message : 'Unable to load topic history');
+      setLoadError(error instanceof Error ? error.message : 'Unable to load topic history');
     } finally {
       if (fetchToken === archiveFetchTokenRef.current) setLoading(false);
     }
@@ -60,6 +61,7 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
     if (open) {
       void refresh(initialArchiveId);
       setLightboxOpen(false);
+      setDeleteError(null);
     }
     return () => {
       archiveFetchTokenRef.current += 1;
@@ -113,12 +115,13 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
     ) {
       return;
     }
+    setDeleteError(null);
     try {
       await deleteTopicArchive(selected.id);
       setSelectedId(null);
       await refresh();
     } catch (error) {
-      setStorageError(error instanceof Error ? error.message : 'Unable to delete topic archive');
+      setDeleteError(error instanceof Error ? error.message : 'Unable to delete topic archive');
     }
   };
 
@@ -156,10 +159,13 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
             <div className="p-6 text-center text-sm text-parle-navy-500" role="status">
               Loading topic history…
             </div>
-          ) : storageError ? (
-            <div className="p-4 rounded-xl border border-parle-red-200 bg-parle-red-50 text-center">
+          ) : loadError ? (
+            <div
+              className="p-4 rounded-xl border border-parle-red-200 bg-parle-red-50 text-center"
+              role="alert"
+            >
               <p className="text-sm text-parle-red-700">Topic history is unavailable.</p>
-              <p className="text-xs text-parle-red-600 mt-1">{storageError}</p>
+              <p className="text-xs text-parle-red-600 mt-1">{loadError}</p>
               <button
                 type="button"
                 onClick={() => void refresh(initialArchiveId)}
@@ -286,13 +292,23 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
                 />
               </div>
               <div className="flex items-center justify-between pt-2 border-t border-parle-navy-100">
-                <button
-                  type="button"
-                  onClick={handleDelete}
-                  className="text-xs text-parle-red-600 hover:text-parle-red-700"
-                >
-                  Delete this archive
-                </button>
+                <div>
+                  <button
+                    type="button"
+                    onClick={handleDelete}
+                    className="text-xs text-parle-red-600 hover:text-parle-red-700"
+                  >
+                    Delete this archive
+                  </button>
+                  {deleteError && (
+                    <div
+                      className="mt-2 max-w-xs rounded-lg border border-parle-red-200 bg-parle-red-50 px-3 py-2 text-xs text-parle-red-700"
+                      role="alert"
+                    >
+                      {deleteError}
+                    </div>
+                  )}
+                </div>
                 <div className="flex items-center gap-2">
                   {onRestartSavedAd && selectedAd && (
                     <button
