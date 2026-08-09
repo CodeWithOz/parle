@@ -168,6 +168,9 @@ const App: React.FC = () => {
   const tefQuestioningElapsedRef = useRef(0);
   const activeScenarioRef = useRef<Scenario | null>(null);
   activeScenarioRef.current = activeScenario;
+  const invalidatePracticeGuideRequest = useCallback(() => {
+    practiceGuideRequestIdRef.current += 1;
+  }, []);
   const loadPracticeGuideForAd = useCallback(async (adId: string) => {
     const requestId = ++practiceGuideRequestIdRef.current;
     try {
@@ -1886,6 +1889,7 @@ const App: React.FC = () => {
   const handleDismissTefAdSummary = () => {
     // Invalidate any in-flight review so late responses cannot be saved.
     invalidateTefAdReview();
+    invalidatePracticeGuideRequest();
 
     // Revoke audio URLs from snapshot (safe now that review is done)
     for (const msg of tefAdMessagesSnapshotRef.current) {
@@ -2105,6 +2109,7 @@ const App: React.FC = () => {
 
   const handleDismissTefQuestioningSummary = () => {
     invalidateTefQuestioningReview();
+    invalidatePracticeGuideRequest();
 
     // Abort any in-flight processing or recording
     processingAbortedRef.current = true;

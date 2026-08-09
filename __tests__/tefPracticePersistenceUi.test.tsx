@@ -215,6 +215,17 @@ describe('App.tsx · topic-history stale selection guard', () => {
       /const openTopicHistory[\s\S]{0,220}openTopicsRequestIdRef\.current \+= 1[\s\S]{0,120}setTopicHistoryFilterAdId/
     );
   });
+
+  it('invalidates pending practice-guide loads during TEF summary teardown', async () => {
+    const src = await import('../App.tsx?raw');
+    const text = src.default as string;
+    expect(text).toMatch(
+      /handleDismissTefAdSummary[\s\S]{0,220}invalidatePracticeGuideRequest\(\)/
+    );
+    expect(text).toMatch(
+      /handleDismissTefQuestioningSummary[\s\S]{0,160}invalidatePracticeGuideRequest\(\)/
+    );
+  });
 });
 
 describe('App.tsx · post-exercise review abort and stale discard', () => {

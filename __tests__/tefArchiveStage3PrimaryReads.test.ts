@@ -235,7 +235,7 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
     }
   });
 
-  it('keeps the bridge dirty when quota fallback stores only a truncated copy', async () => {
+  it('keeps the bridge dirty when a quota failure prevents the rollback bridge write', async () => {
     localStorage.setItem(SCENARIOS_KEY, '[]');
     const service = await import('../services/tefArchiveService');
     await service.verifyScenarioMirror();
@@ -300,12 +300,15 @@ describe('Stage 3 IndexedDB-primary durable reads', () => {
       expect.objectContaining({ id: 'c' }),
     ]));
     expect(recovered.some((item) => item.id === 'a')).toBe(false);
-    expect(JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]')).toEqual(
+    const bridge = JSON.parse(localStorage.getItem(SCENARIOS_KEY) ?? '[]') as Scenario[];
+    expect(bridge).toHaveLength(2);
+    expect(bridge).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ id: 'b', description: 'Updated after the outage' }),
         expect.objectContaining({ id: 'c' }),
       ])
     );
+    expect(bridge.some((item) => item.id === 'a')).toBe(false);
     for (const intent of journal) {
       expect(localStorage.getItem(pendingScenarioKey(intent.id))).toBeNull();
     }
