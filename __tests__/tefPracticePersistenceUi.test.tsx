@@ -1,10 +1,14 @@
-import { describe, it, expect, vi } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { PracticeGuidePanel } from '../components/PracticeGuidePanel';
 import { TefTopicSuggestionsList } from '../components/TefTopicSuggestionsList';
 import { PracticeModeSheet } from '../components/PracticeModeSheet';
 import { TefTopicHistorySheet } from '../components/TefTopicHistorySheet';
 import * as tefArchiveService from '../services/tefArchiveService';
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe('PracticeGuidePanel', () => {
   const topics = [
@@ -56,11 +60,10 @@ describe('PracticeModeSheet · topic history entry', () => {
 });
 
 describe('TefTopicHistorySheet', () => {
-  it('shows empty state when no archives', () => {
-    vi.spyOn(tefArchiveService, 'listTopicArchives').mockReturnValue([]);
+  it('shows empty state when no archives', async () => {
+    vi.spyOn(tefArchiveService, 'listTopicArchives').mockResolvedValue([]);
     render(<TefTopicHistorySheet open={true} onClose={() => {}} />);
-    expect(screen.getByText(/Complete a session to save topic suggestions/)).toBeTruthy();
-    vi.restoreAllMocks();
+    expect(await screen.findByText(/Complete a session to save topic suggestions/)).toBeTruthy();
   });
 });
 
@@ -71,6 +74,23 @@ describe('App.tsx · TEF persistence integration', () => {
     expect(src.default).toMatch(/persistReviewTopics\(adId, 'questioning', r\)/);
     expect(src.default).toMatch(/upsertSavedAd/);
     expect(src.default).toMatch(/loadPracticeGuideForAd/);
+  });
+
+  it('keeps review array updaters pure and updates the index afterward', async () => {
+    const src = await import('../App.tsx?raw');
+    const text = src.default as string;
+    expect(text).not.toMatch(/setTefQuestioningReviews\s*\(\s*\([^)]*\)\s*=>\s*\{[\s\S]{0,180}setTefQuestioningReviewIndex/);
+    expect(text).not.toMatch(/setTefAdReviews\s*\(\s*\([^)]*\)\s*=>\s*\{[\s\S]{0,180}setTefAdReviewIndex/);
+    expect(text).toMatch(/setTefQuestioningReviews\(\(prev\) => \[\.\.\.prev, r\]\);\s*setTefQuestioningReviewIndex/);
+    expect(text).toMatch(/setTefAdReviews\(\(prev\) => \[\.\.\.prev, r\]\);\s*setTefAdReviewIndex/);
+  });
+
+  it('awaits getLatestTopicArchive inside async entry points', async () => {
+    const src = await import('../App.tsx?raw');
+    const text = src.default as string;
+    expect(text).toMatch(/useCallback\(async \(adId: string\)[\s\S]{0,160}await getLatestTopicArchive\(adId\)/);
+    expect(text).toMatch(/async \(ad: TefSavedAd\)[\s\S]{0,160}await getLatestTopicArchive\(ad\.id\)/);
+    expect(text).not.toMatch(/void getLatestTopicArchive/);
   });
 });
 
@@ -174,7 +194,7 @@ describe('App.tsx · practiceGuide state loaded from topic archive', () => {
     const src = await import('../App.tsx?raw');
     const text = src.default as string;
     expect(text).toMatch(/loadPracticeGuideForAd/);
-    expect(text).toMatch(/if \(adId && persistReviewTopics\(adId,[\s\S]{0,200}loadPracticeGuideForAd\(adId\)/);
+    expect(text).toMatch(/if \(adId && await persistReviewTopics\(adId,[\s\S]{0,260}loadPracticeGuideForAd\(adId\)/);
   });
 });
 
@@ -184,6 +204,27 @@ describe('App.tsx · PracticeModeSheet receives onOpenTopicHistory prop', () => 
     const text = src.default as string;
     expect(text).toMatch(/onOpenTopicHistory/);
     expect(text).toMatch(/PracticeModeSheet[\s\S]{0,200}onOpenTopicHistory/);
+  });
+});
+
+describe('App.tsx · topic-history stale selection guard', () => {
+  it('invalidates a pending saved-ad lookup before direct history navigation', async () => {
+    const src = await import('../App.tsx?raw');
+    const text = src.default as string;
+    expect(text).toMatch(
+      /const openTopicHistory[\s\S]{0,220}openTopicsRequestIdRef\.current \+= 1[\s\S]{0,120}setTopicHistoryFilterAdId/
+    );
+  });
+
+  it('invalidates pending practice-guide loads during TEF summary teardown', async () => {
+    const src = await import('../App.tsx?raw');
+    const text = src.default as string;
+    expect(text).toMatch(
+      /handleDismissTefAdSummary[\s\S]{0,220}invalidatePracticeGuideRequest\(\)/
+    );
+    expect(text).toMatch(
+      /handleDismissTefQuestioningSummary[\s\S]{0,160}invalidatePracticeGuideRequest\(\)/
+    );
   });
 });
 

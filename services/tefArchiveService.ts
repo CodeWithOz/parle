@@ -17,6 +17,14 @@ const TOPIC_ARCHIVES_KEY = 'parle-tef-topic-archives';
 const SCENARIOS_KEY = 'parle-scenarios';
 const TOPIC_ARCHIVES_MIRROR_DIRTY_KEY = 'parle-tef-topic-archives-mirror-dirty';
 const SCENARIOS_MIRROR_DIRTY_KEY = 'parle-scenarios-mirror-dirty';
+const TOPIC_ARCHIVES_BRIDGE_DIRTY_KEY = 'parle-tef-topic-archives-bridge-dirty';
+const SCENARIOS_BRIDGE_DIRTY_KEY = 'parle-scenarios-bridge-dirty';
+const TOPIC_ARCHIVES_PRIMARY_KEY = 'parle-tef-topic-archives-idb-primary';
+const SCENARIOS_PRIMARY_KEY = 'parle-scenarios-idb-primary';
+const TOPIC_ARCHIVES_PENDING_KEY = 'parle-tef-topic-archives-pending-mutations';
+const SCENARIOS_PENDING_KEY = 'parle-scenarios-pending-mutations';
+const TOPIC_ARCHIVES_QUARANTINE_KEY = 'parle-tef-topic-archives-quarantined-mutations';
+const SCENARIOS_QUARANTINE_KEY = 'parle-scenarios-quarantined-mutations';
 const MAX_TOPIC_ARCHIVES = 50;
 const MAX_SAVED_ADS_PER_TYPE = 20;
 const DB_NAME = 'parle-tef';
@@ -28,6 +36,7 @@ const MIGRATION_METADATA_STORE = 'migrationMetadata';
 const TOPIC_ARCHIVE_MIGRATION_NAME = 'topic-archives-localstorage-to-idb';
 const SCENARIO_MIGRATION_NAME = 'scenarios-localstorage-to-idb';
 const MAX_MIRROR_STABILITY_ATTEMPTS = 5;
+const rollbackBridgeDirtyInMemory = new Set<string>();
 
 export interface DurableDataMirrorDiagnostic {
   operation: 'backfill' | 'shadow-verify' | 'save' | 'delete' | 'delete-for-ad';
@@ -73,31 +82,64 @@ interface MirrorSource<T extends DurableRecord> {
 interface MirrorConfig<T extends DurableRecord> {
   storageKey: string;
   dirtyKey: string;
+  bridgeDirtyKey: string;
+  primaryKey: string;
+  pendingMutationsKey: string;
+  quarantinedMutationsKey: string;
   storeName: string;
   metadataName: DurableDataMigrationName;
   label: string;
   inspectRelationships?: (records: T[]) => Promise<string[]>;
   inspectLegacyShapes?: (records: T[]) => string[];
+  maxRecords?: number;
+}
+
+interface PendingMutation {
+  id: string;
+  createdAt?: number;
+  kind: 'upsert' | 'delete-id' | 'delete-for-ad';
+  record?: DurableRecord;
+  targetId?: string;
+  adId?: string;
 }
 
 interface MirrorState {
   queue: Promise<void>;
   lastDiagnostic: DurableDataMirrorDiagnostic | null;
   dirtyTokenSequence: number;
+  stage2Reconciled: boolean;
+  stage2ReconciliationPromise: Promise<boolean> | null;
+}
+
+export type DurableDataReadSource = 'indexeddb' | 'localstorage-fallback';
+
+export interface DurableDataReadResult<T> {
+  records: T[];
+  source: DurableDataReadSource;
+  fallbackReason?: 'indexeddb-unavailable' | 'migration-unverified' | 'unexpected-empty-store';
 }
 
 const topicArchiveMirrorConfig: MirrorConfig<TefTopicArchive> = {
   storageKey: TOPIC_ARCHIVES_KEY,
   dirtyKey: TOPIC_ARCHIVES_MIRROR_DIRTY_KEY,
+  bridgeDirtyKey: TOPIC_ARCHIVES_BRIDGE_DIRTY_KEY,
+  primaryKey: TOPIC_ARCHIVES_PRIMARY_KEY,
+  pendingMutationsKey: TOPIC_ARCHIVES_PENDING_KEY,
+  quarantinedMutationsKey: TOPIC_ARCHIVES_QUARANTINE_KEY,
   storeName: TOPIC_ARCHIVES_STORE,
   metadataName: TOPIC_ARCHIVE_MIGRATION_NAME,
   label: 'TEF topic archive',
   inspectRelationships: findArchivesWithMissingAds,
+  maxRecords: MAX_TOPIC_ARCHIVES,
 };
 
 const scenarioMirrorConfig: MirrorConfig<Scenario> = {
   storageKey: SCENARIOS_KEY,
   dirtyKey: SCENARIOS_MIRROR_DIRTY_KEY,
+  bridgeDirtyKey: SCENARIOS_BRIDGE_DIRTY_KEY,
+  primaryKey: SCENARIOS_PRIMARY_KEY,
+  pendingMutationsKey: SCENARIOS_PENDING_KEY,
+  quarantinedMutationsKey: SCENARIOS_QUARANTINE_KEY,
   storeName: SCENARIOS_STORE,
   metadataName: SCENARIO_MIGRATION_NAME,
   label: 'saved scenario',
@@ -111,16 +153,30 @@ const topicArchiveMirrorState: MirrorState = {
   queue: Promise.resolve(),
   lastDiagnostic: null,
   dirtyTokenSequence: 0,
+  stage2Reconciled: false,
+  stage2ReconciliationPromise: null,
 };
 
 const scenarioMirrorState: MirrorState = {
   queue: Promise.resolve(),
   lastDiagnostic: null,
   dirtyTokenSequence: 0,
+  stage2Reconciled: false,
+  stage2ReconciliationPromise: null,
 };
 
 function createArchiveId(): string {
   return `scenario_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+}
+
+function createPendingMutation(
+  mutation: Omit<PendingMutation, 'id' | 'createdAt'>
+): PendingMutation {
+  const createdAt = Date.now();
+  const suffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+  return { ...mutation, id: `mutation_${createdAt}_${suffix}`, createdAt };
 }
 
 function isQuotaExceeded(error: unknown): boolean {
@@ -269,29 +325,6 @@ function readMirrorSource<T extends DurableRecord>(config: MirrorConfig<T>): Mir
   }
 }
 
-function loadTopicArchivesRaw(): TefTopicArchive[] {
-  return readMirrorSource(topicArchiveMirrorConfig).records;
-}
-
-function persistTopicArchives(archives: TefTopicArchive[]): void {
-  try {
-    localStorage.setItem(TOPIC_ARCHIVES_KEY, JSON.stringify(archives));
-  } catch (error) {
-    if (isQuotaExceeded(error) && archives.length > 0) {
-      const trimmed = archives.slice(0, Math.max(1, archives.length - 1));
-      try {
-        localStorage.setItem(TOPIC_ARCHIVES_KEY, JSON.stringify(trimmed));
-        return;
-      } catch (retryError) {
-        console.error('Error saving topic archives after trim:', retryError);
-        throw new Error('Failed to save topic archive: storage quota exceeded');
-      }
-    }
-    console.error('Error saving topic archives:', error);
-    throw error;
-  }
-}
-
 function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) {
     return `[${value.map(canonicalJson).join(',')}]`;
@@ -354,6 +387,32 @@ async function readAllFromStore<T>(storeName: string): Promise<T[]> {
       tx.onabort = () => reject(tx.error ?? new Error(`Reading ${storeName} was aborted`));
     });
     return records;
+  } finally {
+    db.close();
+  }
+}
+
+async function mutateAllInStore<T extends DurableRecord>(
+  storeName: string,
+  mutate: (records: T[]) => T[]
+): Promise<T[]> {
+  const db = await openDb();
+  try {
+    return await new Promise<T[]>((resolve, reject) => {
+      const tx = db.transaction(storeName, 'readwrite');
+      const store = tx.objectStore(storeName);
+      const request = store.getAll();
+      let next: T[] = [];
+      request.onsuccess = () => {
+        next = mutate((request.result as T[]) ?? []);
+        store.clear();
+        for (const record of next) store.put(record);
+      };
+      request.onerror = () => reject(request.error ?? new Error(`Failed reading ${storeName}`));
+      tx.oncomplete = () => resolve(next);
+      tx.onerror = () => reject(tx.error ?? new Error(`Failed writing ${storeName}`));
+      tx.onabort = () => reject(tx.error ?? new Error(`Writing ${storeName} was aborted`));
+    });
   } finally {
     db.close();
   }
@@ -521,7 +580,7 @@ async function writeFailedVerificationMetadata(
   const metadata: DurableDataMigrationMetadata = {
     name: config.metadataName,
     version: 1,
-    state: 'mirroring',
+    state: hasIdbPrimaryAuthority(config, previous) ? 'idb-primary' : 'mirroring',
     lastReconciledAt: previous?.lastReconciledAt ?? 0,
     sourceRecordCount,
     destinationRecordCount,
@@ -639,6 +698,196 @@ function readMirrorDirtyToken(config: MirrorConfig<DurableRecord>): string | nul
   }
 }
 
+function isRollbackBridgeDirty(config: MirrorConfig<DurableRecord>): boolean {
+  if (rollbackBridgeDirtyInMemory.has(config.bridgeDirtyKey)) return true;
+  try {
+    return localStorage.getItem(config.bridgeDirtyKey) !== null
+      || sessionStorage.getItem(config.bridgeDirtyKey) !== null;
+  } catch {
+    return true;
+  }
+}
+
+function markRollbackBridgeDirty(config: MirrorConfig<DurableRecord>): void {
+  rollbackBridgeDirtyInMemory.add(config.bridgeDirtyKey);
+  const marker = String(Date.now());
+  try {
+    localStorage.setItem(config.bridgeDirtyKey, marker);
+  } catch (error) {
+    console.error(`Failed to mark ${config.label} rollback bridge dirty:`, error);
+  }
+  try {
+    sessionStorage.setItem(config.bridgeDirtyKey, marker);
+  } catch (error) {
+    console.error(`Failed to mark ${config.label} session rollback bridge dirty:`, error);
+  }
+}
+
+function clearRollbackBridgeDirty(config: MirrorConfig<DurableRecord>): void {
+  rollbackBridgeDirtyInMemory.delete(config.bridgeDirtyKey);
+  try {
+    localStorage.removeItem(config.bridgeDirtyKey);
+  } catch (error) {
+    console.error(`Failed to clear ${config.label} rollback bridge marker:`, error);
+  }
+  try {
+    sessionStorage.removeItem(config.bridgeDirtyKey);
+  } catch (error) {
+    console.error(`Failed to clear ${config.label} session rollback bridge marker:`, error);
+  }
+}
+
+function markIdbPrimary(config: MirrorConfig<DurableRecord>): void {
+  try {
+    localStorage.setItem(config.primaryKey, '1');
+  } catch (error) {
+    console.error(`Failed to persist ${config.label} primary-authority marker:`, error);
+  }
+}
+
+function hasIdbPrimaryAuthority(
+  config: MirrorConfig<DurableRecord>,
+  metadata?: DurableDataMigrationMetadata | null
+): boolean {
+  if (metadata?.state === 'idb-primary') return true;
+  try {
+    return localStorage.getItem(config.primaryKey) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function isValidPendingMutation(value: unknown): value is PendingMutation {
+  if (!value || typeof value !== 'object') return false;
+  const intent = value as Partial<PendingMutation>;
+  if (typeof intent.id !== 'string' || intent.id.length === 0) return false;
+  if (intent.createdAt !== undefined && typeof intent.createdAt !== 'number') return false;
+  if (intent.kind === 'upsert') {
+    return !!intent.record
+      && typeof intent.record === 'object'
+      && typeof intent.record.id === 'string';
+  }
+  if (intent.kind === 'delete-id') return typeof intent.targetId === 'string';
+  if (intent.kind === 'delete-for-ad') return typeof intent.adId === 'string';
+  return false;
+}
+
+function quarantinePendingMutation(
+  config: MirrorConfig<DurableRecord>,
+  key: string,
+  rawIntent: string,
+  reason: string
+): void {
+  markRollbackBridgeDirty(config);
+  const suffix = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : Math.random().toString(36).slice(2);
+  const quarantineKey = `${config.quarantinedMutationsKey}:${Date.now()}-${suffix}`;
+  localStorage.setItem(quarantineKey, JSON.stringify({
+    originalKey: key,
+    rawIntent,
+    reason,
+    quarantinedAt: Date.now(),
+  }));
+  localStorage.removeItem(key);
+}
+
+function hasQuarantinedMutations(config: MirrorConfig<DurableRecord>): boolean {
+  const prefix = `${config.quarantinedMutationsKey}:`;
+  for (let index = 0; index < localStorage.length; index += 1) {
+    if (localStorage.key(index)?.startsWith(prefix)) return true;
+  }
+  return false;
+}
+
+function readPendingMutations(config: MirrorConfig<DurableRecord>): PendingMutation[] {
+  try {
+    const pending: PendingMutation[] = [];
+    const keyPrefix = `${config.pendingMutationsKey}:`;
+    const journalKeys: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key?.startsWith(keyPrefix)) journalKeys.push(key);
+    }
+    for (const key of journalKeys) {
+      const rawIntent = localStorage.getItem(key);
+      if (!rawIntent) continue;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(rawIntent);
+      } catch (error) {
+        quarantinePendingMutation(config, key, rawIntent, errorMessage(error));
+        continue;
+      }
+      if (!isValidPendingMutation(parsed)) {
+        quarantinePendingMutation(config, key, rawIntent, 'Invalid pending mutation shape');
+        continue;
+      }
+      const expectedKey = `${config.pendingMutationsKey}:${encodeURIComponent(parsed.id)}`;
+      if (key !== expectedKey) {
+        quarantinePendingMutation(config, key, rawIntent, 'Mutation ID does not match its journal key');
+        continue;
+      }
+      pending.push(parsed);
+    }
+
+    return pending.sort((left, right) =>
+      (left.createdAt ?? 0) - (right.createdAt ?? 0) || left.id.localeCompare(right.id)
+    );
+  } catch (error) {
+    throw new Error(`Unable to read ${config.label} recovery journal: ${errorMessage(error)}`);
+  }
+}
+
+function appendPendingMutation(
+  config: MirrorConfig<DurableRecord>,
+  intent: PendingMutation
+): void {
+  // Fail closed before publishing the intent. If the tab crashes after this
+  // point, no localStorage snapshot can be treated as a complete fallback.
+  markRollbackBridgeDirty(config);
+  localStorage.setItem(
+    `${config.pendingMutationsKey}:${encodeURIComponent(intent.id)}`,
+    JSON.stringify(intent)
+  );
+}
+
+function removePendingMutations(
+  config: MirrorConfig<DurableRecord>,
+  processed: PendingMutation[]
+): void {
+  for (const intent of processed) {
+    localStorage.removeItem(
+      `${config.pendingMutationsKey}:${encodeURIComponent(intent.id)}`
+    );
+  }
+}
+
+function applyPendingMutation<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  records: T[],
+  intent: PendingMutation
+): T[] {
+  if (intent.kind === 'delete-id') {
+    return records.filter((record) => record.id !== intent.targetId);
+  }
+  if (intent.kind === 'delete-for-ad') {
+    return (records as unknown as TefTopicArchive[])
+      .filter((record) => record.adId !== intent.adId) as unknown as T[];
+  }
+
+  const record = intent.record as T | undefined;
+  if (!record) throw new Error(`Invalid ${config.label} upsert recovery intent`);
+  const updated = [record, ...records.filter((item) => item.id !== record.id)];
+  if (config.maxRecords !== undefined) {
+    return (updated as unknown as TefTopicArchive[])
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, config.maxRecords) as unknown as T[];
+  }
+  return (updated as unknown as Scenario[])
+    .sort((a, b) => b.createdAt - a.createdAt) as unknown as T[];
+}
+
 function markMirrorDirty(
   config: MirrorConfig<DurableRecord>,
   state: MirrorState
@@ -690,6 +939,27 @@ function enqueueMirror<T extends DurableRecord>(
 
   const diagnosticPromise = state.queue.then(async () => {
     try {
+      let metadata: DurableDataMigrationMetadata | null = null;
+      try {
+        metadata = await getMigrationMetadata(config.metadataName);
+      } catch {
+        // The normal mirror path below will produce the standard diagnostic.
+      }
+      if (hasIdbPrimaryAuthority(durableConfig, metadata)) {
+        const records = await recoverPrimaryDataset(config);
+        const diagnostic: DurableDataMirrorDiagnostic = {
+          operation,
+          success: true,
+          sourceRecordCount: records.length,
+          destinationRecordCount: records.length,
+          completedAt: Date.now(),
+        };
+        state.lastDiagnostic = diagnostic;
+        if (operation === 'shadow-verify') state.stage2Reconciled = true;
+        clearMirrorDirtyToken(durableConfig, dirtyToken);
+        return diagnostic;
+      }
+
       const result = await mirrorLatestSource(config, (recordCount) => {
         sourceRecordCount = recordCount;
       });
@@ -705,6 +975,7 @@ function enqueueMirror<T extends DurableRecord>(
         repairs: result.repairs,
       };
       state.lastDiagnostic = diagnostic;
+      if (operation === 'shadow-verify') state.stage2Reconciled = true;
       clearMirrorDirtyToken(durableConfig, dirtyToken);
       return diagnostic;
     } catch (error) {
@@ -793,6 +1064,94 @@ export async function verifyDurableDataMirrors(): Promise<{
   return { topicArchives, scenarios };
 }
 
+function ensureStage2Reconciliation<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  state: MirrorState
+): Promise<boolean> {
+  if (state.stage2Reconciled) return Promise.resolve(true);
+  if (state.stage2ReconciliationPromise) return state.stage2ReconciliationPromise;
+
+  const reconciliation = (async () => {
+    try {
+      const metadata = await getMigrationMetadata(config.metadataName);
+      if (hasIdbPrimaryAuthority(config as MirrorConfig<DurableRecord>, metadata)) {
+        state.stage2Reconciled = true;
+        return true;
+      }
+    } catch {
+      // enqueueMirror below returns the normal per-dataset failure diagnostic.
+    }
+
+    const diagnostic = await enqueueMirror(config, state, 'shadow-verify');
+    return diagnostic.success && state.stage2Reconciled;
+  })();
+  state.stage2ReconciliationPromise = reconciliation;
+  void reconciliation.finally(() => {
+    if (state.stage2ReconciliationPromise === reconciliation) {
+      state.stage2ReconciliationPromise = null;
+    }
+  });
+  return reconciliation;
+}
+
+async function recoverDatasetAtStartup<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  state: MirrorState
+): Promise<void> {
+  if (!await ensureStage2Reconciliation(config, state)) return;
+  let metadata: DurableDataMigrationMetadata | null = null;
+  try {
+    metadata = await getMigrationMetadata(config.metadataName);
+  } catch {
+    return;
+  }
+
+  const durableConfig = config as MirrorConfig<DurableRecord>;
+  const pendingAtStart = readPendingMutations(durableConfig);
+  const hasPending = pendingAtStart.length > 0;
+  if (hasIdbPrimaryAuthority(durableConfig, metadata)) {
+    if (metadata?.verificationStatus === 'verified'
+      && readMirrorDirtyToken(durableConfig) === null
+      && !isRollbackBridgeDirty(durableConfig)
+      && !hasQuarantinedMutations(durableConfig)
+      && !hasPending) {
+      return;
+    }
+    const recovery = state.queue.then(() => recoverPrimaryDataset(config));
+    state.queue = recovery.then(() => undefined, () => undefined);
+    await recovery;
+    return;
+  }
+
+  if (metadata?.verificationStatus !== 'verified'
+    || readMirrorDirtyToken(durableConfig) !== null
+    || hasPending) {
+    const diagnostic = await enqueueMirror(config, state, 'backfill');
+    if (!diagnostic.success) throw new Error(diagnostic.error ?? `${config.label} recovery failed`);
+    if (hasPending) removePendingMutations(durableConfig, pendingAtStart);
+  }
+}
+
+/**
+ * Repairs interrupted durable-data work without reversing the Stage 3 authority.
+ * Pre-cutover datasets may still backfill from localStorage; post-cutover datasets
+ * only replay journaled operations into the latest IndexedDB transaction and then
+ * rebuild the rollback bridge from IndexedDB.
+ */
+export async function recoverDurableDataAtStartup(): Promise<void> {
+  const results = await Promise.allSettled([
+    recoverDatasetAtStartup(topicArchiveMirrorConfig, topicArchiveMirrorState),
+    recoverDatasetAtStartup(scenarioMirrorConfig, scenarioMirrorState),
+  ]);
+  const failures = results.filter((result) => result.status === 'rejected');
+  if (failures.length > 0) {
+    const reasons = failures.map((failure) => errorMessage(failure.reason));
+    throw new Error(
+      `Durable data recovery failed for ${failures.length} dataset(s): ${reasons.join('; ')}`
+    );
+  }
+}
+
 /** Waits for queued fire-and-forget mirrors from synchronous public mutations. */
 export async function waitForTopicArchiveMirror(): Promise<TopicArchiveMirrorDiagnostic | null> {
   await topicArchiveMirrorState.queue;
@@ -839,17 +1198,342 @@ async function getMigrationMetadata(
       tx.onabort = () => reject(tx.error ?? new Error('Migration metadata read was aborted'));
     });
     if (!result) return null;
-    if (readMirrorDirtyToken(config) !== null && result.verificationStatus === 'verified') {
+    const pendingMutationCount = readPendingMutations(config).length;
+    const legacyDirty = readMirrorDirtyToken(config) !== null;
+    const rollbackBridgeDirty = isRollbackBridgeDirty(config);
+    const quarantinedMutation = hasQuarantinedMutations(config);
+    if ((legacyDirty || pendingMutationCount > 0 || rollbackBridgeDirty || quarantinedMutation)
+      && result.verificationStatus === 'verified') {
       return {
         ...result,
         verificationStatus: 'failed',
-        verificationError: 'Authoritative localStorage changed after the last verified reconciliation',
+        verificationError: pendingMutationCount > 0
+          ? 'IndexedDB recovery has pending local mutations'
+          : rollbackBridgeDirty || quarantinedMutation
+            ? 'The localStorage rollback bridge is stale'
+            : 'Authoritative localStorage changed after the last verified reconciliation',
       };
     }
     return result;
   } finally {
     db.close();
   }
+}
+
+async function markMigrationIdbPrimary(
+  config: MirrorConfig<DurableRecord>,
+  metadata: DurableDataMigrationMetadata
+): Promise<void> {
+  if (metadata.state !== 'idb-primary') {
+    const db = await openDb();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(MIGRATION_METADATA_STORE, 'readwrite');
+        tx.objectStore(MIGRATION_METADATA_STORE).put({ ...metadata, state: 'idb-primary' });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error ?? new Error('Failed to mark migration IndexedDB-primary'));
+        tx.onabort = () => reject(tx.error ?? new Error('Migration metadata update was aborted'));
+      });
+    } finally {
+      db.close();
+    }
+  }
+  markIdbPrimary(config);
+}
+
+async function writePrimaryRecoveryMetadata<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  records: T[]
+): Promise<void> {
+  const integrity = await inspectRecordIntegrity(config, records);
+  const now = Date.now();
+  const metadata: DurableDataMigrationMetadata = {
+    name: config.metadataName,
+    version: 1,
+    state: 'idb-primary',
+    lastReconciledAt: now,
+    sourceRecordCount: records.length,
+    destinationRecordCount: records.length,
+    verificationStatus: 'verified',
+    lastVerifiedAt: now,
+    mismatchCounts: { missing: 0, extra: 0, differing: 0 },
+    repairCounts: { inserted: 0, updated: 0, deleted: 0 },
+    preRepairIntegrityCounts: integrityCounts(integrity),
+    postRepairIntegrityCounts: integrityCounts(integrity),
+    relationshipInvalidRecordCount: integrity.relationshipInvalidIds.length,
+    legacyShapeRecordCount: integrity.legacyShapeIds.length,
+  };
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(MIGRATION_METADATA_STORE, 'readwrite');
+      tx.objectStore(MIGRATION_METADATA_STORE).put(metadata);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('Failed to save primary recovery metadata'));
+      tx.onabort = () => reject(tx.error ?? new Error('Primary recovery metadata write was aborted'));
+    });
+  } finally {
+    db.close();
+  }
+  markIdbPrimary(config as MirrorConfig<DurableRecord>);
+}
+
+async function recoverPrimaryDataset<T extends DurableRecord>(
+  config: MirrorConfig<T>
+): Promise<T[]> {
+  const durableConfig = config as MirrorConfig<DurableRecord>;
+  const pending = readPendingMutations(durableConfig);
+  // This latch is set before replay so every crash boundary fails closed.
+  markRollbackBridgeDirty(durableConfig);
+  const records = pending.length > 0
+    ? await mutateAllInStore(config.storeName, (current) => pending.reduce(
+      (next, intent) => applyPendingMutation(config, next, intent),
+      current
+    ))
+    : await readAllFromStore<T>(config.storeName);
+
+  let bridgeComplete = false;
+  try {
+    bridgeComplete = persistRollbackBridge(config, records);
+  } catch (error) {
+    console.error(`Failed to rebuild ${config.label} rollback bridge:`, error);
+  }
+
+  await writePrimaryRecoveryMetadata(config, records);
+  if (bridgeComplete && pending.length > 0) {
+    removePendingMutations(durableConfig, pending);
+  }
+  clearMirrorDirtyToken(durableConfig, readMirrorDirtyToken(durableConfig));
+  if (bridgeComplete
+    && readPendingMutations(durableConfig).length === 0
+    && !hasQuarantinedMutations(durableConfig)) {
+    clearRollbackBridgeDirty(durableConfig);
+  } else {
+    markRollbackBridgeDirty(durableConfig);
+  }
+  return records;
+}
+
+async function readPrimaryDataset<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  state: MirrorState,
+  stage2ReconciliationResult?: boolean
+): Promise<DurableDataReadResult<T>> {
+  const fallback = readMirrorSource(config);
+  const useFallback = (
+    fallbackReason: NonNullable<DurableDataReadResult<T>['fallbackReason']>
+  ): DurableDataReadResult<T> => {
+    const durableConfig = config as MirrorConfig<DurableRecord>;
+    if (isRollbackBridgeDirty(durableConfig)
+      || readPendingMutations(durableConfig).length > 0
+      || hasQuarantinedMutations(durableConfig)) {
+      throw new Error(
+        `Unable to read ${config.label}s: IndexedDB cannot be used and the localStorage rollback bridge is stale`
+      );
+    }
+    if (!fallback.readable) {
+      throw new Error(
+        `Unable to read ${config.label}s: IndexedDB cannot be used and the localStorage fallback is unreadable`
+      );
+    }
+    return { records: fallback.records, source: 'localstorage-fallback', fallbackReason };
+  };
+
+  const stage2Ready = stage2ReconciliationResult
+    ?? await ensureStage2Reconciliation(config, state);
+  if (!stage2Ready) {
+    return useFallback(
+      typeof indexedDB === 'undefined' ? 'indexeddb-unavailable' : 'migration-unverified'
+    );
+  }
+
+  let metadata: DurableDataMigrationMetadata | null;
+  try {
+    metadata = await getMigrationMetadata(config.metadataName);
+  } catch {
+    return useFallback('indexeddb-unavailable');
+  }
+
+  const durableConfig = config as MirrorConfig<DurableRecord>;
+  if (
+    hasIdbPrimaryAuthority(durableConfig, metadata)
+    && (metadata?.verificationStatus !== 'verified'
+      || readMirrorDirtyToken(durableConfig) !== null
+      || readPendingMutations(durableConfig).length > 0)
+  ) {
+    try {
+      const recovered = await recoverPrimaryDataset(config);
+      return { records: recovered, source: 'indexeddb' };
+    } catch (error) {
+      console.error(`Failed to recover ${config.label} IndexedDB primary data:`, error);
+      return useFallback('indexeddb-unavailable');
+    }
+  }
+
+  if (metadata?.verificationStatus !== 'verified') {
+    return useFallback('migration-unverified');
+  }
+
+  let records: T[];
+  try {
+    records = await readAllFromStore<T>(config.storeName);
+  } catch {
+    return useFallback('indexeddb-unavailable');
+  }
+
+  if (records.length === 0 && fallback.readable && fallback.records.length > 0) {
+    return useFallback('unexpected-empty-store');
+  }
+
+  if (isRollbackBridgeDirty(config as MirrorConfig<DurableRecord>)) {
+    try {
+      const bridgeComplete = persistRollbackBridge(config, records);
+      if (bridgeComplete && !hasQuarantinedMutations(
+        config as MirrorConfig<DurableRecord>
+      )) {
+        clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
+      } else {
+        markRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
+      }
+    } catch (error) {
+      // IndexedDB remains authoritative. Keep the durable marker so a later
+      // fallback cannot silently serve the stale rollback copy.
+      console.error(`Failed to repair ${config.label} rollback bridge:`, error);
+    }
+  }
+
+  // Record cutover only after a verified primary read. A metadata-write failure
+  // must never turn a valid dataset read into an empty or error result.
+  try {
+    await markMigrationIdbPrimary(config as MirrorConfig<DurableRecord>, metadata);
+  } catch (error) {
+    console.error(`Failed to record ${config.label} IndexedDB-primary state:`, error);
+  }
+  return { records, source: 'indexeddb' };
+}
+
+function persistRollbackBridge<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  records: T[]
+): boolean {
+  try {
+    localStorage.setItem(config.storageKey, JSON.stringify(records));
+    return true;
+  } catch (error) {
+    if (isQuotaExceeded(error) && records.length > 0) {
+      try {
+        localStorage.setItem(config.storageKey, JSON.stringify(records.slice(0, -1)));
+        return false;
+      } catch (retryError) {
+        if (isQuotaExceeded(retryError)) {
+          console.error(`Error saving ${config.label}s after trim:`, retryError);
+          return false;
+        }
+        throw retryError;
+      }
+    }
+    throw error;
+  }
+}
+
+async function mutatePrimaryDataset<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  state: MirrorState,
+  intent: PendingMutation
+): Promise<T[]> {
+  const stage2Ready = await ensureStage2Reconciliation(config, state);
+  const mutationPromise = state.queue.then(async () => {
+    const current = await readPrimaryDataset(config, state, stage2Ready);
+    const fallbackNext = applyPendingMutation(config, [...current.records], intent);
+
+    if (current.source === 'indexeddb') {
+      let committed: T[];
+      try {
+        // Compute from the records observed inside this read-write transaction.
+        // IndexedDB serializes it with other tabs, preventing lost updates.
+        committed = await mutateAllInStore(
+          config.storeName,
+          (records) => applyPendingMutation(config, records, intent)
+        );
+      } catch {
+        // Persist the operation itself, not a localStorage snapshot. Recovery
+        // replays it against the newest IndexedDB state, preserving records that
+        // may have been committed by another tab while this bridge was stale.
+        const durableConfig = config as MirrorConfig<DurableRecord>;
+        appendPendingMutation(durableConfig, intent);
+        const bridgeComplete = persistRollbackBridge(config, fallbackNext);
+        if (!bridgeComplete || hasIdbPrimaryAuthority(durableConfig)) {
+          markRollbackBridgeDirty(durableConfig);
+        }
+        queuePrimaryRecovery(config, state, intent.kind === 'delete-for-ad'
+          ? 'delete-for-ad'
+          : intent.kind === 'delete-id' ? 'delete' : 'save');
+        return fallbackNext;
+      }
+      // IndexedDB committed first; the localStorage copy remains the rollback bridge.
+      // Never roll back the primary store from an earlier snapshot if the bridge
+      // itself fails, because doing so could erase another tab's committed data.
+      try {
+        const bridgeComplete = persistRollbackBridge(config, committed);
+        if (bridgeComplete
+          && readPendingMutations(config as MirrorConfig<DurableRecord>).length === 0
+          && !hasQuarantinedMutations(config as MirrorConfig<DurableRecord>)) {
+          clearRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
+        } else {
+          markRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
+        }
+      } catch (bridgeError) {
+        console.error(`Failed to update ${config.label} rollback bridge:`, bridgeError);
+        markRollbackBridgeDirty(config as MirrorConfig<DurableRecord>);
+      }
+      return committed;
+    }
+
+    // A fallback mutation is journaled as an idempotent intent. Never reconcile
+    // the whole localStorage snapshot into IndexedDB after the Stage 3 cutover.
+    const durableConfig = config as MirrorConfig<DurableRecord>;
+    const isPostCutover = hasIdbPrimaryAuthority(durableConfig);
+    if (isPostCutover) appendPendingMutation(durableConfig, intent);
+    const bridgeComplete = persistRollbackBridge(config, fallbackNext);
+    if (!bridgeComplete || isPostCutover) {
+      markRollbackBridgeDirty(durableConfig);
+    }
+    const operation = intent.kind === 'delete-for-ad'
+      ? 'delete-for-ad'
+      : intent.kind === 'delete-id' ? 'delete' : 'save';
+    if (isPostCutover) queuePrimaryRecovery(config, state, operation);
+    else void enqueueMirror(config, state, operation);
+    return fallbackNext;
+  });
+
+  // Serialize same-dataset mutations so concurrent saves cannot both read the
+  // same snapshot and overwrite one another. Keep the queue usable after errors.
+  state.queue = mutationPromise.then(
+    () => undefined,
+    () => undefined
+  );
+  return mutationPromise;
+}
+
+function queuePrimaryRecovery<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  state: MirrorState,
+  operation: DurableDataMirrorDiagnostic['operation']
+): void {
+  const recovery = state.queue.then(() => recoverPrimaryDataset(config));
+  state.queue = recovery.then(
+    () => undefined,
+    (error) => {
+      state.lastDiagnostic = {
+        operation,
+        success: false,
+        sourceRecordCount: readMirrorSource(config).records.length,
+        completedAt: Date.now(),
+        error: errorMessage(error),
+      };
+      console.error(`${config.label} operation replay is pending:`, error);
+    }
+  );
 }
 
 export async function getTopicArchiveMigrationMetadata(): Promise<TopicArchiveMigrationMetadata | null> {
@@ -868,22 +1552,41 @@ export function mirrorScenarioDelete(): void {
   void enqueueMirror(scenarioMirrorConfig, scenarioMirrorState, 'delete');
 }
 
-export function listTopicArchives(adId?: string): TefTopicArchive[] {
-  const all = loadTopicArchivesRaw();
-  const filtered = adId ? all.filter((a) => a.adId === adId) : all;
-  return filtered.sort((a, b) => b.createdAt - a.createdAt);
+export async function readTopicArchives(): Promise<DurableDataReadResult<TefTopicArchive>> {
+  const result = await readPrimaryDataset(topicArchiveMirrorConfig, topicArchiveMirrorState);
+  return {
+    ...result,
+    records: [...result.records].sort((a, b) => b.createdAt - a.createdAt),
+  };
 }
 
-export function getLatestTopicArchive(adId: string): TefTopicArchive | null {
-  const forAd = listTopicArchives(adId);
+export async function listTopicArchives(adId?: string): Promise<TefTopicArchive[]> {
+  const { records } = await readTopicArchives();
+  return adId ? records.filter((archive) => archive.adId === adId) : records;
+}
+
+export async function getLatestTopicArchive(adId: string): Promise<TefTopicArchive | null> {
+  const forAd = await listTopicArchives(adId);
   return forAd.length > 0 ? forAd[0] : null;
 }
 
-export function saveTopicArchive(params: {
+export async function readSavedScenarios(): Promise<DurableDataReadResult<Scenario>> {
+  const result = await readPrimaryDataset(scenarioMirrorConfig, scenarioMirrorState);
+  return {
+    ...result,
+    records: [...result.records].sort((a, b) => b.createdAt - a.createdAt),
+  };
+}
+
+export async function listSavedScenarios(): Promise<Scenario[]> {
+  return (await readSavedScenarios()).records;
+}
+
+export async function saveTopicArchive(params: {
   adId: string;
   exerciseType: TefExerciseType;
   topicSuggestions: TefTopicSuggestion[];
-}): TefTopicArchive {
+}): Promise<TefTopicArchive> {
   const archive: TefTopicArchive = {
     id: createArchiveId(),
     adId: params.adId,
@@ -892,28 +1595,44 @@ export function saveTopicArchive(params: {
     topicSuggestions: params.topicSuggestions,
   };
 
-  let archives = loadTopicArchivesRaw();
-  archives.unshift(archive);
-
-  if (archives.length > MAX_TOPIC_ARCHIVES) {
-    archives = archives.slice(0, MAX_TOPIC_ARCHIVES);
-  }
-
-  persistTopicArchives(archives);
-  void enqueueMirror(topicArchiveMirrorConfig, topicArchiveMirrorState, 'save');
+  await mutatePrimaryDataset(
+    topicArchiveMirrorConfig,
+    topicArchiveMirrorState,
+    createPendingMutation({ kind: 'upsert', record: archive })
+  );
   return archive;
 }
 
-export function deleteTopicArchive(archiveId: string): void {
-  const archives = loadTopicArchivesRaw().filter((a) => a.id !== archiveId);
-  persistTopicArchives(archives);
-  void enqueueMirror(topicArchiveMirrorConfig, topicArchiveMirrorState, 'delete');
+export async function deleteTopicArchive(archiveId: string): Promise<void> {
+  await mutatePrimaryDataset(
+    topicArchiveMirrorConfig,
+    topicArchiveMirrorState,
+    createPendingMutation({ kind: 'delete-id', targetId: archiveId })
+  );
 }
 
-export function deleteTopicArchivesForAd(adId: string): void {
-  const archives = loadTopicArchivesRaw().filter((a) => a.adId !== adId);
-  persistTopicArchives(archives);
-  void enqueueMirror(topicArchiveMirrorConfig, topicArchiveMirrorState, 'delete-for-ad');
+export async function deleteTopicArchivesForAd(adId: string): Promise<void> {
+  await mutatePrimaryDataset(
+    topicArchiveMirrorConfig,
+    topicArchiveMirrorState,
+    createPendingMutation({ kind: 'delete-for-ad', adId })
+  );
+}
+
+export async function saveSavedScenario(scenario: Scenario): Promise<Scenario[]> {
+  return mutatePrimaryDataset(
+    scenarioMirrorConfig,
+    scenarioMirrorState,
+    createPendingMutation({ kind: 'upsert', record: scenario })
+  );
+}
+
+export async function deleteSavedScenario(scenarioId: string): Promise<Scenario[]> {
+  return mutatePrimaryDataset(
+    scenarioMirrorConfig,
+    scenarioMirrorState,
+    createPendingMutation({ kind: 'delete-id', targetId: scenarioId })
+  );
 }
 
 export async function listSavedAds(exerciseType: TefExerciseType): Promise<TefSavedAd[]> {
@@ -970,7 +1689,7 @@ export async function touchSavedAdLastUsed(id: string): Promise<void> {
 
 export async function deleteSavedAd(id: string): Promise<void> {
   await runWriteTransaction((store) => idbDelete(store, id));
-  deleteTopicArchivesForAd(id);
+  await deleteTopicArchivesForAd(id);
 }
 
 export function createSavedAdId(): string {

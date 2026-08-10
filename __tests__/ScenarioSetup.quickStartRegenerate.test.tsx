@@ -26,10 +26,15 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { ScenarioSetup } from '../components/ScenarioSetup';
 import type { Scenario } from '../types';
 import * as scenarioService from '../services/scenarioService';
+import { hasApiKeyOrEnv } from '../services/apiKeyService';
+
+vi.mock('../services/apiKeyService', () => ({
+  hasApiKeyOrEnv: vi.fn(() => true),
+}));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -39,15 +44,16 @@ vi.mock('../services/scenarioService', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../services/scenarioService')>();
   return {
     ...actual,
-    loadScenarios: vi.fn(),
-    saveScenario: vi.fn((s: Scenario) => [s]),
-    deleteScenario: vi.fn(),
+    loadScenarios: vi.fn(async () => []),
+    saveScenario: vi.fn(async (s: Scenario) => [s]),
+    deleteScenario: vi.fn(async () => []),
   };
 });
 
 function baseProps(overrides: Record<string, unknown> = {}) {
   return {
     onStartPractice: vi.fn(),
+    onOpenApiKeyModal: vi.fn(),
     onClose: vi.fn(),
     isRecordingDescription: false,
     isTranscribingDescription: false,
@@ -105,7 +111,7 @@ const scenarioWithSteps: Scenario = {
 
 describe('ScenarioSetup: quick-start branching (via direct saved-scenarios mock)', () => {
   it('calls onStartPractice directly when the saved scenario already has steps', async () => {
-    vi.mocked(scenarioService.loadScenarios).mockReturnValue([scenarioWithSteps]);
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenarioWithSteps]);
     const props = renderScenarioSetup({});
 
     fireEvent.click(await screen.findByText(/show saved scenarios/i));
@@ -116,7 +122,7 @@ describe('ScenarioSetup: quick-start branching (via direct saved-scenarios mock)
   });
 
   it('calls onRegenerateRoadmap instead of onStartPractice when the saved scenario has no steps', async () => {
-    vi.mocked(scenarioService.loadScenarios).mockReturnValue([scenarioWithoutSteps]);
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenarioWithoutSteps]);
     const props = renderScenarioSetup({});
 
     fireEvent.click(await screen.findByText(/show saved scenarios/i));
@@ -128,7 +134,7 @@ describe('ScenarioSetup: quick-start branching (via direct saved-scenarios mock)
 
   it('calls onRegenerateRoadmap when the saved scenario has an empty steps array', async () => {
     const emptySteps = { ...scenarioWithoutSteps, steps: [] };
-    vi.mocked(scenarioService.loadScenarios).mockReturnValue([emptySteps]);
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([emptySteps]);
     const props = renderScenarioSetup({});
 
     fireEvent.click(await screen.findByText(/show saved scenarios/i));
@@ -136,10 +142,69 @@ describe('ScenarioSetup: quick-start branching (via direct saved-scenarios mock)
 
     expect(props.onRegenerateRoadmap).toHaveBeenCalledWith(emptySteps);
   });
+
+  it('opens API key setup and does not start when Gemini credentials are missing', async () => {
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenarioWithSteps]);
+    const props = renderScenarioSetup({ geminiKeyMissing: true });
+
+    fireEvent.click(await screen.findByText(/show saved scenarios/i));
+    fireEvent.click(screen.getByRole('button', { name: /start practicing bakery visit/i }));
+
+    expect(props.onOpenApiKeyModal).toHaveBeenCalledOnce();
+    expect(props.onStartPractice).not.toHaveBeenCalled();
+  });
+
+  it('checks the current Gemini credential state when quick-starting', async () => {
+    vi.mocked(hasApiKeyOrEnv).mockReturnValueOnce(false);
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenarioWithSteps]);
+    const props = renderScenarioSetup({ geminiKeyMissing: false });
+
+    fireEvent.click(await screen.findByText(/show saved scenarios/i));
+    fireEvent.click(screen.getByRole('button', { name: /start practicing bakery visit/i }));
+
+    expect(hasApiKeyOrEnv).toHaveBeenCalledWith('gemini');
+    expect(props.onOpenApiKeyModal).toHaveBeenCalledOnce();
+    expect(props.onStartPractice).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a rejected quick-start and restores the start controls', async () => {
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenarioWithSteps]);
+    const alertSpy = vi.spyOn(window, 'alert').mockImplementation(() => undefined);
+    const props = renderScenarioSetup({
+      onStartPractice: vi.fn().mockRejectedValue(new Error('Gemini startup failed')),
+    });
+
+    fireEvent.click(await screen.findByText(/show saved scenarios/i));
+    const start = screen.getByRole('button', { name: /start practicing bakery visit/i });
+    fireEvent.click(start);
+
+    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith(
+      'Failed to start scenario: Gemini startup failed'
+    ));
+    expect(start).not.toBeDisabled();
+    expect(props.onStartPractice).toHaveBeenCalledOnce();
+    alertSpy.mockRestore();
+  });
 });
 
 describe('ScenarioSetup: "Start Practice" reuses the id/createdAt of the scenario being regenerated', () => {
-  it('saves with the existing id and createdAt instead of generating new ones', () => {
+  it('checks the current Gemini credential state before saving the roadmap scenario', async () => {
+    vi.mocked(hasApiKeyOrEnv).mockReturnValueOnce(false);
+    const props = renderScenarioSetup({
+      aiSummary: 'A fresh scenario summary.',
+      currentName: 'New Scenario',
+      currentDescription: 'A brand new scenario',
+      roadmapSteps: ['Step one'],
+      geminiKeyMissing: false,
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /^start practice$/i }));
+
+    expect(props.onOpenApiKeyModal).toHaveBeenCalledOnce();
+    expect(scenarioService.saveScenario).not.toHaveBeenCalled();
+  });
+
+  it('saves with the existing id and createdAt instead of generating new ones', async () => {
     renderScenarioSetup({
       aiSummary: 'You visited a bakery and bought bread.',
       currentName: 'Bakery Visit',
@@ -150,12 +215,12 @@ describe('ScenarioSetup: "Start Practice" reuses the id/createdAt of the scenari
 
     fireEvent.click(screen.getByRole('button', { name: /^start practice$/i }));
 
-    expect(scenarioService.saveScenario).toHaveBeenCalledWith(
+    await waitFor(() => expect(scenarioService.saveScenario).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'existing-no-steps', createdAt: 1000 })
-    );
+    ));
   });
 
-  it('generates a new id when not regenerating an existing scenario (fresh creation, unchanged)', () => {
+  it('generates a new id when not regenerating an existing scenario (fresh creation, unchanged)', async () => {
     renderScenarioSetup({
       aiSummary: 'A fresh scenario summary.',
       currentName: 'New Scenario',
@@ -166,8 +231,31 @@ describe('ScenarioSetup: "Start Practice" reuses the id/createdAt of the scenari
 
     fireEvent.click(screen.getByRole('button', { name: /^start practice$/i }));
 
-    expect(scenarioService.saveScenario).toHaveBeenCalled();
+    await waitFor(() => expect(scenarioService.saveScenario).toHaveBeenCalled());
     const savedArg = vi.mocked(scenarioService.saveScenario).mock.calls[0][0];
     expect(savedArg.id).not.toBe('existing-no-steps');
+  });
+
+  it('prevents re-entry while the asynchronous save is still in flight', async () => {
+    let resolveSave!: (scenarios: Scenario[]) => void;
+    vi.mocked(scenarioService.saveScenario).mockReturnValueOnce(
+      new Promise((resolve) => { resolveSave = resolve; })
+    );
+    renderScenarioSetup({
+      aiSummary: 'A fresh scenario summary.',
+      currentName: 'New Scenario',
+      currentDescription: 'A brand new scenario',
+      roadmapSteps: ['Step one'],
+    });
+
+    const start = screen.getByRole('button', { name: /^start practice$/i });
+    fireEvent.click(start);
+    fireEvent.click(start);
+
+    expect(scenarioService.saveScenario).toHaveBeenCalledTimes(1);
+    expect(start).toBeDisabled();
+
+    resolveSave([]);
+    await waitFor(() => expect(start).not.toBeDisabled());
   });
 });

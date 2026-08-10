@@ -199,6 +199,7 @@ async function failReadWriteTransactionsForStore(storeName: string) {
 describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     vi.resetModules();
     vi.stubGlobal('indexedDB', new IDBFactory());
   });
@@ -339,7 +340,7 @@ describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
     const service = await import('../services/tefArchiveService');
     await service.initializeTopicArchiveMirror();
 
-    const created = service.saveTopicArchive({
+    const created = await service.saveTopicArchive({
       adId: 'ad-1',
       exerciseType: 'persuasion',
       topicSuggestions: topics,
@@ -347,9 +348,9 @@ describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
     await service.waitForTopicArchiveMirror();
     expect((await service.getTopicArchiveMirrorSnapshot()).map((item) => item.id)).toEqual([created.id]);
 
-    service.deleteTopicArchive(created.id);
+    await service.deleteTopicArchive(created.id);
     await service.waitForTopicArchiveMirror();
-    expect(service.listTopicArchives()).toEqual([]);
+    expect(await service.listTopicArchives()).toEqual([]);
     expect(await service.getTopicArchiveMirrorSnapshot()).toEqual([]);
   });
 
@@ -359,7 +360,7 @@ describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
     await service.initializeScenarioMirror();
     const created = currentScenario('scenario-to-mutate');
 
-    scenarioService.saveScenario(created);
+    await scenarioService.saveScenario(created);
     await service.waitForScenarioMirror();
     expect(await service.getScenarioMirrorSnapshot()).toEqual([created]);
 
@@ -368,13 +369,13 @@ describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
       name: 'Updated bakery',
       steps: [...(created.steps ?? []), { id: 'step-4', text: 'Say goodbye' }],
     };
-    scenarioService.saveScenario(updated);
+    await scenarioService.saveScenario(updated);
     await service.waitForScenarioMirror();
     expect(await service.getScenarioMirrorSnapshot()).toEqual([updated]);
 
-    scenarioService.deleteScenario(updated.id);
+    await scenarioService.deleteScenario(updated.id);
     await service.waitForScenarioMirror();
-    expect(scenarioService.loadScenarios()).toEqual([]);
+    expect(await scenarioService.loadScenarios()).toEqual([]);
     expect(await service.getScenarioMirrorSnapshot()).toEqual([]);
   });
 
@@ -489,6 +490,7 @@ describe('Stage 1 durable exercise data IndexedDB mirrors', () => {
 describe('Stage 2 durable exercise data shadow verification', () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
     vi.resetModules();
     vi.stubGlobal('indexedDB', new IDBFactory());
   });
@@ -682,7 +684,7 @@ describe('Stage 2 durable exercise data shadow verification', () => {
     });
   });
 
-  it('invalidates archive verification when a later save mirror fails, then re-verifies on repair', async () => {
+  it('journals an archive save when the primary transaction fails, then recovers on read', async () => {
     const ad = savedAd('ad-1');
     const initial = archive('initial-archive', ad.id);
     localStorage.setItem(TOPIC_ARCHIVES_KEY, JSON.stringify([initial]));
@@ -694,7 +696,7 @@ describe('Stage 2 durable exercise data shadow verification', () => {
     });
 
     const transactionSpy = await failReadWriteTransactionsForStore('topicArchives');
-    service.saveTopicArchive({
+    await service.saveTopicArchive({
       adId: ad.id,
       exerciseType: 'persuasion',
       topicSuggestions: topics,
@@ -707,10 +709,10 @@ describe('Stage 2 durable exercise data shadow verification', () => {
       success: false,
       error: 'Forced topicArchives mirror transaction failure',
     });
-    expect(service.listTopicArchives()).toHaveLength(2);
+    expect(await service.listTopicArchives()).toHaveLength(2);
     expect(await service.getTopicArchiveMigrationMetadata()).toMatchObject({
-      verificationStatus: 'failed',
-      verificationError: 'Forced topicArchives mirror transaction failure',
+      state: 'idb-primary',
+      verificationStatus: 'verified',
     });
 
     expect((await service.verifyTopicArchiveMirror()).success).toBe(true);
@@ -721,7 +723,7 @@ describe('Stage 2 durable exercise data shadow verification', () => {
     });
   });
 
-  it('invalidates scenario verification when a later save mirror fails, then re-verifies on repair', async () => {
+  it('journals a scenario save when the primary transaction fails, then recovers on read', async () => {
     const initial = currentScenario('scenario-mutation-failure');
     localStorage.setItem(SCENARIOS_KEY, JSON.stringify([initial]));
     await seedVersionThree({ scenarios: [initial] });
@@ -733,7 +735,7 @@ describe('Stage 2 durable exercise data shadow verification', () => {
     });
 
     const transactionSpy = await failReadWriteTransactionsForStore('scenarios');
-    scenarioService.saveScenario({ ...initial, name: 'Saved locally only at first' });
+    await scenarioService.saveScenario({ ...initial, name: 'Saved locally only at first' });
     const failedMirror = await service.waitForScenarioMirror();
     transactionSpy.mockRestore();
 
@@ -742,10 +744,10 @@ describe('Stage 2 durable exercise data shadow verification', () => {
       success: false,
       error: 'Forced scenarios mirror transaction failure',
     });
-    expect(scenarioService.loadScenarios()[0].name).toBe('Saved locally only at first');
+    expect((await scenarioService.loadScenarios())[0].name).toBe('Saved locally only at first');
     expect(await service.getScenarioMigrationMetadata()).toMatchObject({
-      verificationStatus: 'failed',
-      verificationError: 'Forced scenarios mirror transaction failure',
+      state: 'idb-primary',
+      verificationStatus: 'verified',
     });
 
     expect((await service.verifyScenarioMirror()).success).toBe(true);
@@ -773,12 +775,12 @@ describe('Stage 2 durable exercise data shadow verification', () => {
 
     const availableIndexedDb = indexedDB;
     vi.stubGlobal('indexedDB', undefined);
-    service.saveTopicArchive({
+    await service.saveTopicArchive({
       adId: ad.id,
       exerciseType: 'persuasion',
       topicSuggestions: topics,
     });
-    scenarioService.saveScenario({ ...initialScenario, name: 'Changed while IDB unavailable' });
+    await scenarioService.saveScenario({ ...initialScenario, name: 'Changed while IDB unavailable' });
     expect((await service.waitForTopicArchiveMirror())?.success).toBe(false);
     expect((await service.waitForScenarioMirror())?.success).toBe(false);
 

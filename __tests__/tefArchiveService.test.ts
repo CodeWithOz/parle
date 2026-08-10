@@ -27,27 +27,27 @@ describe('tefArchiveService · topic archives (localStorage)', () => {
       waitForTopicArchiveMirror,
     } = await import('../services/tefArchiveService');
 
-    const a1 = saveTopicArchive({
+    const a1 = await saveTopicArchive({
       adId: 'ad-1',
       exerciseType: 'persuasion',
       topicSuggestions: sampleTopics,
     });
-    const a2 = saveTopicArchive({
+    const a2 = await saveTopicArchive({
       adId: 'ad-1',
       exerciseType: 'persuasion',
       topicSuggestions: [{ topic: 'Later', examples: sampleTopics[0].examples }],
     });
 
     expect(a1.id).toBeTruthy();
-    expect(listTopicArchives()).toHaveLength(2);
-    expect(listTopicArchives('ad-1')).toHaveLength(2);
-    expect(listTopicArchives('ad-2')).toHaveLength(0);
+    expect(await listTopicArchives()).toHaveLength(2);
+    expect(await listTopicArchives('ad-1')).toHaveLength(2);
+    expect(await listTopicArchives('ad-2')).toHaveLength(0);
 
-    const latest = getLatestTopicArchive('ad-1');
+    const latest = await getLatestTopicArchive('ad-1');
     expect(latest?.id).toBe(a2.id);
 
-    deleteTopicArchive(a1.id);
-    expect(listTopicArchives()).toHaveLength(1);
+    await deleteTopicArchive(a1.id);
+    expect(await listTopicArchives()).toHaveLength(1);
     await waitForTopicArchiveMirror();
   });
 
@@ -56,13 +56,13 @@ describe('tefArchiveService · topic archives (localStorage)', () => {
       await import('../services/tefArchiveService');
 
     for (let i = 0; i < 55; i++) {
-      saveTopicArchive({
+      await saveTopicArchive({
         adId: `ad-${i}`,
         exerciseType: 'persuasion',
         topicSuggestions: sampleTopics,
       });
     }
-    expect(listTopicArchives().length).toBe(50);
+    expect((await listTopicArchives()).length).toBe(50);
     await waitForTopicArchiveMirror();
   });
 });
@@ -120,15 +120,15 @@ describe('tefArchiveService · saved ads (IndexedDB)', () => {
       mimeType: 'image/png',
       confirmation: { summary: 's', roleSummary: 'r' },
     });
-    saveTopicArchive({
+    await saveTopicArchive({
       adId: 'ad-linked',
       exerciseType: 'questioning',
       topicSuggestions: sampleTopics,
     });
-    expect(listTopicArchives('ad-linked')).toHaveLength(1);
+    expect(await listTopicArchives('ad-linked')).toHaveLength(1);
 
     await deleteSavedAd('ad-linked');
-    expect(listTopicArchives('ad-linked')).toHaveLength(0);
+    expect(await listTopicArchives('ad-linked')).toHaveLength(0);
     await waitForTopicArchiveMirror();
   });
 });

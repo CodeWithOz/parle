@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import type { TefSavedAd, TefTopicArchive } from '../types';
 
 vi.mock('../services/tefArchiveService', () => ({
-  listTopicArchives: vi.fn(() => []),
+  listTopicArchives: vi.fn(async () => []),
   getSavedAd: vi.fn(async () => null),
   deleteTopicArchive: vi.fn(),
 }));
@@ -65,7 +65,7 @@ beforeEach(() => {
   mockList.mockReset();
   mockGetSavedAd.mockReset();
   mockDelete.mockReset();
-  mockList.mockReturnValue([]);
+  mockList.mockResolvedValue([]);
   mockGetSavedAd.mockResolvedValue(null);
   vi.spyOn(window, 'confirm').mockReturnValue(true);
 });
@@ -93,9 +93,9 @@ describe('TefTopicHistorySheet · empty state', () => {
     expect(screen.getByText('Past topic suggestions')).toBeTruthy();
   });
 
-  it('shows empty-state copy when no archives exist', () => {
+  it('shows empty-state copy when no archives exist', async () => {
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
-    expect(screen.getByText(/complete a session to save/i)).toBeTruthy();
+    expect(await screen.findByText(/complete a session to save/i)).toBeTruthy();
   });
 
   it('close X button fires onClose', () => {
@@ -106,41 +106,75 @@ describe('TefTopicHistorySheet · empty state', () => {
   });
 });
 
+describe('TefTopicHistorySheet · asynchronous read states', () => {
+  it('distinguishes loading from empty and storage-error states', async () => {
+    let rejectRead!: (error: Error) => void;
+    mockList.mockReturnValue(new Promise((_, reject) => { rejectRead = reject; }));
+    render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
+
+    expect(screen.getByRole('status').textContent).toMatch(/loading topic history/i);
+    rejectRead(new Error('Both stores failed'));
+    expect(await screen.findByText(/topic history is unavailable/i)).toBeTruthy();
+    expect(screen.queryByText(/complete a session to save/i)).toBeNull();
+  });
+
+  it('discards a stale read after close and reopen', async () => {
+    let resolveFirst!: (archives: TefTopicArchive[]) => void;
+    let resolveSecond!: (archives: TefTopicArchive[]) => void;
+    mockList
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; }));
+
+    const { rerender } = render(
+      <TefTopicHistorySheet open={true} onClose={vi.fn()} filterAdId="ad-1" />
+    );
+    rerender(<TefTopicHistorySheet open={false} onClose={vi.fn()} filterAdId="ad-1" />);
+    rerender(<TefTopicHistorySheet open={true} onClose={vi.fn()} filterAdId="ad-2" />);
+
+    resolveSecond([QUESTIONING_ARCHIVE]);
+    expect(await screen.findByText('Questioning')).toBeTruthy();
+    resolveFirst([SAMPLE_ARCHIVE]);
+    await Promise.resolve();
+    expect(screen.queryByText('Persuasion')).toBeNull();
+    expect(screen.getByText('Questioning')).toBeTruthy();
+  });
+});
+
 // ---------------------------------------------------------------------------
 // List view (one archive present)
 // ---------------------------------------------------------------------------
 
 describe('TefTopicHistorySheet · list view', () => {
   beforeEach(() => {
-    mockList.mockReturnValue([SAMPLE_ARCHIVE]);
+    mockList.mockResolvedValue([SAMPLE_ARCHIVE]);
   });
 
-  it('renders a "Persuasion" badge for a persuasion archive', () => {
+  it('renders a "Persuasion" badge for a persuasion archive', async () => {
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
-    expect(screen.getByText('Persuasion')).toBeTruthy();
+    expect(await screen.findByText('Persuasion')).toBeTruthy();
   });
 
-  it('renders topic count text "1 topics"', () => {
+  it('renders topic count text "1 topics"', async () => {
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
-    expect(screen.getByText(/1 topics/)).toBeTruthy();
+    expect(await screen.findByText(/1 topics/)).toBeTruthy();
   });
 
-  it('renders a "Questioning" badge for a questioning archive', () => {
-    mockList.mockReturnValue([QUESTIONING_ARCHIVE]);
+  it('renders a "Questioning" badge for a questioning archive', async () => {
+    mockList.mockResolvedValue([QUESTIONING_ARCHIVE]);
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
-    expect(screen.getByText('Questioning')).toBeTruthy();
+    expect(await screen.findByText('Questioning')).toBeTruthy();
   });
 
-  it('shows a footer Close button when list is non-empty', () => {
+  it('shows a footer Close button when list is non-empty', async () => {
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
     // The footer button has the visible text "Close" (distinct from the X button which has aria-label only)
-    expect(screen.getByText('Close')).toBeTruthy();
+    expect(await screen.findByText('Close')).toBeTruthy();
   });
 
-  it('footer Close button fires onClose', () => {
+  it('footer Close button fires onClose', async () => {
     const onClose = vi.fn();
     render(<TefTopicHistorySheet open={true} onClose={onClose} />);
-    fireEvent.click(screen.getByText('Close').closest('button')!);
+    fireEvent.click((await screen.findByText('Close')).closest('button')!);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
@@ -151,12 +185,12 @@ describe('TefTopicHistorySheet · list view', () => {
 
 describe('TefTopicHistorySheet · detail view', () => {
   beforeEach(() => {
-    mockList.mockReturnValue([SAMPLE_ARCHIVE]);
+    mockList.mockResolvedValue([SAMPLE_ARCHIVE]);
   });
 
   it('shows detail view when an archive card is clicked', async () => {
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
-    const card = screen.getByText(/1 topics/).closest('button');
+    const card = (await screen.findByText(/1 topics/)).closest('button');
     expect(card).toBeTruthy();
     fireEvent.click(card!);
     await waitFor(() => {
@@ -166,7 +200,7 @@ describe('TefTopicHistorySheet · detail view', () => {
 
   it('detail view shows the topic name "Pricing"', async () => {
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText(/1 topics/).closest('button')!);
+    fireEvent.click((await screen.findByText(/1 topics/)).closest('button')!);
     await waitFor(() => {
       expect(screen.getByText('Pricing')).toBeTruthy();
     });
@@ -174,7 +208,7 @@ describe('TefTopicHistorySheet · detail view', () => {
 
   it('"← All sessions" button returns to the list', async () => {
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText(/1 topics/).closest('button')!);
+    fireEvent.click((await screen.findByText(/1 topics/)).closest('button')!);
     await waitFor(() => screen.getByText(/← All sessions/i));
     fireEvent.click(screen.getByText(/← All sessions/i));
     expect(screen.queryByText(/← All sessions/i)).toBeNull();
@@ -184,7 +218,7 @@ describe('TefTopicHistorySheet · detail view', () => {
 
   it('"Back" button also returns to the list', async () => {
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText(/1 topics/).closest('button')!);
+    fireEvent.click((await screen.findByText(/1 topics/)).closest('button')!);
     await waitFor(() => screen.getByRole('button', { name: /^Back$/i }));
     fireEvent.click(screen.getByRole('button', { name: /^Back$/i }));
     expect(screen.queryByText(/← All sessions/i)).toBeNull();
@@ -192,7 +226,7 @@ describe('TefTopicHistorySheet · detail view', () => {
 
   it('"Delete this archive" calls deleteTopicArchive with correct id', async () => {
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText(/1 topics/).closest('button')!);
+    fireEvent.click((await screen.findByText(/1 topics/)).closest('button')!);
     await waitFor(() => screen.getByText(/delete this archive/i));
     fireEvent.click(screen.getByText(/delete this archive/i));
     expect(mockDelete).toHaveBeenCalledWith('arc-1');
@@ -201,14 +235,26 @@ describe('TefTopicHistorySheet · detail view', () => {
   it('after delete the list view is shown again (selectedId cleared)', async () => {
     // After delete, the component clears selectedId and refreshes
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
-    fireEvent.click(screen.getByText(/1 topics/).closest('button')!);
+    fireEvent.click((await screen.findByText(/1 topics/)).closest('button')!);
     await waitFor(() => screen.getByText(/delete this archive/i));
     // Simulate delete: mockList now returns empty for the refresh
-    mockList.mockReturnValue([]);
+    mockList.mockResolvedValue([]);
     fireEvent.click(screen.getByText(/delete this archive/i));
     await waitFor(() => {
       expect(screen.queryByText(/← All sessions/i)).toBeNull();
     });
+  });
+
+  it('keeps delete failures inline without replacing the selected archive detail', async () => {
+    mockDelete.mockRejectedValueOnce(new Error('Forced delete failure'));
+    render(<TefTopicHistorySheet open={true} onClose={vi.fn()} />);
+    fireEvent.click((await screen.findByText(/1 topics/)).closest('button')!);
+    fireEvent.click(await screen.findByText(/delete this archive/i));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Forced delete failure');
+    expect(screen.getByText(/← All sessions/i)).toBeTruthy();
+    expect(screen.getByText(/delete this archive/i)).toBeTruthy();
+    expect(screen.queryByText(/Topic history is unavailable/i)).toBeNull();
   });
 });
 
@@ -217,14 +263,14 @@ describe('TefTopicHistorySheet · detail view', () => {
 // ---------------------------------------------------------------------------
 
 describe('TefTopicHistorySheet · filterAdId', () => {
-  it('passes filterAdId to listTopicArchives when provided', () => {
+  it('passes filterAdId to listTopicArchives when provided', async () => {
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} filterAdId="ad-42" />);
-    expect(mockList).toHaveBeenCalledWith('ad-42');
+    await waitFor(() => expect(mockList).toHaveBeenCalledWith('ad-42'));
   });
 
-  it('calls listTopicArchives with undefined when filterAdId is null', () => {
+  it('calls listTopicArchives with undefined when filterAdId is null', async () => {
     render(<TefTopicHistorySheet open={true} onClose={vi.fn()} filterAdId={null} />);
-    expect(mockList).toHaveBeenCalledWith(undefined);
+    await waitFor(() => expect(mockList).toHaveBeenCalledWith(undefined));
   });
 
   it('does not call listTopicArchives when sheet is closed', () => {
@@ -252,7 +298,7 @@ const SAVED_AD: TefSavedAd = {
 
 describe('TefTopicHistorySheet · initialArchiveId', () => {
   beforeEach(() => {
-    mockList.mockReturnValue([SAMPLE_ARCHIVE]);
+    mockList.mockResolvedValue([SAMPLE_ARCHIVE]);
     mockGetSavedAd.mockResolvedValue(SAVED_AD);
   });
 
@@ -278,7 +324,7 @@ describe('TefTopicHistorySheet · initialArchiveId', () => {
 
 describe('TefTopicHistorySheet · detail actions', () => {
   beforeEach(() => {
-    mockList.mockReturnValue([SAMPLE_ARCHIVE]);
+    mockList.mockResolvedValue([SAMPLE_ARCHIVE]);
     mockGetSavedAd.mockResolvedValue(SAVED_AD);
   });
 

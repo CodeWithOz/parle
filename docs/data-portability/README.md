@@ -6,25 +6,25 @@ separate branches, deployments, and AI-agent chats.
 
 ## Current status
 
-- Program status: **Stage 2 complete, merged, and verified after deployment**
-- Current implementation behavior: **localStorage-authoritative IndexedDB mirror with background shadow verification**
+- Program status: **Stage 3 implemented; merge and deployment verification pending**
+- Current implementation behavior: **verified IndexedDB primary reads with guarded per-dataset localStorage fallback and rollback bridge writes**
 - Deployed behavior: **Stage 2 verified; both durable datasets are shadow-checked and reconciled to their localStorage authorities**
 - Last completed stage: **[Stage 2 — shadow verification and reconciliation](stages/02-shadow-verification.md)**
-- Next action: **implement [Stage 3 — IndexedDB primary reads](stages/03-idb-primary.md)**
-- Current authoritative topic-archive source: `localStorage`
-- Current authoritative saved-scenario source: `localStorage`
+- Next action: **merge, deploy, and verify [Stage 3 — IndexedDB primary reads](stages/03-idb-primary.md); Stage 4 is not authorized until that evidence is recorded**
+- Current authoritative topic-archive source in this branch: verified `IndexedDB`, with guarded `localStorage` fallback
+- Current authoritative saved-scenario source in this branch: verified `IndexedDB`, with guarded `localStorage` fallback
 - IndexedDB topic-archive store exists in this implementation: **yes (schema version 3)**
 - IndexedDB saved-scenario store exists in this implementation: **yes (schema version 3)**
-- Dual writes are active in this implementation: **yes for both datasets; localStorage first**
+- Dual writes are active in this implementation: **yes for both datasets; IndexedDB first when verified, rollback bridge/fallback repair retained**
 - Export/import is available: **no**
 
 Compatibility requirement: Stage 1 topic-only builds have already created database version 2
 in at least one browser. The corrected schema target is therefore version 3; code must support
 both version 1 → 3 and version 2 → 3 upgrades without recreating or clearing existing stores.
 
-The next implementation branch must do Stage 3 only. It may make verified IndexedDB stores the
-primary read sources for both datasets, but it must retain guarded localStorage fallbacks and
-bridge writes and must not remove or clear either existing localStorage dataset.
+This branch implements Stage 3 only. It makes verified IndexedDB stores the primary read and
+mutation sources for both datasets while retaining independent guarded localStorage fallbacks,
+bridge writes, and repair latches. It does not remove or clear either localStorage dataset.
 
 ## Accepted scope
 
@@ -61,8 +61,8 @@ The backup explicitly excludes:
 | Data | Current location | Current key/store |
 |---|---|---|
 | Saved TEF ads and images | IndexedDB | database `parle-tef`, store `savedAds` |
-| TEF topic archives | localStorage authoritative; IndexedDB mirror | `parle-tef-topic-archives` / `topicArchives` |
-| Saved role-play scenarios | localStorage authoritative; IndexedDB mirror | `parle-scenarios` / `scenarios` |
+| TEF topic archives | Verified IndexedDB primary; guarded localStorage fallback/bridge | `parle-tef-topic-archives` / `topicArchives` |
+| Saved role-play scenarios | Verified IndexedDB primary; guarded localStorage fallback/bridge | `parle-scenarios` / `scenarios` |
 | API keys | localStorage | `parle_api_key_*` (excluded from backups) |
 
 Primary implementation locations:
@@ -94,7 +94,7 @@ See [backup-format.md](backup-format.md), [migration-plan.md](migration-plan.md)
 | 0 | Specify scope, invariants, and handoff process | Complete (documentation only) |
 | 1 | Add IndexedDB mirrors for topic archives and saved scenarios | Complete; deployed and verified |
 | 2 | Shadow-read, compare, and reconcile both datasets | Complete; merged, deployed, and verified |
-| 3 | Make IndexedDB primary for both with localStorage fallback | Next authorized stage |
+| 3 | Make IndexedDB primary for both with localStorage fallback | Implemented; merge/deployment verification pending |
 | 4 | Maintain rollback windows and prove both datasets stable | Pending |
 | 5 | Implement versioned export/import | Pending |
 

@@ -60,7 +60,7 @@ function makeScenario(overrides: Partial<Scenario> & { id: string }): Scenario {
 // ---------------------------------------------------------------------------
 
 describe('Scenario.steps · save/load round trip', () => {
-  it('persists steps in order through saveScenario -> loadScenarios', () => {
+  it('persists steps in order through saveScenario -> loadScenarios', async () => {
     const steps = [
       { id: 'step-1', text: 'Enter & greet the baker' },
       { id: 'step-2', text: 'Ask for a baguette' },
@@ -70,26 +70,26 @@ describe('Scenario.steps · save/load round trip', () => {
     ];
     const scenario = makeScenario({ id: 'roadmap-scenario-1', steps });
 
-    saveScenario(scenario);
-    const loaded = loadScenarios();
+    await saveScenario(scenario);
+    const loaded = await loadScenarios();
     const found = loaded.find((s) => s.id === 'roadmap-scenario-1');
 
     expect(found).toBeDefined();
     expect(found?.steps).toEqual(steps);
   });
 
-  it('persists an empty steps array as an empty array (not omitted, not undefined)', () => {
+  it('persists an empty steps array as an empty array (not omitted, not undefined)', async () => {
     const scenario = makeScenario({ id: 'roadmap-scenario-empty', steps: [] });
 
-    saveScenario(scenario);
-    const loaded = loadScenarios();
+    await saveScenario(scenario);
+    const loaded = await loadScenarios();
     const found = loaded.find((s) => s.id === 'roadmap-scenario-empty');
 
     expect(found).toBeDefined();
     expect(found?.steps).toEqual([]);
   });
 
-  it('updates steps on re-save (e.g. after the roadmap editor reorders/edits steps)', () => {
+  it('updates steps on re-save (e.g. after the roadmap editor reorders/edits steps)', async () => {
     const scenario = makeScenario({
       id: 'roadmap-scenario-update',
       steps: [
@@ -97,7 +97,7 @@ describe('Scenario.steps · save/load round trip', () => {
         { id: 'step-2', text: 'Ask for a baguette' },
       ],
     });
-    saveScenario(scenario);
+    await saveScenario(scenario);
 
     const updated: Scenario = {
       ...scenario,
@@ -107,9 +107,9 @@ describe('Scenario.steps · save/load round trip', () => {
         { id: 'step-3', text: 'Pay the total' },
       ],
     };
-    saveScenario(updated);
+    await saveScenario(updated);
 
-    const loaded = loadScenarios();
+    const loaded = await loadScenarios();
     const found = loaded.find((s) => s.id === 'roadmap-scenario-update');
 
     expect(found?.steps).toEqual(updated.steps);
@@ -117,7 +117,7 @@ describe('Scenario.steps · save/load round trip', () => {
     expect(loaded.filter((s) => s.id === 'roadmap-scenario-update')).toHaveLength(1);
   });
 
-  it('backward compatibility: a scenario saved before the roadmap feature existed (no steps key) still loads correctly', () => {
+  it('backward compatibility: a scenario saved before the roadmap feature existed (no steps key) still loads correctly', async () => {
     // Simulate data written by an older version of the app, with no `steps` key at all.
     const legacyScenario = {
       id: 'legacy-scenario-1',
@@ -128,7 +128,7 @@ describe('Scenario.steps · save/load round trip', () => {
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify([legacyScenario]));
 
-    const loaded = loadScenarios();
+    const loaded = await loadScenarios();
     const found = loaded.find((s) => s.id === 'legacy-scenario-1');
 
     expect(found).toBeDefined();

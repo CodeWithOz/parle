@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Scenario, Character } from '../types';
 import { loadScenarios, saveScenario, deleteScenario, generateId } from '../services/scenarioService';
+import { hasApiKeyOrEnv } from '../services/apiKeyService';
 
 interface ScenarioSetupProps {
-  onStartPractice: (scenario: Scenario) => void;
+  onStartPractice: (scenario: Scenario) => void | Promise<void>;
+  onOpenApiKeyModal: () => void;
   onClose: () => void;
   isRecordingDescription: boolean;
   isTranscribingDescription: boolean;
@@ -44,6 +46,7 @@ interface ScenarioSetupProps {
 
 export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   onStartPractice,
+  onOpenApiKeyModal,
   onClose,
   isRecordingDescription,
   isTranscribingDescription,
@@ -75,10 +78,34 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 }) => {
   const [savedScenarios, setSavedScenarios] = useState<Scenario[]>([]);
   const [showSaved, setShowSaved] = useState(false);
+  const [savedScenariosLoading, setSavedScenariosLoading] = useState(true);
+  const [savedScenariosError, setSavedScenariosError] = useState<string | null>(null);
+  const [isStartingPractice, setIsStartingPractice] = useState(false);
   const transcriptOptionsRef = useRef<HTMLDivElement>(null);
+  const scenarioLoadTokenRef = useRef(0);
+  const startingPracticeRef = useRef(false);
 
   useEffect(() => {
-    setSavedScenarios(loadScenarios());
+    const requestToken = ++scenarioLoadTokenRef.current;
+    setSavedScenariosLoading(true);
+    setSavedScenariosError(null);
+    void loadScenarios()
+      .then((scenarios) => {
+        if (requestToken !== scenarioLoadTokenRef.current) return;
+        setSavedScenarios(scenarios);
+      })
+      .catch((error) => {
+        if (requestToken !== scenarioLoadTokenRef.current) return;
+        setSavedScenariosError(
+          error instanceof Error ? error.message : 'Unable to load saved scenarios'
+        );
+      })
+      .finally(() => {
+        if (requestToken === scenarioLoadTokenRef.current) setSavedScenariosLoading(false);
+      });
+    return () => {
+      scenarioLoadTokenRef.current += 1;
+    };
   }, []);
 
   // Scroll transcript options into view when they appear
@@ -116,11 +143,26 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     setShowSaved(false);
   };
 
-  const handleQuickStart = (scenario: Scenario, e: React.MouseEvent) => {
+  const handleQuickStart = async (scenario: Scenario, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (geminiKeyMissing || !hasApiKeyOrEnv('gemini')) {
+      onOpenApiKeyModal();
+      return;
+    }
     if (scenario.steps && scenario.steps.length > 0) {
       // Already has a roadmap — start practice directly, unchanged fast path.
-      onStartPractice(scenario);
+      if (startingPracticeRef.current) return;
+      startingPracticeRef.current = true;
+      setIsStartingPractice(true);
+      try {
+        await onStartPractice(scenario);
+      } catch (error) {
+        console.error('Error starting saved scenario:', error);
+        alert(`Failed to start scenario: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      } finally {
+        startingPracticeRef.current = false;
+        setIsStartingPractice(false);
+      }
     } else {
       // No roadmap yet — proactively attempt AI generation and bring the user
       // into the same confirm/edit screen used for fresh scenario creation,
@@ -131,11 +173,11 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     }
   };
 
-  const handleDeleteSaved = (scenario: Scenario, e: React.MouseEvent) => {
+  const handleDeleteSaved = async (scenario: Scenario, e: React.MouseEvent) => {
     e.stopPropagation();
     if (window.confirm(`Delete "${scenario.name}"? This cannot be undone.`)) {
       try {
-        const updated = deleteScenario(scenario.id);
+        const updated = await deleteScenario(scenario.id);
         setSavedScenarios(updated);
       } catch (error) {
         console.error('Error deleting scenario:', error);
@@ -204,7 +246,14 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     onRoadmapStepsChange(next);
   };
 
-  const handleStartPractice = () => {
+  const handleStartPractice = async () => {
+    if (startingPracticeRef.current) return;
+    if (geminiKeyMissing || !hasApiKeyOrEnv('gemini')) {
+      onOpenApiKeyModal();
+      return;
+    }
+    startingPracticeRef.current = true;
+    setIsStartingPractice(true);
     const steps = roadmapSteps
       .map((text) => text.trim())
       .filter((text) => text.length > 0)
@@ -224,14 +273,17 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     };
 
     try {
-      // Save to localStorage
-      const updated = saveScenario(scenario);
+      // Save through the durable-data repository before starting practice.
+      const updated = await saveScenario(scenario);
       setSavedScenarios(updated);
       // Only start practice if save succeeded
-      onStartPractice(scenario);
+      await onStartPractice(scenario);
     } catch (error) {
       console.error('Error saving scenario:', error);
       alert(`Failed to save scenario: ${error instanceof Error ? error.message : 'Unknown error'}. Practice will not start.`);
+    } finally {
+      startingPracticeRef.current = false;
+      setIsStartingPractice(false);
     }
   };
 
@@ -274,6 +326,18 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
         )}
 
         <div className="p-6 space-y-6">
+          {!aiSummary && savedScenariosLoading && (
+            <p className="text-xs text-parle-navy-500" role="status">Loading saved scenarios…</p>
+          )}
+          {!aiSummary && !savedScenariosLoading && savedScenariosError && (
+            <div className="p-3 rounded-lg border border-parle-red-200 bg-parle-red-50">
+              <p className="text-xs text-parle-red-700">Saved scenarios are unavailable.</p>
+              <p className="text-xs text-parle-red-600 mt-1">{savedScenariosError}</p>
+            </div>
+          )}
+          {!aiSummary && !savedScenariosLoading && !savedScenariosError && savedScenarios.length === 0 && (
+            <p className="text-xs text-parle-navy-400">No saved scenarios yet.</p>
+          )}
           {/* Saved Scenarios Toggle */}
           {savedScenarios.length > 0 && !aiSummary && (
             <div>
@@ -316,6 +380,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                         <button
                           type="button"
                           onClick={(e) => handleQuickStart(scenario, e)}
+                          disabled={isStartingPractice}
                           onKeyDown={(e) => e.stopPropagation()}
                           aria-label={`Start practicing ${scenario.name}`}
                           className="px-3 py-1.5 bg-parle-blue-500 hover:bg-parle-blue-600 text-white text-xs font-medium rounded transition-colors"
@@ -630,9 +695,10 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                 </button>
                 <button
                   onClick={handleStartPractice}
-                  className="flex-1 py-3 bg-parle-blue-500 hover:bg-parle-blue-600 text-white rounded-lg font-medium transition-colors"
+                  disabled={isStartingPractice}
+                  className="flex-1 py-3 bg-parle-blue-500 hover:bg-parle-blue-600 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg font-medium transition-colors"
                 >
-                  Start Practice
+                  {isStartingPractice ? 'Starting…' : 'Start Practice'}
                 </button>
               </div>
             </>
