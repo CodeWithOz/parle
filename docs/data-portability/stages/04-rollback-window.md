@@ -1,6 +1,6 @@
 # Stage 4 — Rollback Window
 
-Status: **pending Stage 3 deployment verification**
+Status: **ready — Stage 3 is deployed and operator-verified**
 
 ## Objective
 

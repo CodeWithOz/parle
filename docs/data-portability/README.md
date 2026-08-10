@@ -6,11 +6,11 @@ separate branches, deployments, and AI-agent chats.
 
 ## Current status
 
-- Program status: **Stage 3 implemented; merge and deployment verification pending**
+- Program status: **Stage 3 complete; merged, deployed, and operator-verified**
 - Current implementation behavior: **verified IndexedDB primary reads with guarded per-dataset localStorage fallback and rollback bridge writes**
-- Deployed behavior: **Stage 2 verified; both durable datasets are shadow-checked and reconciled to their localStorage authorities**
-- Last completed stage: **[Stage 2 — shadow verification and reconciliation](stages/02-shadow-verification.md)**
-- Next action: **merge, deploy, and verify [Stage 3 — IndexedDB primary reads](stages/03-idb-primary.md); Stage 4 is not authorized until that evidence is recorded**
+- Deployed behavior: **Stage 3 verified; IndexedDB is primary for both durable datasets with guarded localStorage fallback and rollback bridge writes**
+- Last completed stage: **[Stage 3 — IndexedDB primary reads](stages/03-idb-primary.md)**
+- Next action: **begin [Stage 4 — rollback window](stages/04-rollback-window.md) in a fresh branch and record stability evidence for both datasets**
 - Current authoritative topic-archive source in this branch: verified `IndexedDB`, with guarded `localStorage` fallback
 - Current authoritative saved-scenario source in this branch: verified `IndexedDB`, with guarded `localStorage` fallback
 - IndexedDB topic-archive store exists in this implementation: **yes (schema version 3)**
@@ -22,7 +22,7 @@ Compatibility requirement: Stage 1 topic-only builds have already created databa
 in at least one browser. The corrected schema target is therefore version 3; code must support
 both version 1 → 3 and version 2 → 3 upgrades without recreating or clearing existing stores.
 
-This branch implements Stage 3 only. It makes verified IndexedDB stores the primary read and
+The deployed application implements Stage 3. It makes verified IndexedDB stores the primary read and
 mutation sources for both datasets while retaining independent guarded localStorage fallbacks,
 bridge writes, and repair latches. It does not remove or clear either localStorage dataset.
 
@@ -94,8 +94,8 @@ See [backup-format.md](backup-format.md), [migration-plan.md](migration-plan.md)
 | 0 | Specify scope, invariants, and handoff process | Complete (documentation only) |
 | 1 | Add IndexedDB mirrors for topic archives and saved scenarios | Complete; deployed and verified |
 | 2 | Shadow-read, compare, and reconcile both datasets | Complete; merged, deployed, and verified |
-| 3 | Make IndexedDB primary for both with localStorage fallback | Implemented; merge/deployment verification pending |
-| 4 | Maintain rollback windows and prove both datasets stable | Pending |
+| 3 | Make IndexedDB primary for both with localStorage fallback | Complete; merged, deployed, and operator-verified |
+| 4 | Maintain rollback windows and prove both datasets stable | Next authorized stage |
 | 5 | Implement versioned export/import | Pending |
 
 Detailed handoffs are in [`stages/`](stages/).
@@ -157,3 +157,7 @@ do not infer that the later stage is safe.
 - 2026-08-02: Stage 2 was merged through PR #46 and confirmed working by the operator after
   deployment. Manual divergence exercises reconciled topic archives and saved scenarios as
   expected. Stage 3 is now the next authorized implementation stage.
+- 2026-08-10: Stage 3 was merged through PR #47 and confirmed deployed by the operator after
+  the browser recovery checks had passed. No unresolved data-loss or fallback issue was
+  reported. IndexedDB is now the deployed primary source for both migrated datasets, and
+  Stage 4 is the next authorized implementation stage.
