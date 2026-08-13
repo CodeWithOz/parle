@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import type { TefTopicSuggestion } from '../types';
+import { InvisibleInkText } from './InvisibleInkText';
 
 interface PracticeGuidePanelProps {
   topics: TefTopicSuggestion[];
@@ -83,7 +84,10 @@ export const PracticeGuidePanel: React.FC<PracticeGuidePanelProps> = ({ topics }
                   <div className="px-2.5 pb-2.5 space-y-1.5">
                     {t.examples.map((ex, idx) => (
                       <div key={idx}>
-                        <div className="text-xs text-parle-navy-900">{ex.french}</div>
+                        <InvisibleInkText
+                          text={ex.french}
+                          className="text-xs text-parle-navy-900"
+                        />
                         <div className="text-[11px] text-parle-navy-500">{ex.english}</div>
                       </div>
                     ))}

@@ -1,5 +1,6 @@
 import React from 'react';
 import type { TefTopicSuggestion } from '../types';
+import { InvisibleInkText } from './InvisibleInkText';
 
 interface TefTopicSuggestionsListProps {
   topicSuggestions: TefTopicSuggestion[];
@@ -36,7 +37,10 @@ export const TefTopicSuggestionsList: React.FC<TefTopicSuggestionsListProps> = (
                 key={exampleIndex}
                 className="rounded-lg bg-white border border-parle-navy-100 p-2"
               >
-                <p className="text-parle-navy-900 text-sm">{example.french}</p>
+                <InvisibleInkText
+                  text={example.french}
+                  className="text-parle-navy-900 text-sm"
+                />
                 <p className="text-parle-navy-500 text-xs mt-1">{example.english}</p>
               </div>
             ))}
