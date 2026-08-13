@@ -128,3 +128,112 @@ body {
 .animate-hint-expand {
   animation: hint-expand 0.2s ease-out;
 }
+
+/* A quiet, text-shaped approximation of Messages' Invisible Ink veil. */
+@keyframes invisible-ink-breathe {
+  0%, 100% { opacity: 0.72; }
+  50% { opacity: 0.9; }
+}
+
+@keyframes invisible-ink-float {
+  0%, 100% { transform: translate3d(-0.35px, 0, 0); opacity: 0.42; }
+  50% { transform: translate3d(0.6px, -0.25px, 0); opacity: 0.58; }
+}
+
+@keyframes invisible-ink-shimmer {
+  0% { background-position: 130% 50%; }
+  55%, 100% { background-position: -50% 50%; }
+}
+
+.invisible-ink {
+  position: relative;
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.invisible-ink__text {
+  color: transparent;
+  transition: color 260ms ease;
+}
+
+.invisible-ink__veil {
+  position: absolute;
+  inset: 0;
+  color: rgba(74, 100, 128, 0.14);
+  text-shadow:
+    0 0 3px rgba(47, 67, 86, 0.38),
+    0 0 7px rgba(139, 160, 184, 0.34);
+  filter: blur(3.2px);
+  pointer-events: none;
+  user-select: none;
+  animation: invisible-ink-breathe 3.4s ease-in-out infinite;
+  transition: opacity 260ms ease, visibility 260ms ease;
+}
+
+.invisible-ink__veil::before,
+.invisible-ink__veil::after {
+  position: absolute;
+  inset: 0;
+  content: attr(data-text);
+}
+
+.invisible-ink__veil::before {
+  color: rgba(47, 67, 86, 0.2);
+  filter: blur(1.8px);
+  text-shadow: 0 0 4px rgba(139, 160, 184, 0.3);
+  animation: invisible-ink-float 2.8s ease-in-out infinite;
+}
+
+.invisible-ink__veil::after {
+  background: linear-gradient(
+    105deg,
+    rgba(255, 255, 255, 0) 30%,
+    rgba(255, 255, 255, 0.72) 47%,
+    rgba(197, 214, 230, 0.4) 54%,
+    rgba(255, 255, 255, 0) 70%
+  );
+  background-size: 230% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  filter: blur(1.3px);
+  animation: invisible-ink-shimmer 4.6s ease-in-out infinite;
+}
+
+.invisible-ink:hover .invisible-ink__veil,
+.invisible-ink:focus-visible .invisible-ink__veil {
+  opacity: 0.95;
+}
+
+.invisible-ink:focus-visible {
+  outline: 2px solid var(--color-parle-blue-400);
+  outline-offset: 3px;
+}
+
+.invisible-ink--revealed .invisible-ink__text {
+  color: inherit;
+}
+
+.invisible-ink--revealed .invisible-ink__veil {
+  opacity: 0;
+  visibility: hidden;
+}
+
+.invisible-ink--revealed {
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .invisible-ink__veil,
+  .invisible-ink__veil::before,
+  .invisible-ink__veil::after {
+    animation: none;
+  }
+}
