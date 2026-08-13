@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useLayoutEffect, useRef, useState } from 'react';
 
 const REVEAL_DURATION_MS = 60_000;
 
@@ -21,7 +21,7 @@ export const InvisibleInkText: React.FC<InvisibleInkTextProps> = ({
     }
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setIsRevealed(false);
     clearConcealTimer();
 

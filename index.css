@@ -231,9 +231,11 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .invisible-ink__text,
   .invisible-ink__veil,
   .invisible-ink__veil::before,
   .invisible-ink__veil::after {
     animation: none;
+    transition: none;
   }
 }
