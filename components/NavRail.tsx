@@ -11,7 +11,7 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { mode: 'free-talk', label: 'Free Talk', icon: '💬' },
   { mode: 'role-play', label: 'Role Play', icon: '🎭' },
-  { mode: 'tef-ad', label: 'TEF Ad', icon: '📢' },
+  { mode: 'tef-ad', label: 'TEF Persuasion', icon: '📢' },
   { mode: 'tef-questioning', label: 'TEF Questions', icon: '❓' },
 ];
 
