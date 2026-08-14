@@ -42,7 +42,7 @@ describe('NavRail: Past topic suggestions entry', () => {
     render(<NavRail activeMode="role-play" onSelect={vi.fn()} onOpenTopicHistory={vi.fn()} />);
     expect(screen.getByText('Free Talk')).toBeInTheDocument();
     expect(screen.getByText('Role Play')).toBeInTheDocument();
-    expect(screen.getByText('TEF Ad')).toBeInTheDocument();
+    expect(screen.getByText('TEF Persuasion')).toBeInTheDocument();
     expect(screen.getByText('TEF Questions')).toBeInTheDocument();
   });
 });
