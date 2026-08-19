@@ -10,7 +10,9 @@ separate branches, deployments, and AI-agent chats.
 - Current implementation behavior: **verified IndexedDB primary reads with guarded per-dataset localStorage fallback and rollback bridge writes**
 - Deployed behavior: **Stage 3 verified; IndexedDB is primary for both durable datasets with guarded localStorage fallback and rollback bridge writes**
 - Last completed stage: **[Stage 3 — IndexedDB primary reads](stages/03-idb-primary.md)**
-- Next action: **begin [Stage 4 — rollback window](stages/04-rollback-window.md) in a fresh branch and record stability evidence for both datasets**
+- Next action: **[Stage 4 — rollback window](stages/04-rollback-window.md) code/tests exist in
+  branch `claude/phase-4-6cf0a2` (commit `541e315`) awaiting merge and deployment; deploy and
+  record real observation evidence for both datasets before advancing to Stage 5**
 - Current authoritative topic-archive source in this branch: verified `IndexedDB`, with guarded `localStorage` fallback
 - Current authoritative saved-scenario source in this branch: verified `IndexedDB`, with guarded `localStorage` fallback
 - IndexedDB topic-archive store exists in this implementation: **yes (schema version 3)**
@@ -95,7 +97,7 @@ See [backup-format.md](backup-format.md), [migration-plan.md](migration-plan.md)
 | 1 | Add IndexedDB mirrors for topic archives and saved scenarios | Complete; deployed and verified |
 | 2 | Shadow-read, compare, and reconcile both datasets | Complete; merged, deployed, and verified |
 | 3 | Make IndexedDB primary for both with localStorage fallback | Complete; merged, deployed, and operator-verified |
-| 4 | Maintain rollback windows and prove both datasets stable | Next authorized stage |
+| 4 | Maintain rollback windows and prove both datasets stable | Tests merged into this branch; pending deployment + operator observation |
 | 5 | Implement versioned export/import | Pending |
 
 Detailed handoffs are in [`stages/`](stages/).
@@ -161,3 +163,8 @@ do not infer that the later stage is safe.
   the browser recovery checks had passed. No unresolved data-loss or fallback issue was
   reported. IndexedDB is now the deployed primary source for both migrated datasets, and
   Stage 4 is the next authorized implementation stage.
+- 2026-08-19: Stage 4 test coverage was added (commit `541e315`) proving the existing Stage 3
+  rollback-bridge machinery already satisfies Stage 4's record-equality and rollback-recovery
+  guarantees for both datasets, with no source changes required. Both localStorage bridges will
+  continue into Stage 5 by default, since real deployment observation evidence does not yet
+  exist. This branch has **not** been deployed or operator-verified yet.
