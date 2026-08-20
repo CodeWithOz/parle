@@ -39,18 +39,10 @@ const SAMPLE_REVIEW: TefReview = {
   cefrLevel: 'B2',
   cefrJustification: 'Solid performance with room for improvement.',
   wentWell: ['Consistent question structure'],
-  mistakes: [
+  standardizationItems: [
     {
-      original: 'Est-ce que vous avez',
-      correction: 'Avez-vous',
-      explanation: 'Inversion is more natural in formal registers.',
-    },
-  ],
-  vocabularySuggestions: [
-    {
-      used: 'grand',
-      better: 'considérable',
-      reason: '"Considérable" is more precise in academic or formal contexts.',
+      original: 'Est-ce que vous avez le prix',
+      standard: 'Quel est le prix ?',
     },
   ],
   topicSuggestions: [
@@ -261,11 +253,17 @@ describe('TefQuestioningSummary · TefReviewPanel integration', () => {
     expect(screen.getByText('B2')).toBeInTheDocument();
   });
 
-  it('keeps Mistakes and Vocabulary Suggestions (not the persuasion standardization section)', () => {
+  it('renders "More Standard French" instead of Mistakes and Vocabulary Suggestions', () => {
     renderSummary({ reviews: [SAMPLE_REVIEW], reviewIndex: 0 });
-    expect(screen.getByText(/mistakes/i)).toBeInTheDocument();
-    expect(screen.getByText(/vocabulary suggestions/i)).toBeInTheDocument();
-    expect(screen.queryByText(/more standard french/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/more standard french/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^mistakes$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/vocabulary suggestions/i)).not.toBeInTheDocument();
+  });
+
+  it('renders original and standard rewrite from the review', () => {
+    renderSummary({ reviews: [SAMPLE_REVIEW], reviewIndex: 0 });
+    expect(screen.getByText(/est-ce que vous avez le prix/i)).toBeInTheDocument();
+    expect(screen.getByText(/quel est le prix \?/i)).toBeInTheDocument();
   });
 
   it('existing stats still visible when review content is shown', () => {
@@ -296,8 +294,7 @@ describe('TefQuestioningSummary · TefReviewPanel integration', () => {
       cefrLevel: 'C1',
       cefrJustification: 'Near-native fluency.',
       wentWell: [],
-      mistakes: [],
-      vocabularySuggestions: [],
+      standardizationItems: [],
       topicSuggestions: [],
     };
     const onNavigateReview = vi.fn();

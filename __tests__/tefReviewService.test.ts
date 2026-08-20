@@ -261,8 +261,7 @@ describe('generateTefReview · happy path', () => {
     expect(result).toHaveProperty('cefrLevel');
     expect(result).toHaveProperty('cefrJustification');
     expect(result).toHaveProperty('wentWell');
-    expect(result).toHaveProperty('mistakes');
-    expect(result).toHaveProperty('vocabularySuggestions');
+    expect(result).toHaveProperty('standardizationItems');
     expect(result).toHaveProperty('topicSuggestions');
     // tipsForC1 has been removed from the schema — it must NOT appear on the result
     expect(result).not.toHaveProperty('tipsForC1');
@@ -291,33 +290,17 @@ describe('generateTefReview · happy path', () => {
     expect(result.wentWell).toEqual(['Good use of connectors', 'Clear pronunciation']);
   });
 
-  it('preserves mistakes array with original, correction, and explanation', async () => {
+  it('preserves standardizationItems with original and standard rewrites', async () => {
     const result = await generateTefReview({
       exerciseType: 'questioning',
       messages: SAMPLE_MESSAGES_QUESTIONING,
       elapsedSeconds: 120,
     });
 
-    expect(result.mistakes).toHaveLength(1);
-    expect(result.mistakes[0]).toMatchObject({
-      original: 'je suis allé hier',
-      correction: 'je suis allé hier soir',
-      explanation: expect.any(String),
-    });
-  });
-
-  it('preserves vocabularySuggestions array with used, better, and reason', async () => {
-    const result = await generateTefReview({
-      exerciseType: 'questioning',
-      messages: SAMPLE_MESSAGES_QUESTIONING,
-      elapsedSeconds: 120,
-    });
-
-    expect(result.vocabularySuggestions).toHaveLength(5);
-    expect(result.vocabularySuggestions[0]).toMatchObject({
-      used: 'bon',
-      better: 'excellent',
-      reason: expect.any(String),
+    expect(result!.standardizationItems).toHaveLength(1);
+    expect(result!.standardizationItems![0]).toMatchObject({
+      original: 'Ce produit est fiable et abordable',
+      standard: 'Ce produit est à la fois fiable et abordable',
     });
   });
 
@@ -930,10 +913,10 @@ describe('generateTefReview · error handling (malformed response)', () => {
     ).rejects.toThrow();
   });
 
-  it('throws when response is missing mistakes', async () => {
-    const { mistakes: _omitted, ...withoutMistakes } = SAMPLE_REVIEW;
+  it('throws when response is missing standardizationItems', async () => {
+    const { standardizationItems: _omitted, ...withoutItems } = SAMPLE_REVIEW;
     mockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify(withoutMistakes),
+      text: JSON.stringify(withoutItems),
     });
 
     await expect(
@@ -942,22 +925,23 @@ describe('generateTefReview · error handling (malformed response)', () => {
         messages: SAMPLE_MESSAGES_QUESTIONING,
         elapsedSeconds: 120,
       })
-    ).rejects.toThrow();
+    ).rejects.toThrow(/standardizationItems/);
   });
 
-  it('throws when response is missing vocabularySuggestions', async () => {
-    const { vocabularySuggestions: _omitted, ...withoutVocab } = SAMPLE_REVIEW;
+  it('does not require mistakes or vocabularySuggestions', async () => {
+    const { mistakes: _m, vocabularySuggestions: _v, ...withoutCorrections } = SAMPLE_REVIEW;
     mockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify(withoutVocab),
+      text: JSON.stringify(withoutCorrections),
     });
 
-    await expect(
-      generateTefReview({
-        exerciseType: 'questioning',
-        messages: SAMPLE_MESSAGES_QUESTIONING,
-        elapsedSeconds: 120,
-      })
-    ).rejects.toThrow();
+    const result = await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+    expect(result).not.toBeNull();
+    expect(result).not.toHaveProperty('mistakes');
+    expect(result).not.toHaveProperty('vocabularySuggestions');
   });
 
   it('throws when response is missing topicSuggestions', async () => {
@@ -990,24 +974,6 @@ describe('generateTefReview · error handling (malformed response)', () => {
     });
     expect(result).not.toBeNull();
     expect(result!.cefrLevel).toBe(SAMPLE_REVIEW.cefrLevel);
-  });
-
-  it('succeeds when vocabularySuggestions has fewer than 5 entries', async () => {
-    const fewVocab = {
-      ...SAMPLE_REVIEW,
-      vocabularySuggestions: SAMPLE_REVIEW.vocabularySuggestions.slice(0, 3),
-    };
-    mockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify(fewVocab),
-    });
-
-    const result = await generateTefReview({
-      exerciseType: 'questioning',
-      messages: SAMPLE_MESSAGES_QUESTIONING,
-      elapsedSeconds: 120,
-    });
-    expect(result).not.toBeNull();
-    expect(result!.vocabularySuggestions).toHaveLength(3);
   });
 
   it('throws when generateContent call itself rejects', async () => {
@@ -1416,24 +1382,37 @@ describe('generateTefReview · user-only evaluation scope', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Persuasion: standardizationItems replaces mistakes + vocabularySuggestions
+// Both exercise types: standardizationItems replaces mistakes + vocabularySuggestions
 // ---------------------------------------------------------------------------
 
-describe('generateTefReview · persuasion standardization feedback', () => {
-  function persuasionSchema() {
+describe('generateTefReview · standardization language feedback', () => {
+  function reviewSchema() {
     return mockGenerateContent.mock.calls[0][0].config.responseSchema as {
       properties: Record<string, unknown>;
       required: string[];
     };
   }
 
-  it('asks the model for standard/idiomatic rewrites instead of mistake and vocab lists', async () => {
-    await generateTefReview({
-      exerciseType: 'persuasion',
-      messages: SAMPLE_MESSAGES_PERSUASION,
-      elapsedSeconds: 90,
-      adSummary: 'A car ad.',
-    });
+  it.each([
+    {
+      label: 'persuasion',
+      args: {
+        exerciseType: 'persuasion' as const,
+        messages: SAMPLE_MESSAGES_PERSUASION,
+        elapsedSeconds: 90,
+        adSummary: 'A car ad.',
+      },
+    },
+    {
+      label: 'questioning',
+      args: {
+        exerciseType: 'questioning' as const,
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      },
+    },
+  ])('asks the model for standard/idiomatic rewrites instead of mistake and vocab lists ($label)', async ({ args }) => {
+    await generateTefReview(args);
 
     const promptText = JSON.stringify(mockGenerateContent.mock.calls[0][0]);
     expect(promptText.toLowerCase()).toMatch(/standard.*idiomatic|idiomatic.*standard|more standard/);
@@ -1441,37 +1420,34 @@ describe('generateTefReview · persuasion standardization feedback', () => {
     expect(promptText).not.toContain('at least 5 more precise or higher-register alternatives');
   });
 
-  it('includes standardizationItems in the persuasion response schema and omits mistakes and vocabularySuggestions', async () => {
-    await generateTefReview({
-      exerciseType: 'persuasion',
-      messages: SAMPLE_MESSAGES_PERSUASION,
-      elapsedSeconds: 90,
-      adSummary: 'A car ad.',
-    });
+  it.each([
+    {
+      label: 'persuasion',
+      args: {
+        exerciseType: 'persuasion' as const,
+        messages: SAMPLE_MESSAGES_PERSUASION,
+        elapsedSeconds: 90,
+        adSummary: 'A car ad.',
+      },
+    },
+    {
+      label: 'questioning',
+      args: {
+        exerciseType: 'questioning' as const,
+        messages: SAMPLE_MESSAGES_QUESTIONING,
+        elapsedSeconds: 120,
+      },
+    },
+  ])('includes standardizationItems in the $label response schema and omits mistakes and vocabularySuggestions', async ({ args }) => {
+    await generateTefReview(args);
 
-    const schema = persuasionSchema();
+    const schema = reviewSchema();
     expect(schema.properties).toHaveProperty('standardizationItems');
     expect(schema.properties).not.toHaveProperty('mistakes');
     expect(schema.properties).not.toHaveProperty('vocabularySuggestions');
     expect(schema.required).toContain('standardizationItems');
     expect(schema.required).not.toContain('mistakes');
     expect(schema.required).not.toContain('vocabularySuggestions');
-  });
-
-  it('keeps mistakes and vocabularySuggestions in the questioning response schema', async () => {
-    await generateTefReview({
-      exerciseType: 'questioning',
-      messages: SAMPLE_MESSAGES_QUESTIONING,
-      elapsedSeconds: 120,
-    });
-
-    const schema = persuasionSchema();
-    expect(schema.properties).toHaveProperty('mistakes');
-    expect(schema.properties).toHaveProperty('vocabularySuggestions');
-    expect(schema.properties).not.toHaveProperty('standardizationItems');
-    expect(schema.required).toContain('mistakes');
-    expect(schema.required).toContain('vocabularySuggestions');
-    expect(schema.required).not.toContain('standardizationItems');
   });
 
   it('preserves standardizationItems from the model response', async () => {

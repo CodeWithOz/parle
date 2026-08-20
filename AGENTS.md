@@ -342,7 +342,7 @@ The TEF review service exists to give the **user** actionable feedback on their 
 Concretely:
 - Agent audio is never fetched or forwarded to the review model
 - The `[Agent said: ...]` prefix signals to the evaluator that these lines are context, not performance to grade
-- All `criteriaEvaluation`, CEFR level, `wentWell`, `mistakes`, `vocabularySuggestions`, and `standardizationItems` fields refer exclusively to what the user said
+- All `criteriaEvaluation`, CEFR level, `wentWell`, and `standardizationItems` fields refer exclusively to what the user said
 
 Do **not** remove the `[Agent said: ...]` prefix or pass agent audio to the review model — it would cause the evaluator to mix agent and user performance in its feedback.
 
@@ -470,9 +470,9 @@ Do **not** flag the missing counter increment on the first turn as a bug — it 
 
 After the session ends, `generateTefReview` evaluates the conversation. The `TefReview` object always carries `topicSuggestions: TefTopicSuggestion[]` — at least 5 structured topic entries the learner could have raised, each with a `topic` label and at least 2 bilingual `examples`, shown in `TefReviewPanel` for both exercise types. For persuasion sessions it also carries `criteriaEvaluation: TefCriterionEvaluation[]`, which scores the user against the 5 official TEF criteria and is displayed in `TefAdSummary`.
 
-**Language feedback differs by exercise type.** Questioning reviews still return `mistakes` and `vocabularySuggestions`, rendered as the Mistakes and Vocabulary Suggestions sections. Persuasion reviews instead return `standardizationItems: ScenarioStandardizationItem[]` — the same original/standard rewrite pairs used by the role-play review (`generateScenarioStandardizationReview`). `TefAdSummary` passes `languageFeedback="standardization"` so `TefReviewPanel` renders the shared `StandardizationFeedbackSection` ("More Standard French") in place of Mistakes and Vocabulary Suggestions. Questioning keeps the default `languageFeedback="corrections"`.
+**Language feedback is the same original/standard rewrite shape for both TEF exercises.** `generateTefReview` returns `standardizationItems: ScenarioStandardizationItem[]` — the same pairs used by the role-play review (`generateScenarioStandardizationReview`). Both `TefAdSummary` and `TefQuestioningSummary` pass `languageFeedback="standardization"` so `TefReviewPanel` renders the shared `StandardizationFeedbackSection` ("More Standard French") instead of Mistakes and Vocabulary Suggestions.
 
-Do **not** add mistakes/vocabulary sections back to the persuasion review, and do **not** switch questioning onto standardization items. The two exercise types keep distinct language-feedback shapes.
+Do **not** restore Mistakes or Vocabulary Suggestions on either TEF review. Persuasion still uniquely carries `criteriaEvaluation`; questioning does not.
 
 ```typescript
 // types.ts
@@ -499,13 +499,9 @@ export interface ScenarioStandardizationItem {
 
 // TefReview (shared fields — both exercise types)
 topicSuggestions: TefTopicSuggestion[];  // required; ≥5 entries, each with a topic label and ≥2 bilingual examples
-
-// TefReview (questioning language feedback)
-mistakes?: TefReviewMistake[];
-vocabularySuggestions?: TefReviewVocabSuggestion[];
-
-// TefReview (persuasion language feedback)
 standardizationItems?: ScenarioStandardizationItem[];
+
+// TefReview (persuasion-specific)
 criteriaEvaluation?: TefCriterionEvaluation[];
 ```
 
@@ -513,14 +509,15 @@ Do **not** confuse this with the old "direction/round/isConvinced" state — tha
 
 ### Related Files
 
-- `types.ts` — `TefCriterionEvaluation` interface; `criteriaEvaluation` field on `TefReview`; persuasion `standardizationItems` vs questioning `mistakes`/`vocabularySuggestions`
+- `types.ts` — `TefCriterionEvaluation` interface; `criteriaEvaluation` field on `TefReview`; `standardizationItems` language feedback for both TEF exercises
 - `services/geminiService.ts` — `sendVoiceMessage()` (accepts `contextText?`)
 - `services/scenarioService.ts` — `generateTefAdSystemInstruction()` (timer-based system prompt, no round-counting)
-- `services/tefReviewService.ts` — persuasion schema/prompt uses `standardizationItems`; questioning keeps mistakes/vocab
+- `services/tefReviewService.ts` — both exercise types use `standardizationItems`; persuasion also requires `criteriaEvaluation`
 - `components/PersuasionTimer.tsx` — Shows "Turn N" driven by `tefAdTurnCount`
 - `components/TefAdSummary.tsx` — Criteria scorecard from `criteriaEvaluation`; passes `languageFeedback="standardization"`
+- `components/TefQuestioningSummary.tsx` — passes `languageFeedback="standardization"`
 - `components/TefReviewPanel.tsx` — corrections vs standardization language-feedback branch
-- `components/StandardizationFeedbackSection.tsx` — shared original/standard rewrite list (role-play + persuasion)
+- `components/StandardizationFeedbackSection.tsx` — shared original/standard rewrite list (role-play + both TEF reviews)
 - `App.tsx` — `tefAdTurnCount`, `tefAdIsFirstMessage` state; phase context injection per turn
 
 ---
@@ -749,7 +746,7 @@ When reviewing this codebase:
 15. **Don't flag the `RoadmapSingleCharacterSchema` branch as redundant with `TefQuestioningSchema` or `SingleCharacterSchema`** - `currentStepIndex` must only be present/required when the scenario has roadmap steps (see "Scenario Roadmap: Schema Selection and Never-Regress Auto-Advance")
 16. **Don't simplify `advanceRoadmapStep` to trust the AI's `currentStepIndex` directly** - `Math.max(prevIndex, clampedAiIndex)` is intentional; it prevents a single bad model turn from making the roadmap sidebar jump backward
 17. **Don't remove `seedRoadmapStepsFromSummary` as dead code** - the AI-generated `steps` field from `processScenarioDescriptionOpenAI` is the primary source of roadmap steps, but this sentence-split heuristic is still the load-bearing fallback for a non-JSON legacy response or an empty/missing `steps` field - see "Roadmap Steps Are AI-Generated, With a Heuristic as a Defensive Fallback Only"
-18. **Don't restore Mistakes/Vocabulary Suggestions on the persuasion review** - persuasion uses `standardizationItems` and the shared `StandardizationFeedbackSection` (same original/standard rewrites as role-play). Questioning still uses `mistakes` and `vocabularySuggestions`. Do not collapse the two shapes.
+18. **Don't restore Mistakes/Vocabulary Suggestions on TEF reviews** - both persuasion and questioning use `standardizationItems` and the shared `StandardizationFeedbackSection` (same original/standard rewrites as role-play). Persuasion still uniquely has `criteriaEvaluation`.
 
 If you believe you've found a genuine bug in one of these areas, please:
 - Reference this document in your review
@@ -881,5 +878,5 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - 2026-07-08: Replaced the sentence-split heuristic as the primary roadmap-step source with an AI-generated `steps` field on `processScenarioDescriptionOpenAI`'s existing structured-output call (`ScenarioSummarySchema`); `seedRoadmapStepsFromSummary` is now a defensive fallback only, used when the AI call fails or returns no usable steps
 - 2026-07-14: Added the staged data-portability and topic-archive migration dossier under `docs/data-portability/`; future persistence/export work must follow its active single-deployment stage
 - 2026-07-23: Corrected the data-portability target so saved role-play scenarios migrate to IndexedDB through the same staged process as topic archives; all durable exercise data must be in IndexedDB before export/import
-- 2026-08-20: Replaced persuasion review Mistakes and Vocabulary Suggestions with the role-play `standardizationItems` / "More Standard French" rewrite section; questioning language feedback is unchanged
+- 2026-08-20: Replaced TEF review Mistakes and Vocabulary Suggestions with the role-play `standardizationItems` / "More Standard French" rewrite section for both persuasion and questioning
 - See git history for detailed implementation timeline

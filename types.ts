@@ -131,9 +131,9 @@ export interface TefReview {
   cefrLevel: string;                           // e.g. "B2", "C1"
   cefrJustification: string;                   // 1-2 sentences explaining the assessment
   wentWell: string[];
-  mistakes?: TefReviewMistake[];               // Questioning: grammar/lexis corrections
-  vocabularySuggestions?: TefReviewVocabSuggestion[]; // Questioning: higher-register alternatives
-  standardizationItems?: ScenarioStandardizationItem[]; // Persuasion: standard/idiomatic rewrites
+  mistakes?: TefReviewMistake[];
+  vocabularySuggestions?: TefReviewVocabSuggestion[];
+  standardizationItems?: ScenarioStandardizationItem[];
   topicSuggestions: TefTopicSuggestion[];      // Topics + bilingual example utterances
   criteriaEvaluation?: TefCriterionEvaluation[]; // Persuasion-specific criteria scoring
 }

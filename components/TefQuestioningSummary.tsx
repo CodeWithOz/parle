@@ -257,6 +257,7 @@ export const TefQuestioningSummary: React.FC<TefQuestioningSummaryProps> = ({
             error={reviewError}
             onRetry={onRetryReview}
             onRegenerate={onRegenerateReview}
+            languageFeedback="standardization"
           />
 
           {topicArchiveSaved && !isReviewLoading && (
