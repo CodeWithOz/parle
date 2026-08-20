@@ -81,6 +81,12 @@ const SAMPLE_REVIEW: TefReview = {
     { used: 'faire', better: 'effectuer', reason: 'Formal verb preferred in professional contexts.' },
     { used: 'voir', better: 'constater', reason: 'More precise observation verb in formal French.' },
   ],
+  standardizationItems: [
+    {
+      original: 'Ce produit est fiable et abordable',
+      standard: 'Ce produit est à la fois fiable et abordable',
+    },
+  ],
   topicSuggestions: [
     {
       topic: 'Conditions de paiement',
@@ -1406,5 +1412,146 @@ describe('generateTefReview · user-only evaluation scope', () => {
     const promptText = JSON.stringify(callArg);
     // Agent turns must still appear in the prompt so the model has conversational context
     expect(promptText).toContain('[Agent said:');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Persuasion: standardizationItems replaces mistakes + vocabularySuggestions
+// ---------------------------------------------------------------------------
+
+describe('generateTefReview · persuasion standardization feedback', () => {
+  function persuasionSchema() {
+    return mockGenerateContent.mock.calls[0][0].config.responseSchema as {
+      properties: Record<string, unknown>;
+      required: string[];
+    };
+  }
+
+  it('asks the model for standard/idiomatic rewrites instead of mistake and vocab lists', async () => {
+    await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    const promptText = JSON.stringify(mockGenerateContent.mock.calls[0][0]);
+    expect(promptText.toLowerCase()).toMatch(/standard.*idiomatic|idiomatic.*standard|more standard/);
+    expect(promptText).not.toContain('Grammatical/lexical mistakes');
+    expect(promptText).not.toContain('at least 5 more precise or higher-register alternatives');
+  });
+
+  it('includes standardizationItems in the persuasion response schema and omits mistakes and vocabularySuggestions', async () => {
+    await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    const schema = persuasionSchema();
+    expect(schema.properties).toHaveProperty('standardizationItems');
+    expect(schema.properties).not.toHaveProperty('mistakes');
+    expect(schema.properties).not.toHaveProperty('vocabularySuggestions');
+    expect(schema.required).toContain('standardizationItems');
+    expect(schema.required).not.toContain('mistakes');
+    expect(schema.required).not.toContain('vocabularySuggestions');
+  });
+
+  it('keeps mistakes and vocabularySuggestions in the questioning response schema', async () => {
+    await generateTefReview({
+      exerciseType: 'questioning',
+      messages: SAMPLE_MESSAGES_QUESTIONING,
+      elapsedSeconds: 120,
+    });
+
+    const schema = persuasionSchema();
+    expect(schema.properties).toHaveProperty('mistakes');
+    expect(schema.properties).toHaveProperty('vocabularySuggestions');
+    expect(schema.properties).not.toHaveProperty('standardizationItems');
+    expect(schema.required).toContain('mistakes');
+    expect(schema.required).toContain('vocabularySuggestions');
+    expect(schema.required).not.toContain('standardizationItems');
+  });
+
+  it('preserves standardizationItems from the model response', async () => {
+    const result = await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.standardizationItems).toEqual(SAMPLE_REVIEW.standardizationItems);
+  });
+
+  it('succeeds for persuasion when mistakes and vocabularySuggestions are omitted', async () => {
+    const { mistakes: _m, vocabularySuggestions: _v, ...persuasionOnly } = SAMPLE_REVIEW;
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(persuasionOnly),
+    });
+
+    const result = await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.standardizationItems).toHaveLength(1);
+    expect(result).not.toHaveProperty('mistakes');
+    expect(result).not.toHaveProperty('vocabularySuggestions');
+  });
+
+  it('accepts an empty standardizationItems array', async () => {
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify({ ...SAMPLE_REVIEW, standardizationItems: [] }),
+    });
+
+    const result = await generateTefReview({
+      exerciseType: 'persuasion',
+      messages: SAMPLE_MESSAGES_PERSUASION,
+      elapsedSeconds: 90,
+      adSummary: 'A car ad.',
+    });
+
+    expect(result).not.toBeNull();
+    expect(result!.standardizationItems).toEqual([]);
+  });
+
+  it('throws when persuasion response is missing standardizationItems', async () => {
+    const { standardizationItems: _omitted, ...withoutItems } = SAMPLE_REVIEW;
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify(withoutItems),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'persuasion',
+        messages: SAMPLE_MESSAGES_PERSUASION,
+        elapsedSeconds: 90,
+        adSummary: 'A car ad.',
+      })
+    ).rejects.toThrow(/standardizationItems/);
+  });
+
+  it('throws when a standardization item is missing original or standard', async () => {
+    mockGenerateContent = vi.fn().mockResolvedValue({
+      text: JSON.stringify({
+        ...SAMPLE_REVIEW,
+        standardizationItems: [{ original: 'bonjour' }],
+      }),
+    });
+
+    await expect(
+      generateTefReview({
+        exerciseType: 'persuasion',
+        messages: SAMPLE_MESSAGES_PERSUASION,
+        elapsedSeconds: 90,
+        adSummary: 'A car ad.',
+      })
+    ).rejects.toThrow(/standard/);
   });
 });

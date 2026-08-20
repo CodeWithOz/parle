@@ -1,6 +1,7 @@
 import React from 'react';
 import type { TefReview } from '../types';
 import { TefTopicSuggestionsList } from './TefTopicSuggestionsList';
+import { StandardizationFeedbackSection } from './StandardizationFeedbackSection';
 
 interface TefReviewPanelProps {
   reviews: TefReview[];
@@ -10,6 +11,7 @@ interface TefReviewPanelProps {
   error: string | null;
   onRetry: () => void;
   onRegenerate: () => void;
+  languageFeedback?: 'corrections' | 'standardization';
 }
 
 export const TefReviewPanel: React.FC<TefReviewPanelProps> = ({
@@ -20,6 +22,7 @@ export const TefReviewPanel: React.FC<TefReviewPanelProps> = ({
   error,
   onRetry,
   onRegenerate,
+  languageFeedback = 'corrections',
 }) => {
   const hasReviews = reviews.length > 0;
   const currentReview = hasReviews ? reviews[currentIndex] : null;
@@ -111,57 +114,63 @@ export const TefReviewPanel: React.FC<TefReviewPanelProps> = ({
         </ul>
       </div>
 
-      {/* Mistakes */}
-      <div>
-        <h3 className="text-parle-red-600 font-semibold text-sm mb-2">Mistakes</h3>
-        {currentReview.mistakes.length === 0 ? (
-          <p className="text-parle-navy-500 text-sm">No significant mistakes noted.</p>
-        ) : (
-          <div className="space-y-2">
-            {currentReview.mistakes.map((mistake, i) => (
-              <div
-                key={i}
-                className="bg-parle-blue-50 rounded-xl border border-parle-navy-100 p-3"
-              >
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-parle-red-500 line-through font-mono text-sm">
-                    {mistake.original}
-                  </span>
-                  <span className="text-parle-navy-300">→</span>
-                  <span className="text-parle-blue-600 font-mono text-sm">
-                    {mistake.correction}
-                  </span>
-                </div>
-                <p className="text-parle-navy-500 text-xs mt-1">{mistake.explanation}</p>
+      {languageFeedback === 'standardization' ? (
+        <StandardizationFeedbackSection items={currentReview.standardizationItems ?? []} />
+      ) : (
+        <>
+          {/* Mistakes */}
+          <div>
+            <h3 className="text-parle-red-600 font-semibold text-sm mb-2">Mistakes</h3>
+            {(currentReview.mistakes ?? []).length === 0 ? (
+              <p className="text-parle-navy-500 text-sm">No significant mistakes noted.</p>
+            ) : (
+              <div className="space-y-2">
+                {(currentReview.mistakes ?? []).map((mistake, i) => (
+                  <div
+                    key={i}
+                    className="bg-parle-blue-50 rounded-xl border border-parle-navy-100 p-3"
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-parle-red-500 line-through font-mono text-sm">
+                        {mistake.original}
+                      </span>
+                      <span className="text-parle-navy-300">→</span>
+                      <span className="text-parle-blue-600 font-mono text-sm">
+                        {mistake.correction}
+                      </span>
+                    </div>
+                    <p className="text-parle-navy-500 text-xs mt-1">{mistake.explanation}</p>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Vocabulary Suggestions */}
-      <div>
-        <h3 className="text-parle-blue-600 font-semibold text-sm mb-2">Vocabulary Suggestions</h3>
-        {currentReview.vocabularySuggestions.length === 0 ? (
-          <p className="text-parle-navy-500 text-sm">No vocabulary improvements noted.</p>
-        ) : (
-          <div className="space-y-2">
-            {currentReview.vocabularySuggestions.map((vocab, i) => (
-              <div
-                key={i}
-                className="bg-parle-blue-50 rounded-xl border border-parle-navy-100 p-3"
-              >
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-parle-navy-700 font-mono text-sm">{vocab.used}</span>
-                  <span className="text-parle-navy-300">→</span>
-                  <span className="text-parle-blue-500 font-mono text-sm">{vocab.better}</span>
-                </div>
-                <p className="text-parle-navy-500 text-xs mt-1">{vocab.reason}</p>
+          {/* Vocabulary Suggestions */}
+          <div>
+            <h3 className="text-parle-blue-600 font-semibold text-sm mb-2">Vocabulary Suggestions</h3>
+            {(currentReview.vocabularySuggestions ?? []).length === 0 ? (
+              <p className="text-parle-navy-500 text-sm">No vocabulary improvements noted.</p>
+            ) : (
+              <div className="space-y-2">
+                {(currentReview.vocabularySuggestions ?? []).map((vocab, i) => (
+                  <div
+                    key={i}
+                    className="bg-parle-blue-50 rounded-xl border border-parle-navy-100 p-3"
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-parle-navy-700 font-mono text-sm">{vocab.used}</span>
+                      <span className="text-parle-navy-300">→</span>
+                      <span className="text-parle-blue-500 font-mono text-sm">{vocab.better}</span>
+                    </div>
+                    <p className="text-parle-navy-500 text-xs mt-1">{vocab.reason}</p>
+                  </div>
+                ))}
               </div>
-            ))}
+            )}
           </div>
-        )}
-      </div>
+        </>
+      )}
 
       {/* Topic Suggestions */}
       <div>

@@ -261,6 +261,13 @@ describe('TefQuestioningSummary · TefReviewPanel integration', () => {
     expect(screen.getByText('B2')).toBeInTheDocument();
   });
 
+  it('keeps Mistakes and Vocabulary Suggestions (not the persuasion standardization section)', () => {
+    renderSummary({ reviews: [SAMPLE_REVIEW], reviewIndex: 0 });
+    expect(screen.getByText(/mistakes/i)).toBeInTheDocument();
+    expect(screen.getByText(/vocabulary suggestions/i)).toBeInTheDocument();
+    expect(screen.queryByText(/more standard french/i)).not.toBeInTheDocument();
+  });
+
   it('existing stats still visible when review content is shown', () => {
     renderSummary({
       reviews: [SAMPLE_REVIEW],
