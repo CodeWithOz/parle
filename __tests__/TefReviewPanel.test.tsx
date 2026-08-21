@@ -515,7 +515,7 @@ describe('TefReviewPanel · standardization language feedback', () => {
       currentIndex: 0,
       languageFeedback: 'standardization',
     });
-    expect(screen.getByText(/already sounded standard enough/i)).toBeInTheDocument();
+    expect(screen.getByText(/nothing notable stood out here/i)).toBeInTheDocument();
   });
 
   it('still renders What Went Well and topic suggestions alongside standardization items', () => {

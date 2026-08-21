@@ -20,7 +20,7 @@ export const StandardizationFeedbackSection: React.FC<StandardizationFeedbackSec
       {items.length === 0 ? (
         <div className="bg-parle-blue-50 border border-parle-navy-100 rounded-xl p-4">
           <p className="text-parle-navy-700 text-sm">
-            Nothing notable stood out here. Your recorded turns already sounded standard enough.
+            Nothing notable stood out here.
           </p>
         </div>
       ) : (
