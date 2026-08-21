@@ -130,6 +130,7 @@ function renderPanel(overrides: {
   error?: string | null;
   onRetry?: () => void;
   onRegenerate?: () => void;
+  languageFeedback?: 'corrections' | 'standardization';
 }) {
   const props = {
     reviews: [],
@@ -468,5 +469,69 @@ describe('TefReviewPanel · regenerating with existing reviews', () => {
     renderPanel({ reviews: [SAMPLE_REVIEW], currentIndex: 0, isLoading: true });
     // The pure loading message should not appear when there is already content
     expect(screen.queryByText(/generating your review/i)).not.toBeInTheDocument();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Persuasion: standard/idiomatic rewrites instead of mistakes + vocabulary
+// ---------------------------------------------------------------------------
+
+describe('TefReviewPanel · standardization language feedback', () => {
+  const REVIEW_WITH_STANDARD: TefReview = {
+    ...SAMPLE_REVIEW,
+    standardizationItems: [
+      {
+        original: 'je cherche pour acheter un billet',
+        standard: 'je voudrais acheter un billet',
+      },
+    ],
+  };
+
+  it('renders "More Standard French" instead of Mistakes and Vocabulary Suggestions', () => {
+    renderPanel({
+      reviews: [REVIEW_WITH_STANDARD],
+      currentIndex: 0,
+      languageFeedback: 'standardization',
+    });
+    expect(screen.getByText(/more standard french/i)).toBeInTheDocument();
+    expect(screen.queryByText(/^mistakes$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/vocabulary suggestions/i)).not.toBeInTheDocument();
+  });
+
+  it('renders each original and standard rewrite', () => {
+    renderPanel({
+      reviews: [REVIEW_WITH_STANDARD],
+      currentIndex: 0,
+      languageFeedback: 'standardization',
+    });
+    expect(screen.getByText(/you said/i)).toBeInTheDocument();
+    expect(screen.getByText(/je cherche pour acheter un billet/i)).toBeInTheDocument();
+    expect(screen.getByText(/je voudrais acheter un billet/i)).toBeInTheDocument();
+  });
+
+  it('renders the empty-state copy when there are no standardization items', () => {
+    renderPanel({
+      reviews: [{ ...SAMPLE_REVIEW, standardizationItems: [] }],
+      currentIndex: 0,
+      languageFeedback: 'standardization',
+    });
+    expect(screen.getByText(/nothing notable stood out here/i)).toBeInTheDocument();
+  });
+
+  it('still renders What Went Well and topic suggestions alongside standardization items', () => {
+    renderPanel({
+      reviews: [REVIEW_WITH_STANDARD],
+      currentIndex: 0,
+      languageFeedback: 'standardization',
+    });
+    expect(screen.getByText(/went well/i)).toBeInTheDocument();
+    expect(screen.getByText(/topics you could have mentioned/i)).toBeInTheDocument();
+  });
+
+  it('defaults to mistakes and vocabulary when languageFeedback is omitted', () => {
+    renderPanel({ reviews: [SAMPLE_REVIEW], currentIndex: 0 });
+    expect(screen.getByText(/mistakes/i)).toBeInTheDocument();
+    expect(screen.getByText(/vocabulary/i)).toBeInTheDocument();
+    expect(screen.queryByText(/more standard french/i)).not.toBeInTheDocument();
   });
 });
