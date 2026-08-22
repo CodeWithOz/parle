@@ -126,6 +126,7 @@ export const TefAdSummary: React.FC<TefAdSummaryProps> = ({
           error={reviewError}
           onRetry={onRetryReview}
           onRegenerate={onRegenerateReview}
+          languageFeedback="standardization"
         />
 
         {topicArchiveSaved && !isReviewLoading && (

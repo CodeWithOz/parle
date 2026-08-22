@@ -189,14 +189,21 @@ CONVERSATION TRANSCRIPT:
     }
   }
 
+  const languageFeedbackInstructions = `3. Standard French rewrites: identify only the user's spoken French turns where the idea was understandable but there is a more standard, established, or idiomatic way to express the same idea
+   - Do not rewrite every sentence. Include only the turns that genuinely sound non-standard or less idiomatic
+   - Keep the meaning the same and rewrite it in natural, standard French
+   - For each item provide "original" (what the user said) and "standard" (the more standard French)
+   - Do not give grammar lessons, explanations, or vocabulary lists
+   - If every user turn already sounds standard enough, return an empty standardizationItems array`;
+
   const topicSuggestionInstructions =
     exerciseType === 'persuasion'
-      ? `5. Topic suggestions: suggest at least 5 additional persuasive angles/arguments the user could have used to convince their skeptical friend
+      ? `4. Topic suggestions: suggest at least 5 additional persuasive angles/arguments the user could have used to convince their skeptical friend
    - Each topic should describe an argument angle (e.g. "Le rapport qualité-prix", "La flexibilité des horaires")
    - For EACH suggested topic, provide at least 2 short spoken examples in French that the USER could say TO their friend — persuasive statements from the user's perspective (e.g. "Je te conseille de...", "Tu devrais...", "C'est une super opportunité parce que...")
    - Do NOT write questions the friend would ask — the examples must be convincing things the user (the persuader) could say
    - Include an English translation for each French example`
-      : `5. Topic suggestions: suggest at least 5 additional relevant topics/angles the user could have asked about
+      : `4. Topic suggestions: suggest at least 5 additional relevant topics/angles the user could have asked about
    - For EACH suggested topic, provide at least 2 short spoken examples in French as questions the user could ask the customer service agent
    - Include an English translation for each French example`;
 
@@ -207,8 +214,7 @@ EVALUATION INSTRUCTIONS:
 Based on the conversation above, provide a structured CEFR evaluation. Assess the user's spoken French on:
 1. CEFR level (A1, A2, B1, B2, C1, or C2) with a 1–2 sentence justification
 2. What the user did well (concrete positive observations)
-3. Grammatical/lexical mistakes with corrections and explanations
-4. Vocabulary improvements: suggest at least 5 more precise or higher-register alternatives
+${languageFeedbackInstructions}
 ${topicSuggestionInstructions}
 
 Return ONLY valid JSON matching the required schema. Do not include any markdown or explanation outside the JSON.`;
@@ -243,31 +249,18 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
               items: { type: Type.STRING },
               description: 'List of things the user did well',
             },
-            mistakes: {
+            standardizationItems: {
               type: Type.ARRAY,
               items: {
                 type: Type.OBJECT,
                 properties: {
                   original: { type: Type.STRING },
-                  correction: { type: Type.STRING },
-                  explanation: { type: Type.STRING },
+                  standard: { type: Type.STRING },
                 },
-                required: ['original', 'correction', 'explanation'],
+                required: ['original', 'standard'],
               },
-              description: 'Grammatical/lexical mistakes with corrections',
-            },
-            vocabularySuggestions: {
-              type: Type.ARRAY,
-              items: {
-                type: Type.OBJECT,
-                properties: {
-                  used: { type: Type.STRING },
-                  better: { type: Type.STRING },
-                  reason: { type: Type.STRING },
-                },
-                required: ['used', 'better', 'reason'],
-              },
-              description: 'Vocabulary improvements — provide at least 5 suggestions',
+              description:
+                'User turns that sound less standard or less idiomatic, each rewritten in natural standard French. Empty if every turn already sounds standard enough.',
             },
             topicSuggestions: {
               type: Type.ARRAY,
@@ -324,8 +317,7 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
             'cefrLevel',
             'cefrJustification',
             'wentWell',
-            'mistakes',
-            'vocabularySuggestions',
+            'standardizationItems',
             'topicSuggestions',
             ...(exerciseType === 'persuasion' ? ['criteriaEvaluation'] : []),
           ],
@@ -361,9 +353,8 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
     'cefrLevel',
     'cefrJustification',
     'wentWell',
-    'mistakes',
-    'vocabularySuggestions',
     'topicSuggestions',
+    'standardizationItems',
   ] as const;
 
   for (const field of required) {
@@ -376,10 +367,28 @@ Return ONLY valid JSON matching the required schema. Do not include any markdown
     throw new Error('Review response missing required field: "criteriaEvaluation"');
   }
 
-  if (!Array.isArray(obj['vocabularySuggestions'])) {
+  const standardizationItems = obj['standardizationItems'];
+  if (!Array.isArray(standardizationItems)) {
     throw new Error(
-      `Review response field "vocabularySuggestions" has invalid type: expected array, got ${typeof obj['vocabularySuggestions']}`
+      `Review response field "standardizationItems" has invalid type: expected array, got ${typeof standardizationItems}`
     );
+  }
+  for (let i = 0; i < standardizationItems.length; i++) {
+    const item = standardizationItems[i];
+    if (typeof item !== 'object' || item === null) {
+      throw new Error(`Review response field "standardizationItems[${i}]" must be an object`);
+    }
+    const itemObj = item as Record<string, unknown>;
+    if (typeof itemObj.original !== 'string' || itemObj.original.trim() === '') {
+      throw new Error(
+        `Review response field "standardizationItems[${i}].original" must be a non-empty string`
+      );
+    }
+    if (typeof itemObj.standard !== 'string' || itemObj.standard.trim() === '') {
+      throw new Error(
+        `Review response field "standardizationItems[${i}].standard" must be a non-empty string`
+      );
+    }
   }
 
   // Validate topicSuggestions: TefTopicSuggestion[]
