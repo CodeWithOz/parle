@@ -57,8 +57,9 @@ specifically `mutatePrimaryDataset`, `persistRollbackBridge`, and `readPrimaryDa
 satisfies every Stage 4 guarantee for both datasets. No code changes were required to pass this
 stage's requirements.
 
-**Test results:** Full suite 660/660 passing. CodeRabbit review (`coderabbit review --plain
---base main`) returned 0 critical/warning/suggestion findings.
+**Test results:** Full suite 676/676 passing (after merging the latest `main`, which added its
+own unrelated test coverage). CodeRabbit review (`coderabbit review --plain --base main`)
+returned 0 critical/warning/suggestion findings.
 
 **Deployment observation:** This session implemented and verified the required behavior via
 automated tests only. It did **not** perform a real deployment and did **not** observe a live
