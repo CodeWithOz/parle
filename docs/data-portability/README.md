@@ -6,13 +6,11 @@ separate branches, deployments, and AI-agent chats.
 
 ## Current status
 
-- Program status: **Stage 3 complete; merged, deployed, and operator-verified**
-- Current implementation behavior: **verified IndexedDB primary reads with guarded per-dataset localStorage fallback and rollback bridge writes**
-- Deployed behavior: **Stage 3 verified; IndexedDB is primary for both durable datasets with guarded localStorage fallback and rollback bridge writes**
-- Last completed stage: **[Stage 3 — IndexedDB primary reads](stages/03-idb-primary.md)**
-- Next action: **[Stage 4 — rollback window](stages/04-rollback-window.md) code/tests exist in
-  branch `claude/phase-4-6cf0a2` (commit `541e315`) awaiting merge and deployment; deploy and
-  record real observation evidence for both datasets before advancing to Stage 5**
+- Program status: **Stage 4 deployed via [PR #51](https://github.com/CodeWithOz/parle/pull/51); rollback observation window open, final sign-off pending observation evidence**
+- Current implementation behavior: **verified IndexedDB primary reads with guarded per-dataset localStorage fallback and rollback bridge writes (unchanged from Stage 3 — Stage 4 added test coverage and documentation only, no behavior change)**
+- Deployed behavior: **IndexedDB is primary for both durable datasets with guarded localStorage fallback and rollback bridge writes; both bridges are confirmed retained through Stage 4**
+- Last completed stage: **[Stage 4 — rollback window](stages/04-rollback-window.md) (deployed; observation window open)**
+- Next action: **observe the deployed rollback window for both datasets and record duration/evidence in `stages/04-rollback-window.md`; only then decide whether to begin Stage 5**
 - Current authoritative topic-archive source in this branch: verified `IndexedDB`, with guarded `localStorage` fallback
 - Current authoritative saved-scenario source in this branch: verified `IndexedDB`, with guarded `localStorage` fallback
 - IndexedDB topic-archive store exists in this implementation: **yes (schema version 3)**
@@ -97,7 +95,7 @@ See [backup-format.md](backup-format.md), [migration-plan.md](migration-plan.md)
 | 1 | Add IndexedDB mirrors for topic archives and saved scenarios | Complete; deployed and verified |
 | 2 | Shadow-read, compare, and reconcile both datasets | Complete; merged, deployed, and verified |
 | 3 | Make IndexedDB primary for both with localStorage fallback | Complete; merged, deployed, and operator-verified |
-| 4 | Maintain rollback windows and prove both datasets stable | Tests merged into this branch; pending deployment + operator observation |
+| 4 | Maintain rollback windows and prove both datasets stable | Deployed via PR #51; rollback observation window open, final sign-off pending |
 | 5 | Implement versioned export/import | Pending |
 
 Detailed handoffs are in [`stages/`](stages/).
@@ -168,3 +166,8 @@ do not infer that the later stage is safe.
   guarantees for both datasets, with no source changes required. Both localStorage bridges will
   continue into Stage 5 by default, since real deployment observation evidence does not yet
   exist. This branch has **not** been deployed or operator-verified yet.
+- 2026-08-23: Stage 4 was merged into `main` through
+  [PR #51](https://github.com/CodeWithOz/parle/pull/51) and deployed, confirmed by the operator.
+  The rollback-observation window is now open for both datasets. Both localStorage bridges
+  remain active per the Stage 4 exit decision. Recording the observation duration/evidence and a
+  final Stage 4 sign-off is still outstanding before Stage 5 may begin.

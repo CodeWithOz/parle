@@ -1,6 +1,6 @@
 # Stage 4 — Rollback Window
 
-Status: **code/tests complete in this branch — pending real deployment and operator observation before this stage can be marked done**
+Status: **deployed — merged via [PR #51](https://github.com/CodeWithOz/parle/pull/51); rollback observation window now open, final sign-off pending observation evidence**
 
 ## Objective
 
@@ -62,11 +62,14 @@ own unrelated test coverage). CodeRabbit review (`coderabbit review --plain --ba
 returned 0 critical/warning/suggestion findings.
 
 **Deployment observation:** This session implemented and verified the required behavior via
-automated tests only. It did **not** perform a real deployment and did **not** observe a live
-multi-day rollback window, because that requires the user/operator to actually deploy this
-branch to production and monitor it over time. "Operator-verified" status for Stage 4 is **not**
-being claimed here and must be added to this record by the user/operator after a real deployment
-and an actual observation period.
+automated tests only; it did not itself perform a deployment.
+
+**Deployment confirmed (2026-08-23):** This branch was merged into `main` via
+[PR #51](https://github.com/CodeWithOz/parle/pull/51) and deployed, confirmed by the operator.
+The rollback-observation window described above is now open. No data-loss or fallback issue has
+been reported as of this confirmation. Full Stage 4 completion — the actual observation
+duration/evidence and a final sign-off — is still to be recorded once that window has run; until
+then this record should not be read as claiming the multi-day observation itself is finished.
 
 **Exit decision (bridge policy for Stage 5):** Both bridges — the topic-archive localStorage
 mirror/fallback and the saved-scenario localStorage mirror/fallback — should continue into
