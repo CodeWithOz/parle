@@ -9,6 +9,10 @@ interface ConversationHistoryProps {
   onRetryAudio?: (messageTimestamp: number) => void;
   retryingMessageTimestamps?: Set<number>;
   showUserAudioToggle?: boolean;
+  /** Timestamp of the last model bubble in the latest turn — shows Regenerate on that bubble only. */
+  regeneratableMessageTimestamp?: number | null;
+  onRegenerateResponse?: () => void;
+  isRegenerating?: boolean;
 }
 
 interface MessageItemProps {
@@ -20,9 +24,24 @@ interface MessageItemProps {
   onRetryAudio?: (messageTimestamp: number) => void;
   isRetrying?: boolean;
   showUserAudioToggle?: boolean;
+  showRegenerate?: boolean;
+  onRegenerateResponse?: () => void;
+  isRegenerating?: boolean;
 }
 
-const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoPlay, onAudioRef, onAudioEnded, onRetryAudio, isRetrying, showUserAudioToggle }) => {
+const MessageItem: React.FC<MessageItemProps> = ({
+  message,
+  playbackSpeed,
+  autoPlay,
+  onAudioRef,
+  onAudioEnded,
+  onRetryAudio,
+  isRetrying,
+  showUserAudioToggle,
+  showRegenerate,
+  onRegenerateResponse,
+  isRegenerating,
+}) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isUserAudioVisible, setIsUserAudioVisible] = useState(false);
 
@@ -153,6 +172,25 @@ const MessageItem: React.FC<MessageItemProps> = ({ message, playbackSpeed, autoP
                 )}
               </div>
             ) : null}
+
+            {showRegenerate && onRegenerateResponse && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  onClick={onRegenerateResponse}
+                  disabled={isRegenerating}
+                  title="Generate a different AI reply for this turn"
+                  className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs text-parle-navy-700 transition-colors ${
+                    isRegenerating
+                      ? 'bg-parle-navy-50 cursor-not-allowed opacity-60'
+                      : 'bg-parle-navy-100 hover:bg-parle-navy-200'
+                  }`}
+                >
+                  <span aria-hidden="true">{isRegenerating ? '⏳' : '✨'}</span>
+                  <span>{isRegenerating ? 'Regenerating...' : 'Regenerate'}</span>
+                </button>
+              </div>
+            )}
           </>
         )}
 
@@ -198,6 +236,9 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   onRetryAudio,
   retryingMessageTimestamps,
   showUserAudioToggle = false,
+  regeneratableMessageTimestamp = null,
+  onRegenerateResponse,
+  isRegenerating = false,
 }) => {
   const audioElementsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -284,6 +325,12 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
               onRetryAudio={onRetryAudio}
               isRetrying={retryingMessageTimestamps?.has(message.timestamp) || false}
               showUserAudioToggle={showUserAudioToggle}
+              showRegenerate={
+                regeneratableMessageTimestamp != null &&
+                message.timestamp === regeneratableMessageTimestamp
+              }
+              onRegenerateResponse={onRegenerateResponse}
+              isRegenerating={isRegenerating}
             />
           ))}
           <div ref={bottomRef} />
