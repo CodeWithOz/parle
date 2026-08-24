@@ -13,6 +13,8 @@ interface ConversationHistoryProps {
   regeneratableMessageTimestamp?: number | null;
   onRegenerateResponse?: () => void;
   isRegenerating?: boolean;
+  /** When true, Regenerate stays visible but cannot be clicked (recording / processing). */
+  regenerateDisabled?: boolean;
 }
 
 interface MessageItemProps {
@@ -27,6 +29,7 @@ interface MessageItemProps {
   showRegenerate?: boolean;
   onRegenerateResponse?: () => void;
   isRegenerating?: boolean;
+  regenerateDisabled?: boolean;
 }
 
 const MessageItem: React.FC<MessageItemProps> = ({
@@ -41,6 +44,7 @@ const MessageItem: React.FC<MessageItemProps> = ({
   showRegenerate,
   onRegenerateResponse,
   isRegenerating,
+  regenerateDisabled,
 }) => {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isUserAudioVisible, setIsUserAudioVisible] = useState(false);
@@ -178,15 +182,27 @@ const MessageItem: React.FC<MessageItemProps> = ({
                 <button
                   type="button"
                   onClick={onRegenerateResponse}
-                  disabled={isRegenerating}
+                  disabled={regenerateDisabled || isRegenerating}
                   title="Generate a different AI reply for this turn"
                   className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs text-parle-navy-700 transition-colors ${
-                    isRegenerating
+                    regenerateDisabled || isRegenerating
                       ? 'bg-parle-navy-50 cursor-not-allowed opacity-60'
                       : 'bg-parle-navy-100 hover:bg-parle-navy-200'
                   }`}
                 >
-                  <span aria-hidden="true">{isRegenerating ? '⏳' : '✨'}</span>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                    className={`h-3.5 w-3.5 ${isRegenerating ? 'animate-spin' : ''}`}
+                    aria-hidden="true"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
                   <span>{isRegenerating ? 'Regenerating...' : 'Regenerate'}</span>
                 </button>
               </div>
@@ -239,6 +255,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
   regeneratableMessageTimestamp = null,
   onRegenerateResponse,
   isRegenerating = false,
+  regenerateDisabled = false,
 }) => {
   const audioElementsRef = useRef<Map<number, HTMLAudioElement>>(new Map());
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -331,6 +348,7 @@ export const ConversationHistory: React.FC<ConversationHistoryProps> = ({
               }
               onRegenerateResponse={onRegenerateResponse}
               isRegenerating={isRegenerating}
+              regenerateDisabled={regenerateDisabled}
             />
           ))}
           <div ref={bottomRef} />

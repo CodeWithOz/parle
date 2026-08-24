@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { getApiKeyOrEnv } from './apiKeyService';
 import { isAbortLikeError } from '../utils/isAbortLikeError';
+import { fetchAudioAsInlineData } from '../utils/fetchAudioAsInlineData';
 import type { Message, TefReview } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -61,36 +62,6 @@ function ensureAiInitialized(): void {
       // Fallback for test environments where GoogleGenAI is mocked as a plain function
       ai = (GoogleGenAI as unknown as (opts: { apiKey: string }) => GoogleGenAI)({ apiKey });
     }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Audio fetching helper
-// ---------------------------------------------------------------------------
-
-async function fetchAudioAsInlineData(
-  url: string,
-  signal?: AbortSignal
-): Promise<{ base64: string; mimeType: string } | null> {
-  try {
-    const response = await fetch(url, signal ? { signal } : undefined);
-    if (signal?.aborted) return null;
-    const blob = await response.blob();
-    const mimeType = blob.type || 'audio/wav';
-
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const dataUrl = reader.result as string;
-        // dataUrl is "data:<mimeType>;base64,<base64>"
-        const base64 = dataUrl.split(',')[1];
-        resolve({ base64, mimeType });
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
   }
 }
 

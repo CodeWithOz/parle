@@ -3,7 +3,7 @@ import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdM
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
 import { useConversationTimer } from './hooks/useConversationTimer';
-import { initializeSession, sendVoiceMessage, resetSession, setScenario, transcribeAndCleanupAudio, generateCharacterSpeech, PIPELINE_MAX_MS } from './services/geminiService';
+import { initializeSession, sendVoiceMessage, resetSession, resetSessionWithUserAudioHistory, setScenario, transcribeAndCleanupAudio, generateCharacterSpeech, PIPELINE_MAX_MS } from './services/geminiService';
 import { processScenarioDescriptionOpenAI } from './services/openaiService';
 import { clearHistory, getConversationHistory, setHistory } from './services/conversationHistory';
 import { hasApiKeyOrEnv } from './services/apiKeyService';
@@ -772,9 +772,10 @@ const App: React.FC = () => {
       return;
     }
 
-    // Clear retry state when starting a new recording
+    // Clear ERROR retry UI when starting a new recording, but keep lastChatAudio
+    // so the Regenerate button can stay on the previous AI reply (disabled) until
+    // a new assistant message replaces that turn.
     setCanRetryChatAudio(false);
-    setLastChatAudio(null);
     setChatProcessingErrorMessage('');
     chatRetryModeRef.current = 'append';
     regenerateHistorySnapshotRef.current = null;
@@ -804,8 +805,9 @@ const App: React.FC = () => {
     setAppState(AppState.PROCESSING);
     setChatProcessingErrorMessage('');
 
-    // For regenerate: truncate shared history + rebuild Gemini session before the new call.
-    // Keep UI bubbles until success so a failure can restore history without losing the reply.
+    // For regenerate: truncate shared text history, then rebuild the Gemini chat
+    // from prior UI turns using each user's recorded audio (not transcripts).
+    // The last user audio is sent separately via sendVoiceMessage below.
     if (isRegenerate) {
       const historySnapshot = getConversationHistory();
       if (historySnapshot.length < 2) {
@@ -815,10 +817,18 @@ const App: React.FC = () => {
         abortControllerRef.current = null;
         return;
       }
+      const turn = findLastAssistantTurn(messagesRef.current);
+      if (!turn) {
+        setChatProcessingErrorMessage('Nothing to regenerate.');
+        setAppState(AppState.ERROR);
+        showErrorFlash('Nothing to regenerate.');
+        abortControllerRef.current = null;
+        return;
+      }
       regenerateHistorySnapshotRef.current = historySnapshot;
       const truncated = historySnapshot.slice(0, -2);
       setHistory(truncated);
-      resetSession(activeScenarioRef.current, truncated);
+      // Do not seed the chat with text transcripts — rebuild from recordings instead.
     } else {
       regenerateHistorySnapshotRef.current = null;
     }
@@ -830,6 +840,18 @@ const App: React.FC = () => {
       }, PIPELINE_MAX_MS);
 
       const pipelineSignal = combineAbortSignals(userAbort.signal, deadlineAbort.signal);
+
+      if (isRegenerate) {
+        const turn = findLastAssistantTurn(messagesRef.current);
+        const priorUiMessages = turn
+          ? messagesRef.current.slice(0, turn.lastUserIndex)
+          : [];
+        await resetSessionWithUserAudioHistory(
+          activeScenarioRef.current,
+          priorUiMessages,
+          pipelineSignal
+        );
+      }
 
       const { base64, mimeType } = audioData;
 
@@ -848,8 +870,8 @@ const App: React.FC = () => {
           );
         }
       }
-
-      // Use Gemini for speaking practice
+      // Use Gemini for speaking practice — always send the latest user audio.
+      // On regenerate, prior turns were rebuilt with user recordings above.
       const response = await sendVoiceMessage(
         base64,
         mimeType,
@@ -869,9 +891,14 @@ const App: React.FC = () => {
           }
         }
         if (isRegenerate && regenerateHistorySnapshotRef.current) {
-          setHistory(regenerateHistorySnapshotRef.current);
-          resetSession(activeScenarioRef.current, regenerateHistorySnapshotRef.current);
+          const snapshot = regenerateHistorySnapshotRef.current;
+          setHistory(snapshot);
           regenerateHistorySnapshotRef.current = null;
+          try {
+            await resetSessionWithUserAudioHistory(activeScenarioRef.current, messagesRef.current);
+          } catch {
+            resetSession(activeScenarioRef.current, snapshot);
+          }
         }
         return;
       }
@@ -880,9 +907,12 @@ const App: React.FC = () => {
         console.error('Invalid multi-character response from AI');
         const invalidMsg = 'Invalid response format from AI';
         if (isRegenerate && regenerateHistorySnapshotRef.current) {
-          setHistory(regenerateHistorySnapshotRef.current);
-          resetSession(activeScenarioRef.current, regenerateHistorySnapshotRef.current);
+          const snapshot = regenerateHistorySnapshotRef.current;
+          setHistory(snapshot);
           regenerateHistorySnapshotRef.current = null;
+          void resetSessionWithUserAudioHistory(activeScenarioRef.current, messagesRef.current).catch(() => {
+            resetSession(activeScenarioRef.current, snapshot);
+          });
         }
         setChatProcessingErrorMessage(invalidMsg);
         setCanRetryChatAudio(true);
@@ -1124,18 +1154,28 @@ const App: React.FC = () => {
       // If aborted or superseded by a newer request, don't show error
       if (processingAbortedRef.current || currentRequestId !== requestIdRef.current) {
         if (isRegenerate && regenerateHistorySnapshotRef.current) {
-          setHistory(regenerateHistorySnapshotRef.current);
-          resetSession(activeScenarioRef.current, regenerateHistorySnapshotRef.current);
+          const snapshot = regenerateHistorySnapshotRef.current;
+          setHistory(snapshot);
           regenerateHistorySnapshotRef.current = null;
+          try {
+            await resetSessionWithUserAudioHistory(activeScenarioRef.current, messagesRef.current);
+          } catch {
+            resetSession(activeScenarioRef.current, snapshot);
+          }
         }
         return;
       }
 
       // Restore prior history so UI and shared history stay aligned after a failed regenerate
       if (isRegenerate && regenerateHistorySnapshotRef.current) {
-        setHistory(regenerateHistorySnapshotRef.current);
-        resetSession(activeScenarioRef.current, regenerateHistorySnapshotRef.current);
+        const snapshot = regenerateHistorySnapshotRef.current;
+        setHistory(snapshot);
         regenerateHistorySnapshotRef.current = null;
+        try {
+          await resetSessionWithUserAudioHistory(activeScenarioRef.current, messagesRef.current);
+        } catch {
+          resetSession(activeScenarioRef.current, snapshot);
+        }
       }
 
       const isAbort = isAbortLikeError(error);
@@ -2464,15 +2504,16 @@ const App: React.FC = () => {
   };
 
   const lastAssistantTurn = findLastAssistantTurn(messages);
-  const regeneratableMessageTimestamp =
-    lastChatAudio &&
-    lastAssistantTurn &&
-    (appState === AppState.IDLE ||
-      (appState === AppState.PROCESSING && chatRetryModeRef.current === 'regenerate'))
-      ? messages[lastAssistantTurn.modelEndIndex].timestamp
-      : null;
+  // Keep the Regenerate control on the latest AI turn until that turn is replaced
+  // or a newer assistant reply is appended — including while the mic is recording
+  // or a new reply is processing (button is disabled in those states).
+  const regeneratableMessageTimestamp = lastAssistantTurn
+    ? messages[lastAssistantTurn.modelEndIndex].timestamp
+    : null;
   const isRegeneratingResponse =
     appState === AppState.PROCESSING && chatRetryModeRef.current === 'regenerate';
+  const isRegenerateDisabled =
+    appState !== AppState.IDLE || !lastChatAudio || isRegeneratingResponse;
 
   return (
     <div className="h-dvh flex flex-col relative overflow-hidden bg-parle-cream text-parle-navy-900">
@@ -2576,6 +2617,7 @@ const App: React.FC = () => {
                   regeneratableMessageTimestamp={regeneratableMessageTimestamp}
                   onRegenerateResponse={handleRegenerateLastResponse}
                   isRegenerating={isRegeneratingResponse}
+                  regenerateDisabled={isRegenerateDisabled}
                 />
                 {(tefAdMode === 'practice' || tefQuestioningMode === 'practice') &&
                   practiceGuide &&

@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { getApiKeyOrEnv } from './apiKeyService';
 import { isAbortLikeError } from '../utils/isAbortLikeError';
+import { fetchAudioAsInlineData } from '../utils/fetchAudioAsInlineData';
 import type { Message, ScenarioStandardizationReview } from '../types';
 
 let ai: GoogleGenAI | null = null;
@@ -12,31 +13,6 @@ function ensureAiInitialized(): void {
       throw new Error('Missing Gemini API Key');
     }
     ai = new GoogleGenAI({ apiKey });
-  }
-}
-
-async function fetchAudioAsInlineData(
-  url: string,
-  signal?: AbortSignal
-): Promise<{ base64: string; mimeType: string } | null> {
-  try {
-    const response = await fetch(url, signal ? { signal } : undefined);
-    if (signal?.aborted) return null;
-    const blob = await response.blob();
-    const mimeType = blob.type || 'audio/wav';
-
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const dataUrl = reader.result as string;
-        const base64 = dataUrl.split(',')[1];
-        resolve({ base64, mimeType });
-      };
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(blob);
-    });
-  } catch {
-    return null;
   }
 }
 

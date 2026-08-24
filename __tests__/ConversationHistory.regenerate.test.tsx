@@ -56,9 +56,41 @@ describe('ConversationHistory · regenerate response', () => {
         regeneratableMessageTimestamp={2}
         onRegenerateResponse={vi.fn()}
         isRegenerating
+        regenerateDisabled
       />
     );
 
     expect(screen.getByRole('button', { name: /regenerating/i })).toBeDisabled();
+  });
+
+  it('stays visible but disabled while a new reply is being created', () => {
+    render(
+      <ConversationHistory
+        messages={messages}
+        onClear={vi.fn()}
+        playbackSpeed={1}
+        regeneratableMessageTimestamp={2}
+        onRegenerateResponse={vi.fn()}
+        regenerateDisabled
+      />
+    );
+
+    const button = screen.getByRole('button', { name: /^regenerate$/i });
+    expect(button).toBeDisabled();
+    expect(button.querySelector('svg')).not.toBeNull();
+  });
+
+  it('uses a refresh icon on the regenerate button', () => {
+    render(
+      <ConversationHistory
+        messages={messages}
+        onClear={vi.fn()}
+        playbackSpeed={1}
+        regeneratableMessageTimestamp={2}
+        onRegenerateResponse={vi.fn()}
+      />
+    );
+
+    expect(screen.getByRole('button', { name: /regenerate/i }).querySelector('svg')).not.toBeNull();
   });
 });
