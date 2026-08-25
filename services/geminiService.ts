@@ -372,6 +372,9 @@ export const resetSessionWithUserAudioHistory = async (
       const audioUrl = typeof message.audioUrl === 'string' ? message.audioUrl : undefined;
       if (audioUrl) {
         const audioData = await fetchAudioAsInlineData(audioUrl, signal);
+        if (signal?.aborted) {
+          throw new DOMException('Request aborted', 'AbortError');
+        }
         if (audioData) {
           historyMessages.push({
             role: 'user',
@@ -387,6 +390,10 @@ export const resetSessionWithUserAudioHistory = async (
 
     const modelText = message.frenchText || message.text;
     historyMessages.push({ role: 'model', parts: [{ text: modelText }] });
+  }
+
+  if (signal?.aborted) {
+    throw new DOMException('Request aborted', 'AbortError');
   }
 
   chatSession = ai.chats.create({

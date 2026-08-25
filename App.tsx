@@ -833,13 +833,41 @@ const App: React.FC = () => {
       regenerateHistorySnapshotRef.current = null;
     }
 
+    const isRequestCurrent = () =>
+      !processingAbortedRef.current && currentRequestId === requestIdRef.current;
+
+    const pipelineSignal = combineAbortSignals(userAbort.signal, deadlineAbort.signal);
+
+    /** Restore truncated history only while this turn still owns the session. */
+    const restoreRegenerateHistoryIfCurrent = async () => {
+      if (!isRegenerate || !isRequestCurrent()) return;
+      const snapshot = regenerateHistorySnapshotRef.current;
+      if (!snapshot) return;
+      regenerateHistorySnapshotRef.current = null;
+      if (!isRequestCurrent()) {
+        regenerateHistorySnapshotRef.current = snapshot;
+        return;
+      }
+      setHistory(snapshot);
+      if (!isRequestCurrent()) return;
+      try {
+        await resetSessionWithUserAudioHistory(
+          activeScenarioRef.current,
+          messagesRef.current,
+          pipelineSignal
+        );
+        if (!isRequestCurrent()) return;
+      } catch {
+        if (!isRequestCurrent()) return;
+        resetSession(activeScenarioRef.current, snapshot);
+      }
+    };
+
     try {
       deadlineTimeoutId = setTimeout(() => {
         pipelineFailureKindRef.current = 'timeout';
         deadlineAbort.abort();
       }, PIPELINE_MAX_MS);
-
-      const pipelineSignal = combineAbortSignals(userAbort.signal, deadlineAbort.signal);
 
       if (isRegenerate) {
         const turn = findLastAssistantTurn(messagesRef.current);
@@ -890,30 +918,15 @@ const App: React.FC = () => {
             URL.revokeObjectURL(response.audioUrl);
           }
         }
-        if (isRegenerate && regenerateHistorySnapshotRef.current) {
-          const snapshot = regenerateHistorySnapshotRef.current;
-          setHistory(snapshot);
-          regenerateHistorySnapshotRef.current = null;
-          try {
-            await resetSessionWithUserAudioHistory(activeScenarioRef.current, messagesRef.current);
-          } catch {
-            resetSession(activeScenarioRef.current, snapshot);
-          }
-        }
+        await restoreRegenerateHistoryIfCurrent();
         return;
       }
 
-      const failInvalidMultiCharacter = () => {
+      const failInvalidMultiCharacter = async () => {
         console.error('Invalid multi-character response from AI');
         const invalidMsg = 'Invalid response format from AI';
-        if (isRegenerate && regenerateHistorySnapshotRef.current) {
-          const snapshot = regenerateHistorySnapshotRef.current;
-          setHistory(snapshot);
-          regenerateHistorySnapshotRef.current = null;
-          void resetSessionWithUserAudioHistory(activeScenarioRef.current, messagesRef.current).catch(() => {
-            resetSession(activeScenarioRef.current, snapshot);
-          });
-        }
+        await restoreRegenerateHistoryIfCurrent();
+        if (!isRequestCurrent()) return;
         setChatProcessingErrorMessage(invalidMsg);
         setCanRetryChatAudio(true);
         setAppState(AppState.ERROR);
@@ -924,12 +937,12 @@ const App: React.FC = () => {
       if (Array.isArray(response.audioUrl)) {
         // Validate multi-character response structure
         if (!response.characters || !Array.isArray(response.characters)) {
-          failInvalidMultiCharacter();
+          await failInvalidMultiCharacter();
           return;
         }
 
         if (!Array.isArray(response.modelText)) {
-          failInvalidMultiCharacter();
+          await failInvalidMultiCharacter();
           return;
         }
 
@@ -939,7 +952,7 @@ const App: React.FC = () => {
         const modelTexts = response.modelText;
 
         if (audioUrls.length !== characters.length || audioUrls.length !== modelTexts.length) {
-          failInvalidMultiCharacter();
+          await failInvalidMultiCharacter();
           return;
         }
 
@@ -1153,30 +1166,12 @@ const App: React.FC = () => {
 
       // If aborted or superseded by a newer request, don't show error
       if (processingAbortedRef.current || currentRequestId !== requestIdRef.current) {
-        if (isRegenerate && regenerateHistorySnapshotRef.current) {
-          const snapshot = regenerateHistorySnapshotRef.current;
-          setHistory(snapshot);
-          regenerateHistorySnapshotRef.current = null;
-          try {
-            await resetSessionWithUserAudioHistory(activeScenarioRef.current, messagesRef.current);
-          } catch {
-            resetSession(activeScenarioRef.current, snapshot);
-          }
-        }
+        await restoreRegenerateHistoryIfCurrent();
         return;
       }
 
       // Restore prior history so UI and shared history stay aligned after a failed regenerate
-      if (isRegenerate && regenerateHistorySnapshotRef.current) {
-        const snapshot = regenerateHistorySnapshotRef.current;
-        setHistory(snapshot);
-        regenerateHistorySnapshotRef.current = null;
-        try {
-          await resetSessionWithUserAudioHistory(activeScenarioRef.current, messagesRef.current);
-        } catch {
-          resetSession(activeScenarioRef.current, snapshot);
-        }
-      }
+      await restoreRegenerateHistoryIfCurrent();
 
       const isAbort = isAbortLikeError(error);
       const defaultMsg = 'Connection error. Please try again.';
