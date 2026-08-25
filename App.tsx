@@ -3,9 +3,9 @@ import { AppState, Message, ScenarioMode, Scenario, AudioData, Character, TefAdM
 import { useAudio } from './hooks/useAudio';
 import { useDocumentHead } from './hooks/useDocumentHead';
 import { useConversationTimer } from './hooks/useConversationTimer';
-import { initializeSession, sendVoiceMessage, resetSession, setScenario, transcribeAndCleanupAudio, generateCharacterSpeech, PIPELINE_MAX_MS } from './services/geminiService';
+import { initializeSession, sendVoiceMessage, resetSession, resetSessionWithUserAudioHistory, setScenario, transcribeAndCleanupAudio, generateCharacterSpeech, PIPELINE_MAX_MS } from './services/geminiService';
 import { processScenarioDescriptionOpenAI } from './services/openaiService';
-import { clearHistory } from './services/conversationHistory';
+import { clearHistory, getConversationHistory, setHistory } from './services/conversationHistory';
 import { hasApiKeyOrEnv } from './services/apiKeyService';
 import { assignVoicesToCharacters } from './services/voiceService';
 import {
@@ -16,6 +16,13 @@ import {
   seedRoadmapStepsFromSummary,
 } from './services/scenarioService';
 import { advanceRoadmapStep } from './utils/roadmapStepStatus';
+import {
+  buildPersuasionPhaseContext,
+  findLastAssistantTurn,
+  nextRepeatCountAfterRegenerate,
+  persuasionPhaseTurnNumber,
+  replaceLastAssistantTurnMessages,
+} from './utils/regenerateLastResponse';
 import { generateTefReview } from './services/tefReviewService';
 import { generateScenarioStandardizationReview } from './services/scenarioStandardizationReviewService';
 import {
@@ -577,11 +584,16 @@ const App: React.FC = () => {
   tefQuestioningElapsedRef.current = tefQuestioningElapsed;
 
   // Audio retry state - stores last recorded audio for retry on failure
+  // and for regenerating the last successful AI reply.
   const [lastChatAudio, setLastChatAudio] = useState<AudioData | null>(null);
   const [lastDescriptionAudio, setLastDescriptionAudio] = useState<AudioData | null>(null);
   const [canRetryChatAudio, setCanRetryChatAudio] = useState(false);
   const [canRetryDescriptionAudio, setCanRetryDescriptionAudio] = useState(false);
   const [retryingMessageTimestamps, setRetryingMessageTimestamps] = useState<Set<number>>(new Set());
+  /** Distinguishes footer Retry after a failed regenerate vs a failed new turn. */
+  const chatRetryModeRef = useRef<'append' | 'regenerate'>('append');
+  /** Snapshot of shared history before a regenerate attempt, restored on failure. */
+  const regenerateHistorySnapshotRef = useRef<ReturnType<typeof getConversationHistory> | null>(null);
 
   // Practice mode sheet state
   const [showModeSheet, setShowModeSheet] = useState(false);
@@ -760,19 +772,29 @@ const App: React.FC = () => {
       return;
     }
 
-    // Clear retry state when starting a new recording
+    // Clear ERROR retry UI when starting a new recording, but keep lastChatAudio
+    // so the Regenerate button can stay on the previous AI reply (disabled) until
+    // a new assistant message replaces that turn.
     setCanRetryChatAudio(false);
-    setLastChatAudio(null);
     setChatProcessingErrorMessage('');
+    chatRetryModeRef.current = 'append';
+    regenerateHistorySnapshotRef.current = null;
 
     setAppState(AppState.RECORDING);
     await startRecording();
   };
 
   /**
-   * Processes audio data (from recording or retry) and sends it to the AI
+   * Processes audio data (from recording, error retry, or regenerate) and sends it to the AI.
+   * When `regenerate` is true, rolls back the last shared-history turn, replaces the last
+   * assistant UI bubbles on success, and does not re-increment TEF counters. PROCESSING
+   * pauses TEF timers the same way as a normal reply.
    */
-  const processAudioMessage = async (audioData: AudioData) => {
+  const processAudioMessage = async (
+    audioData: AudioData,
+    options?: { regenerate?: boolean }
+  ) => {
+    const isRegenerate = options?.regenerate === true;
     processingAbortedRef.current = false;
     const userAbort = new AbortController();
     abortControllerRef.current = userAbort;
@@ -783,31 +805,101 @@ const App: React.FC = () => {
     setAppState(AppState.PROCESSING);
     setChatProcessingErrorMessage('');
 
+    // For regenerate: truncate shared text history, then rebuild the Gemini chat
+    // from prior UI turns using each user's recorded audio (not transcripts).
+    // The last user audio is sent separately via sendVoiceMessage below.
+    if (isRegenerate) {
+      const historySnapshot = getConversationHistory();
+      if (historySnapshot.length < 2) {
+        setChatProcessingErrorMessage('Nothing to regenerate.');
+        setAppState(AppState.ERROR);
+        showErrorFlash('Nothing to regenerate.');
+        abortControllerRef.current = null;
+        return;
+      }
+      const turn = findLastAssistantTurn(messagesRef.current);
+      if (!turn) {
+        setChatProcessingErrorMessage('Nothing to regenerate.');
+        setAppState(AppState.ERROR);
+        showErrorFlash('Nothing to regenerate.');
+        abortControllerRef.current = null;
+        return;
+      }
+      regenerateHistorySnapshotRef.current = historySnapshot;
+      const truncated = historySnapshot.slice(0, -2);
+      setHistory(truncated);
+      // Do not seed the chat with text transcripts — rebuild from recordings instead.
+    } else {
+      regenerateHistorySnapshotRef.current = null;
+    }
+
+    const isRequestCurrent = () =>
+      !processingAbortedRef.current && currentRequestId === requestIdRef.current;
+
+    const pipelineSignal = combineAbortSignals(userAbort.signal, deadlineAbort.signal);
+
+    /** Restore truncated history only while this turn still owns the session. */
+    const restoreRegenerateHistoryIfCurrent = async () => {
+      if (!isRegenerate || !isRequestCurrent()) return;
+      const snapshot = regenerateHistorySnapshotRef.current;
+      if (!snapshot) return;
+      regenerateHistorySnapshotRef.current = null;
+      if (!isRequestCurrent()) {
+        regenerateHistorySnapshotRef.current = snapshot;
+        return;
+      }
+      setHistory(snapshot);
+      if (!isRequestCurrent()) return;
+      try {
+        await resetSessionWithUserAudioHistory(
+          activeScenarioRef.current,
+          messagesRef.current,
+          pipelineSignal
+        );
+        if (!isRequestCurrent()) return;
+      } catch {
+        if (!isRequestCurrent()) return;
+        resetSession(activeScenarioRef.current, snapshot);
+      }
+    };
+
     try {
       deadlineTimeoutId = setTimeout(() => {
         pipelineFailureKindRef.current = 'timeout';
         deadlineAbort.abort();
       }, PIPELINE_MAX_MS);
 
-      const pipelineSignal = combineAbortSignals(userAbort.signal, deadlineAbort.signal);
+      if (isRegenerate) {
+        const turn = findLastAssistantTurn(messagesRef.current);
+        const priorUiMessages = turn
+          ? messagesRef.current.slice(0, turn.lastUserIndex)
+          : [];
+        await resetSessionWithUserAudioHistory(
+          activeScenarioRef.current,
+          priorUiMessages,
+          pipelineSignal
+        );
+      }
 
       const { base64, mimeType } = audioData;
 
       // Build phase-based per-turn context for TEF Ad practice
       // Skip context injection for the very first message (greeting turn)
       let phaseContextText: string | undefined;
-      if (tefAdMode === 'practice' && !tefAdIsFirstMessage) {
-        const turnNumber = tefAdTurnCount + 1;
-        if (turnNumber <= 2) {
-          phaseContextText = '[Per-turn context: Encourage the user to introduce and present the advertisement clearly and in an interesting way.]';
-        } else if (turnNumber <= 4) {
-          phaseContextText = '[Per-turn context: The user should be developing concrete arguments with examples. If they give a bare assertion without a concrete example, ask "Tu peux me donner un exemple concret?"]';
-        } else {
-          phaseContextText = '[Per-turn context: Push back with a counter-argument or nuance ("Oui mais...", "Tu ne penses pas que..."). The user should demonstrate they can handle objections and nuance their position.]';
+      if (tefAdMode === 'practice') {
+        if (isRegenerate) {
+          // After success, turnCount already includes this turn (0 = greeting).
+          phaseContextText = buildPersuasionPhaseContext(
+            persuasionPhaseTurnNumber(tefAdTurnCount, true)
+          );
+        } else if (!tefAdIsFirstMessage) {
+          phaseContextText = buildPersuasionPhaseContext(
+            persuasionPhaseTurnNumber(tefAdTurnCount, false)
+          );
         }
       }
-
-      // Use Gemini for speaking practice
+      // Use Gemini for speaking practice — always send the latest user audio.
+      // On regenerate, prior turns were rebuilt with user recordings above.
       const response = await sendVoiceMessage(
         base64,
         mimeType,
@@ -826,29 +918,31 @@ const App: React.FC = () => {
             URL.revokeObjectURL(response.audioUrl);
           }
         }
+        await restoreRegenerateHistoryIfCurrent();
         return;
       }
+
+      const failInvalidMultiCharacter = async () => {
+        console.error('Invalid multi-character response from AI');
+        const invalidMsg = 'Invalid response format from AI';
+        await restoreRegenerateHistoryIfCurrent();
+        if (!isRequestCurrent()) return;
+        setChatProcessingErrorMessage(invalidMsg);
+        setCanRetryChatAudio(true);
+        setAppState(AppState.ERROR);
+        showErrorFlash(invalidMsg);
+      };
 
       // Handle multi-character response
       if (Array.isArray(response.audioUrl)) {
         // Validate multi-character response structure
         if (!response.characters || !Array.isArray(response.characters)) {
-          console.error('Multi-character response missing characters array');
-          const invalidMsg = 'Invalid response format from AI';
-          setChatProcessingErrorMessage(invalidMsg);
-          setCanRetryChatAudio(true);
-          setAppState(AppState.ERROR);
-          showErrorFlash(invalidMsg);
+          await failInvalidMultiCharacter();
           return;
         }
 
         if (!Array.isArray(response.modelText)) {
-          console.error('Multi-character response has invalid modelText');
-          const invalidMsg = 'Invalid response format from AI';
-          setChatProcessingErrorMessage(invalidMsg);
-          setCanRetryChatAudio(true);
-          setAppState(AppState.ERROR);
-          showErrorFlash(invalidMsg);
+          await failInvalidMultiCharacter();
           return;
         }
 
@@ -858,146 +952,210 @@ const App: React.FC = () => {
         const modelTexts = response.modelText;
 
         if (audioUrls.length !== characters.length || audioUrls.length !== modelTexts.length) {
-          console.error('Multi-character response arrays have mismatched lengths', {
-            audioUrls: audioUrls.length,
-            characters: characters.length,
-            modelTexts: modelTexts.length
-          });
-          const invalidMsg = 'Invalid response format from AI';
-          setChatProcessingErrorMessage(invalidMsg);
-          setCanRetryChatAudio(true);
-          setAppState(AppState.ERROR);
-          showErrorFlash(invalidMsg);
+          await failInvalidMultiCharacter();
           return;
         }
 
-        const timestamp = Date.now();
+        if (isRegenerate) {
+          const turn = findLastAssistantTurn(messagesRef.current);
+          const previousIsRepeat = turn
+            ? messagesRef.current[turn.lastUserIndex]?.isRepeat
+            : undefined;
 
-        // Create a blob URL for the user's recorded audio so the review service
-        // can evaluate actual speech rather than relying solely on transcripts.
-        const userAudioBlob = new Blob(
-          [Uint8Array.from(atob(base64), c => c.charCodeAt(0))],
-          { type: mimeType }
-        );
-        const userAudioUrl = URL.createObjectURL(userAudioBlob);
+          const replaced = replaceLastAssistantTurnMessages(messagesRef.current, response, {
+            tefQuestioningUpdate: {
+              isPractice: tefQuestioningMode === 'practice',
+              skipFirstMessageMeta:
+                tefQuestioningMode === 'practice' && tefQuestioningQuestionCount === 0,
+            },
+          });
+          setMessages(replaced.messages);
+          if (replaced.autoPlayMessageId != null) {
+            setAutoPlayMessageId(replaced.autoPlayMessageId);
+          }
 
-        const userMessage: Message = { role: 'user', text: response.userText, timestamp, audioUrl: userAudioUrl };
+          if (tefQuestioningMode === 'practice' && tefQuestioningQuestionCount > 0) {
+            setTefQuestioningRepeatCount((prev) =>
+              nextRepeatCountAfterRegenerate(prev, previousIsRepeat, response.isRepeat)
+            );
+          }
 
-        // Create separate messages for each character
-        const modelMessages: Message[] = characters.map((char, idx) => ({
-          role: 'model' as const,
-          text: modelTexts[idx],
-          timestamp: timestamp + idx + 1,
-          audioUrl: audioUrls[idx],
-          characterId: char.characterId,
-          characterName: char.characterName,
-          voiceName: char.voiceName,
-          hint: idx === characters.length - 1 ? response.hint : undefined,
-          audioGenerationFailed: char.audioGenerationFailed || false,
-          frenchText: char.frenchText // Store French text for TTS retry
-        }));
+          if (shouldSetHintFromResponse(scenarioMode, response.hint)) {
+            setCurrentHint(response.hint);
+          }
+          if (response.currentStepIndex !== undefined) {
+            const stepsLength = getScenarioSteps(activeScenarioRef.current).length;
+            setCurrentRoadmapStepIndex((prev) =>
+              advanceRoadmapStep(prev, response.currentStepIndex, stepsLength)
+            );
+          }
+        } else {
+          const timestamp = Date.now();
 
-        setMessages(prev => [...prev, userMessage, ...modelMessages]);
-
-        // Update current hint (role-play scenario practice only)
-        if (shouldSetHintFromResponse(scenarioMode, response.hint)) {
-          setCurrentHint(response.hint);
-        }
-
-        // Scenario roadmap auto-advance — "never regress" (like the hint already
-        // does). Multi-character scenarios (e.g. Baker + Cashier) need this too,
-        // not just the single-character branch below.
-        if (response.currentStepIndex !== undefined) {
-          const stepsLength = getScenarioSteps(activeScenarioRef.current).length;
-          setCurrentRoadmapStepIndex((prev) =>
-            advanceRoadmapStep(prev, response.currentStepIndex, stepsLength)
+          // Create a blob URL for the user's recorded audio so the review service
+          // can evaluate actual speech rather than relying solely on transcripts.
+          const userAudioBlob = new Blob(
+            [Uint8Array.from(atob(base64), c => c.charCodeAt(0))],
+            { type: mimeType }
           );
-        }
+          const userAudioUrl = URL.createObjectURL(userAudioBlob);
 
-        // Set the first character message to auto-play (others will auto-play sequentially)
-        setAutoPlayMessageId(timestamp + 1);
+          const userMessage: Message = { role: 'user', text: response.userText, timestamp, audioUrl: userAudioUrl };
+
+          // Create separate messages for each character
+          const modelMessages: Message[] = characters.map((char, idx) => ({
+            role: 'model' as const,
+            text: modelTexts[idx],
+            timestamp: timestamp + idx + 1,
+            audioUrl: audioUrls[idx],
+            characterId: char.characterId,
+            characterName: char.characterName,
+            voiceName: char.voiceName,
+            hint: idx === characters.length - 1 ? response.hint : undefined,
+            audioGenerationFailed: char.audioGenerationFailed || false,
+            frenchText: char.frenchText // Store French text for TTS retry
+          }));
+
+          setMessages(prev => [...prev, userMessage, ...modelMessages]);
+
+          // Update current hint (role-play scenario practice only)
+          if (shouldSetHintFromResponse(scenarioMode, response.hint)) {
+            setCurrentHint(response.hint);
+          }
+
+          // Scenario roadmap auto-advance — "never regress" (like the hint already
+          // does). Multi-character scenarios (e.g. Baker + Cashier) need this too,
+          // not just the single-character branch below.
+          if (response.currentStepIndex !== undefined) {
+            const stepsLength = getScenarioSteps(activeScenarioRef.current).length;
+            setCurrentRoadmapStepIndex((prev) =>
+              advanceRoadmapStep(prev, response.currentStepIndex, stepsLength)
+            );
+          }
+
+          // Set the first character message to auto-play (others will auto-play sequentially)
+          setAutoPlayMessageId(timestamp + 1);
+        }
       } else {
         // Single-character response (original behavior)
         const { audioUrl, userText, modelText, hint, voiceName, audioGenerationFailed, characters } = response;
 
-        // Add messages to history (append for chronological order - newest last)
-        const timestamp = Date.now();
-        const modelTimestamp = timestamp + 1;
+        if (isRegenerate) {
+          const turn = findLastAssistantTurn(messagesRef.current);
+          const previousIsRepeat = turn
+            ? messagesRef.current[turn.lastUserIndex]?.isRepeat
+            : undefined;
 
-        // Create a blob URL for the user's recorded audio so the review service
-        // can evaluate actual speech rather than relying solely on transcripts.
-        const userAudioBlob = new Blob(
-          [Uint8Array.from(atob(base64), c => c.charCodeAt(0))],
-          { type: mimeType }
-        );
-        const userAudioUrl = URL.createObjectURL(userAudioBlob);
+          const replaced = replaceLastAssistantTurnMessages(messagesRef.current, response, {
+            tefQuestioningUpdate: {
+              isPractice: tefQuestioningMode === 'practice',
+              skipFirstMessageMeta: tefQuestioningMode === 'practice' && tefQuestioningQuestionCount === 0,
+            },
+          });
+          setMessages(replaced.messages);
+          if (replaced.autoPlayMessageId != null) {
+            setAutoPlayMessageId(replaced.autoPlayMessageId);
+          }
 
-        setMessages(prev => [
-          ...prev,
-          {
-            role: 'user',
-            text: userText,
-            timestamp,
-            audioUrl: userAudioUrl,
-            ...(tefQuestioningMode === 'practice' && !tefQuestioningIsFirstMessage && {
-              isRepeat: response.isRepeat,
-              conceptLabels: response.conceptLabels,
-            }),
-          },
-          {
-            role: 'model',
-            text: modelText as string,
-            timestamp: modelTimestamp,
-            audioUrl: audioUrl as string,
-            hint,
-            voiceName,
-            audioGenerationFailed,
-            frenchText: characters?.[0]?.frenchText // Store French text for TTS retry
-          },
-        ]);
+          if (tefQuestioningMode === 'practice' && tefQuestioningQuestionCount > 0) {
+            setTefQuestioningRepeatCount((prev) =>
+              nextRepeatCountAfterRegenerate(prev, previousIsRepeat, response.isRepeat)
+            );
+          }
 
-        // Update current hint (role-play scenario practice only)
-        if (shouldSetHintFromResponse(scenarioMode, hint)) {
-          setCurrentHint(hint);
-        }
+          if (shouldSetHintFromResponse(scenarioMode, hint)) {
+            setCurrentHint(hint);
+          }
+          if (response.currentStepIndex !== undefined) {
+            const stepsLength = getScenarioSteps(activeScenarioRef.current).length;
+            setCurrentRoadmapStepIndex((prev) =>
+              advanceRoadmapStep(prev, response.currentStepIndex, stepsLength)
+            );
+          }
+        } else {
+          // Add messages to history (append for chronological order - newest last)
+          const timestamp = Date.now();
+          const modelTimestamp = timestamp + 1;
 
-        // Scenario roadmap auto-advance — "never regress" (like the hint already does).
-        if (response.currentStepIndex !== undefined) {
-          const stepsLength = getScenarioSteps(activeScenarioRef.current).length;
-          setCurrentRoadmapStepIndex((prev) =>
-            advanceRoadmapStep(prev, response.currentStepIndex, stepsLength)
+          // Create a blob URL for the user's recorded audio so the review service
+          // can evaluate actual speech rather than relying solely on transcripts.
+          const userAudioBlob = new Blob(
+            [Uint8Array.from(atob(base64), c => c.charCodeAt(0))],
+            { type: mimeType }
           );
-        }
+          const userAudioUrl = URL.createObjectURL(userAudioBlob);
 
-        // Set the new model message to auto-play
-        setAutoPlayMessageId(modelTimestamp);
+          setMessages(prev => [
+            ...prev,
+            {
+              role: 'user',
+              text: userText,
+              timestamp,
+              audioUrl: userAudioUrl,
+              ...(tefQuestioningMode === 'practice' && !tefQuestioningIsFirstMessage && {
+                isRepeat: response.isRepeat,
+                conceptLabels: response.conceptLabels,
+              }),
+            },
+            {
+              role: 'model',
+              text: modelText as string,
+              timestamp: modelTimestamp,
+              audioUrl: audioUrl as string,
+              hint,
+              voiceName,
+              audioGenerationFailed,
+              frenchText: characters?.[0]?.frenchText // Store French text for TTS retry
+            },
+          ]);
+
+          // Update current hint (role-play scenario practice only)
+          if (shouldSetHintFromResponse(scenarioMode, hint)) {
+            setCurrentHint(hint);
+          }
+
+          // Scenario roadmap auto-advance — "never regress" (like the hint already does).
+          if (response.currentStepIndex !== undefined) {
+            const stepsLength = getScenarioSteps(activeScenarioRef.current).length;
+            setCurrentRoadmapStepIndex((prev) =>
+              advanceRoadmapStep(prev, response.currentStepIndex, stepsLength)
+            );
+          }
+
+          // Set the new model message to auto-play
+          setAutoPlayMessageId(modelTimestamp);
+        }
       }
 
-      // Success - clear retry state
+      // Success — keep lastChatAudio so the user can regenerate this turn.
+      // Clear ERROR retry flag only.
       setCanRetryChatAudio(false);
-      setLastChatAudio(null);
+      regenerateHistorySnapshotRef.current = null;
       setChatProcessingErrorMessage('');
       setAppState(AppState.IDLE);
 
-      // Persuasion first-message handling
-      if (tefAdMode === 'practice') {
-        if (tefAdIsFirstMessage) {
-          // First turn is a greeting — skip turn count increment, just mark first message done
-          setTefAdIsFirstMessage(false);
-        } else {
-          // Increment turn count after each non-first successful user turn
-          setTefAdTurnCount(prev => prev + 1);
+      // Persuasion / questioning counters: only for new turns, not regenerates
+      if (!isRegenerate) {
+        // Persuasion first-message handling
+        if (tefAdMode === 'practice') {
+          if (tefAdIsFirstMessage) {
+            // First turn is a greeting — skip turn count increment, just mark first message done
+            setTefAdIsFirstMessage(false);
+          } else {
+            // Increment turn count after each non-first successful user turn
+            setTefAdTurnCount(prev => prev + 1);
+          }
         }
-      }
 
-      // TEF Questioning: count questions (skip first message / greeting)
-      if (tefQuestioningMode === 'practice') {
-        if (tefQuestioningIsFirstMessage) {
-          setTefQuestioningIsFirstMessage(false);
-        } else {
-          setTefQuestioningQuestionCount(c => c + 1);
-          if (response.isRepeat === true) {
-            setTefQuestioningRepeatCount(r => r + 1);
+        // TEF Questioning: count questions (skip first message / greeting)
+        if (tefQuestioningMode === 'practice') {
+          if (tefQuestioningIsFirstMessage) {
+            setTefQuestioningIsFirstMessage(false);
+          } else {
+            setTefQuestioningQuestionCount(c => c + 1);
+            if (response.isRepeat === true) {
+              setTefQuestioningRepeatCount(r => r + 1);
+            }
           }
         }
       }
@@ -1008,8 +1166,12 @@ const App: React.FC = () => {
 
       // If aborted or superseded by a newer request, don't show error
       if (processingAbortedRef.current || currentRequestId !== requestIdRef.current) {
+        await restoreRegenerateHistoryIfCurrent();
         return;
       }
+
+      // Restore prior history so UI and shared history stay aligned after a failed regenerate
+      await restoreRegenerateHistoryIfCurrent();
 
       const isAbort = isAbortLikeError(error);
       const defaultMsg = 'Connection error. Please try again.';
@@ -1058,9 +1220,10 @@ const App: React.FC = () => {
         return;
       }
 
-      // Store the audio for potential retry
+      // Store the audio for potential retry / regenerate
       const audioData: AudioData = { base64, mimeType };
       setLastChatAudio(audioData);
+      chatRetryModeRef.current = 'append';
 
       // Process the audio
       await processAudioMessage(audioData);
@@ -1086,7 +1249,28 @@ const App: React.FC = () => {
       console.error("No audio to retry");
       return;
     }
-    await processAudioMessage(lastChatAudio);
+    await processAudioMessage(lastChatAudio, {
+      regenerate: chatRetryModeRef.current === 'regenerate',
+    });
+  };
+
+  /**
+   * Regenerate the last AI reply for the same user recording (replaces the model bubbles on success).
+   * Sets PROCESSING so TEF timers pause like a normal reply turn.
+   */
+  const handleRegenerateLastResponse = async () => {
+    if (!lastChatAudio) {
+      console.error("No audio to regenerate from");
+      return;
+    }
+    if (appState !== AppState.IDLE) {
+      return;
+    }
+    if (!findLastAssistantTurn(messagesRef.current)) {
+      return;
+    }
+    chatRetryModeRef.current = 'regenerate';
+    await processAudioMessage(lastChatAudio, { regenerate: true });
   };
 
   /**
@@ -1172,6 +1356,10 @@ const App: React.FC = () => {
       setMessages([]);
       setAutoPlayMessageId(null);
       setCurrentHint(null);
+      setLastChatAudio(null);
+      setCanRetryChatAudio(false);
+      chatRetryModeRef.current = 'append';
+      regenerateHistorySnapshotRef.current = null;
       // Always reset Gemini session when clearing history, preserving scenario if active
       resetSession(activeScenario);
     } catch (error) {
@@ -2310,6 +2498,18 @@ const App: React.FC = () => {
     return <p className="text-parle-navy-300">Tap the mic to start your session.</p>;
   };
 
+  const lastAssistantTurn = findLastAssistantTurn(messages);
+  // Keep the Regenerate control on the latest AI turn until that turn is replaced
+  // or a newer assistant reply is appended — including while the mic is recording
+  // or a new reply is processing (button is disabled in those states).
+  const regeneratableMessageTimestamp = lastAssistantTurn
+    ? messages[lastAssistantTurn.modelEndIndex].timestamp
+    : null;
+  const isRegeneratingResponse =
+    appState === AppState.PROCESSING && chatRetryModeRef.current === 'regenerate';
+  const isRegenerateDisabled =
+    appState !== AppState.IDLE || !lastChatAudio || isRegeneratingResponse;
+
   return (
     <div className="h-dvh flex flex-col relative overflow-hidden bg-parle-cream text-parle-navy-900">
 
@@ -2409,6 +2609,10 @@ const App: React.FC = () => {
                   onRetryAudio={handleRetryAudioGeneration}
                   retryingMessageTimestamps={retryingMessageTimestamps}
                   showUserAudioToggle={scenarioMode === 'practice'}
+                  regeneratableMessageTimestamp={regeneratableMessageTimestamp}
+                  onRegenerateResponse={handleRegenerateLastResponse}
+                  isRegenerating={isRegeneratingResponse}
+                  regenerateDisabled={isRegenerateDisabled}
                 />
                 {(tefAdMode === 'practice' || tefQuestioningMode === 'practice') &&
                   practiceGuide &&

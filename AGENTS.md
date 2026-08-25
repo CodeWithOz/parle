@@ -856,6 +856,7 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - Hide `ConversationHint` during TEF Ad Persuasion and TEF Ad Questioning practice only; keep hints for role-play scenario practice and free conversation.
 - TEF in-session practice guide: per-topic accordions; on start/restart auto-attach the latest topic archive for the current ad (`latest_auto`).
 - In LLM system prompts, prefer short behavioral rules over hardcoded lists of French verbs or phrases that may be appropriate in other conversational contexts.
+- When rebuilding conversation context for the LLM (including regenerating an AI reply), send every user turn as the original audio recording, not transcript text—transcripts are often inaccurate. Match the TEF/review audio-first pattern.
 
 ## Learned Workspace Facts
 

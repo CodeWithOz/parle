@@ -63,27 +63,27 @@ describe('persuasionTurnCount · App.tsx source-text specs', () => {
   });
 
   it('App.tsx builds phase-based context for early phase (turns 1–2)', async () => {
-    const src = await import('../App?raw');
+    const helperSrc = await import('../utils/regenerateLastResponse?raw');
     // Early phase should mention "introduce" and/or "present" the advertisement clearly
-    expect(src.default).toMatch(/introduce.*advertisement|present.*advertisement|introduce.*clearly|Encourage.*introduce/i);
+    expect(helperSrc.default).toMatch(/introduce.*advertisement|present.*advertisement|introduce.*clearly|Encourage.*introduce/i);
   });
 
   it('App.tsx builds phase-based context for mid phase (turns 3–4)', async () => {
-    const src = await import('../App?raw');
+    const helperSrc = await import('../utils/regenerateLastResponse?raw');
     // Mid phase should ask for concrete examples
-    expect(src.default).toMatch(/exemple concret|concrete.*example|give.*example/i);
+    expect(helperSrc.default).toMatch(/exemple concret|concrete.*example|give.*example/i);
   });
 
   it('App.tsx builds phase-based context for late phase (turns 5+)', async () => {
-    const src = await import('../App?raw');
+    const helperSrc = await import('../utils/regenerateLastResponse?raw');
     // Late phase should push back with counter-arguments or nuance
-    expect(src.default).toMatch(/Oui mais|counter.?argument|nuance/i);
+    expect(helperSrc.default).toMatch(/Oui mais|counter.?argument|nuance/i);
   });
 
-  it('App.tsx uses tefAdTurnCount to select the phase', async () => {
+  it('App.tsx uses tefAdTurnCount to select the phase via persuasion helpers', async () => {
     const src = await import('../App?raw');
-    // The phase selection must reference tefAdTurnCount in a conditional
-    expect(src.default).toMatch(/tefAdTurnCount[\s\S]{0,200}(early|mid|late|introduce|exemple|Oui mais)/);
+    expect(src.default).toMatch(/buildPersuasionPhaseContext/);
+    expect(src.default).toMatch(/persuasionPhaseTurnNumber\s*\(\s*tefAdTurnCount/);
   });
 
   it('App.tsx no longer references tefObjectionState in context injection block', async () => {
@@ -99,17 +99,16 @@ describe('persuasionTurnCount · App.tsx source-text specs', () => {
 
 describe('persuasionTurnCount · phase context content by turn number', () => {
   it('early/mid boundary: uses turnNumber (tefAdTurnCount + 1) with threshold <= 2', async () => {
-    // Phase is computed as turnNumber = tefAdTurnCount + 1.
+    // Phase is computed as turnNumber = tefAdTurnCount + 1 for new turns.
     // Early covers turns 1–2 (turnNumber <= 2), mid covers 3–4, late 5+.
-    const src = await import('../App?raw');
-    // Code must use tefAdTurnCount + 1 and check <= 2 (or equivalent < 3)
-    expect(src.default).toMatch(/tefAdTurnCount\s*\+\s*1/);
-    expect(src.default).toMatch(/turnNumber\s*<=\s*2|turnNumber\s*<\s*3/);
+    const helperSrc = await import('../utils/regenerateLastResponse?raw');
+    expect(helperSrc.default).toMatch(/tefAdTurnCount\s*\+\s*1/);
+    expect(helperSrc.default).toMatch(/turnNumber\s*<=\s*2|turnNumber\s*<\s*3/);
   });
 
   it('late phase boundary: turn 5+ uses late phase text (turnNumber >= 5)', async () => {
     // Late phase starts when turnNumber > 4, i.e. mid uses turnNumber <= 4
-    const src = await import('../App?raw');
-    expect(src.default).toMatch(/turnNumber\s*<=\s*4|turnNumber\s*<\s*5/);
+    const helperSrc = await import('../utils/regenerateLastResponse?raw');
+    expect(helperSrc.default).toMatch(/turnNumber\s*<=\s*4|turnNumber\s*<\s*5/);
   });
 });

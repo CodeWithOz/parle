@@ -1,10 +1,11 @@
 import { GoogleGenAI, Chat, Modality, Type } from "@google/genai";
 import { z } from "zod";
 import { base64ToBytes, pcmToWav } from "./audioUtils";
-import { VoiceResponse, Scenario } from "../types";
+import { VoiceResponse, Scenario, Message } from "../types";
 import { getConversationHistory, addToHistory } from "./conversationHistory";
 import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse, parseMultiCharacterResponse } from "./scenarioService";
 import { getApiKeyOrEnv } from "./apiKeyService";
+import { fetchAudioAsInlineData } from "../utils/fetchAudioAsInlineData";
 
 // Gemini TTS output format constants
 const DEFAULT_PCM_SAMPLE_RATE = 24000; // 24kHz sample rate
@@ -304,6 +305,110 @@ export const resetSession = (scenario?: Scenario | null, history?: Array<{ role:
  */
 export const setScenario = (scenario: Scenario | null) => {
   resetSession(scenario);
+};
+
+type ChatHistoryPart =
+  | { text: string }
+  | { inlineData: { data: string; mimeType: string } };
+
+/**
+ * Collapse consecutive model bubbles (multi-character turns) into one model
+ * entry so Gemini chat history stays strictly alternating user/model.
+ */
+function collapseMessagesForChatHistory(messages: Message[]): Message[] {
+  const collapsed: Message[] = [];
+  for (const message of messages) {
+    const last = collapsed[collapsed.length - 1];
+    if (message.role === 'model' && last?.role === 'model') {
+      collapsed[collapsed.length - 1] = {
+        ...last,
+        text: `${last.text} ${message.text}`.trim(),
+        frenchText: [last.frenchText, message.frenchText].filter(Boolean).join(' ').trim() || last.frenchText,
+      };
+      continue;
+    }
+    collapsed.push(message);
+  }
+  return collapsed;
+}
+
+/**
+ * Rebuild the Gemini chat from UI messages using each user's recorded audio
+ * (same audio-first approach as TEF/scenario review). `messages` must be the
+ * complete prior turns only (ending on a model message) — the last user audio
+ * is sent separately via sendVoiceMessage.
+ *
+ * Sets syncedMessageCount to the current shared text-history length so a later
+ * sendVoiceMessage will not overwrite this audio-backed session with text sync.
+ */
+export const resetSessionWithUserAudioHistory = async (
+  scenario: Scenario | null,
+  messages: Message[],
+  signal?: AbortSignal
+): Promise<void> => {
+  ensureAiInitialized();
+  if (!ai) {
+    throw new Error('Chat session not initialized.');
+  }
+
+  activeScenario = scenario || null;
+  pendingScenario = scenario || null;
+  pendingHistory = null;
+
+  const systemInstruction = activeScenario
+    ? generateScenarioSystemInstruction(activeScenario)
+    : SYSTEM_INSTRUCTION;
+  const responseSchema = selectResponseSchema(activeScenario);
+
+  const collapsed = collapseMessagesForChatHistory(messages);
+  const historyMessages: Array<{ role: string; parts: ChatHistoryPart[] }> = [];
+
+  for (const message of collapsed) {
+    if (signal?.aborted) {
+      throw new DOMException('Request aborted', 'AbortError');
+    }
+
+    if (message.role === 'user') {
+      const audioUrl = typeof message.audioUrl === 'string' ? message.audioUrl : undefined;
+      if (audioUrl) {
+        const audioData = await fetchAudioAsInlineData(audioUrl, signal);
+        if (signal?.aborted) {
+          throw new DOMException('Request aborted', 'AbortError');
+        }
+        if (audioData) {
+          historyMessages.push({
+            role: 'user',
+            parts: [{ inlineData: { data: audioData.base64, mimeType: audioData.mimeType } }],
+          });
+          continue;
+        }
+      }
+      // Last-resort fallback only when the blob is missing/unreadable
+      historyMessages.push({ role: 'user', parts: [{ text: message.text }] });
+      continue;
+    }
+
+    const modelText = message.frenchText || message.text;
+    historyMessages.push({ role: 'model', parts: [{ text: modelText }] });
+  }
+
+  if (signal?.aborted) {
+    throw new DOMException('Request aborted', 'AbortError');
+  }
+
+  chatSession = ai.chats.create({
+    model: 'gemini-2.5-flash-lite',
+    config: {
+      systemInstruction,
+      responseMimeType: 'application/json',
+      responseSchema,
+    },
+    ...(historyMessages.length > 0 ? { history: historyMessages } : {}),
+  });
+
+  // Keep sync counter aligned with shared text history so sendVoiceMessage does
+  // not replace this audio-backed session via text-only lazy sync.
+  syncedMessageCount = getConversationHistory().length;
 };
 
 /**
