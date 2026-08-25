@@ -9,6 +9,7 @@ export async function fetchAudioAsInlineData(
   try {
     const response = await fetch(url, signal ? { signal } : undefined);
     if (signal?.aborted) return null;
+    if (!response.ok) return null;
     const blob = await response.blob();
     const mimeType = blob.type || 'audio/wav';
 
