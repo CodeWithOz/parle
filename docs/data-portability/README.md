@@ -6,11 +6,11 @@ separate branches, deployments, and AI-agent chats.
 
 ## Current status
 
-- Program status: **Stage 4 deployed via [PR #51](https://github.com/CodeWithOz/parle/pull/51); rollback observation window open, final sign-off pending observation evidence**
-- Current implementation behavior: **verified IndexedDB primary reads with guarded per-dataset localStorage fallback and rollback bridge writes (unchanged from Stage 3 — Stage 4 added test coverage and documentation only, no behavior change)**
-- Deployed behavior: **IndexedDB is primary for both durable datasets with guarded localStorage fallback and rollback bridge writes; both bridges are confirmed retained through Stage 4**
-- Last completed stage: **[Stage 4 — rollback window](stages/04-rollback-window.md) (deployed; observation window open)**
-- Next action: **observe the deployed rollback window for both datasets and record duration/evidence in `stages/04-rollback-window.md`; only then decide whether to begin Stage 5**
+- Program status: **Stage 4 complete; merged via [PR #51](https://github.com/CodeWithOz/parle/pull/51), deployed, and operator-verified through a closed observation window (2026-08-23 to 2026-08-26)**
+- Current implementation behavior: **verified IndexedDB primary reads with guarded per-dataset localStorage fallback and rollback bridge writes (unchanged from Stage 3 — Stage 4 added test coverage, documentation, and observation evidence only, no behavior change)**
+- Deployed behavior: **IndexedDB is primary for both durable datasets with guarded localStorage fallback and rollback bridge writes; both bridges are confirmed retained through Stage 4 and continue into Stage 5**
+- Last completed stage: **[Stage 4 — rollback window](stages/04-rollback-window.md) (complete; deployed and operator-verified)**
+- Next action: **begin [Stage 5 — export/import](stages/05-export-import.md) in a fresh branch**
 - Current authoritative topic-archive source in this branch: verified `IndexedDB`, with guarded `localStorage` fallback
 - Current authoritative saved-scenario source in this branch: verified `IndexedDB`, with guarded `localStorage` fallback
 - IndexedDB topic-archive store exists in this implementation: **yes (schema version 3)**
@@ -22,7 +22,7 @@ Compatibility requirement: Stage 1 topic-only builds have already created databa
 in at least one browser. The corrected schema target is therefore version 3; code must support
 both version 1 → 3 and version 2 → 3 upgrades without recreating or clearing existing stores.
 
-The deployed application implements Stage 3. It makes verified IndexedDB stores the primary read and
+The deployed application implements Stage 4. It makes verified IndexedDB stores the primary read and
 mutation sources for both datasets while retaining independent guarded localStorage fallbacks,
 bridge writes, and repair latches. It does not remove or clear either localStorage dataset.
 
@@ -95,8 +95,8 @@ See [backup-format.md](backup-format.md), [migration-plan.md](migration-plan.md)
 | 1 | Add IndexedDB mirrors for topic archives and saved scenarios | Complete; deployed and verified |
 | 2 | Shadow-read, compare, and reconcile both datasets | Complete; merged, deployed, and verified |
 | 3 | Make IndexedDB primary for both with localStorage fallback | Complete; merged, deployed, and operator-verified |
-| 4 | Maintain rollback windows and prove both datasets stable | Deployed via PR #51; rollback observation window open, final sign-off pending |
-| 5 | Implement versioned export/import | Pending |
+| 4 | Maintain rollback windows and prove both datasets stable | Complete; merged, deployed, and operator-verified |
+| 5 | Implement versioned export/import | Next authorized stage |
 
 Detailed handoffs are in [`stages/`](stages/).
 
@@ -171,3 +171,8 @@ do not infer that the later stage is safe.
   The rollback-observation window is now open for both datasets. Both localStorage bridges
   remain active per the Stage 4 exit decision. Recording the observation duration/evidence and a
   final Stage 4 sign-off is still outstanding before Stage 5 may begin.
+- 2026-08-26: The Stage 4 rollback-observation window closed after three days in production with
+  no data-loss, fallback misbehavior, or IndexedDB/localStorage divergence reported for either
+  dataset. Stage 4 is complete. Per its exit decision, both the topic-archive and saved-scenario
+  localStorage bridges continue unchanged into Stage 5, which is now the next authorized
+  implementation stage.

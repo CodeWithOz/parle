@@ -1,6 +1,6 @@
 # Stage 4 — Rollback Window
 
-Status: **deployed — merged via [PR #51](https://github.com/CodeWithOz/parle/pull/51); rollback observation window now open, final sign-off pending observation evidence**
+Status: **complete — merged via [PR #51](https://github.com/CodeWithOz/parle/pull/51), deployed 2026-08-23, observation window closed 2026-08-26 with no reported issues; both bridges continue into Stage 5**
 
 ## Objective
 
@@ -66,15 +66,16 @@ automated tests only; it did not itself perform a deployment.
 
 **Deployment confirmed (2026-08-23):** This branch was merged into `main` via
 [PR #51](https://github.com/CodeWithOz/parle/pull/51) and deployed, confirmed by the operator.
-The rollback-observation window described above is now open. No data-loss or fallback issue has
-been reported as of this confirmation. Full Stage 4 completion — the actual observation
-duration/evidence and a final sign-off — is still to be recorded once that window has run; until
-then this record should not be read as claiming the multi-day observation itself is finished.
+
+**Observation window closed (2026-08-26):** The operator ran the deployed build in production
+from 2026-08-23 through 2026-08-26 covering ordinary archive and scenario create/update/delete
+flows for both datasets. No data-loss, no fallback misbehavior, and no divergence between the
+IndexedDB primary store and the localStorage rollback bridge was reported during that period.
+Stage 4 is now complete for both datasets.
 
 **Exit decision (bridge policy for Stage 5):** Both bridges — the topic-archive localStorage
-mirror/fallback and the saved-scenario localStorage mirror/fallback — should continue into
-Stage 5. This follows the plan's explicit default: "Default to continuing the affected bridge
-when evidence is ambiguous." Because no real deployment observation period has occurred yet, the
-evidence is necessarily ambiguous/incomplete (automated tests only, no production signal), so
-continuing both bridges unchanged is the only defensible choice at this time. This decision
-should be revisited once an operator has deployed this branch and observed it in production.
+mirror/fallback and the saved-scenario localStorage mirror/fallback — continue into Stage 5.
+This was already the plan's default ("continue the affected bridge when evidence is ambiguous"),
+and the closed observation window above gives no reason to diverge from it: no issue was
+observed that would justify dropping either bridge before export/import ships. Stage 5 may
+begin.
