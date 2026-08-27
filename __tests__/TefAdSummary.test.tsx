@@ -37,12 +37,6 @@ const SAMPLE_REVIEW: TefReview = {
   cefrLevel: 'B2',
   cefrJustification: 'Good overall performance.',
   wentWell: ['Strong argumentation'],
-  standardizationItems: [
-    {
-      original: 'c est bien pour toi',
-      standard: 'ça te conviendrait vraiment bien',
-    },
-  ],
   topicSuggestions: [],
 };
 
@@ -243,7 +237,6 @@ describe('TefAdSummary · TefReviewPanel integration', () => {
       cefrLevel: 'C1',
       cefrJustification: 'Excellent.',
       wentWell: [],
-      standardizationItems: [],
       topicSuggestions: [],
     };
     const onNavigateReview = vi.fn();
@@ -322,21 +315,15 @@ describe('TefAdSummary · topic suggestions', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Standardization feedback (via TefReviewPanel)
+// No per-utterance language-feedback lists
 // ---------------------------------------------------------------------------
 
-describe('TefAdSummary · standardization language feedback', () => {
-  it('renders "More Standard French" instead of Mistakes and Vocabulary Suggestions', () => {
+describe('TefAdSummary · no language-feedback lists', () => {
+  it('does not render More Standard French, Mistakes, or Vocabulary Suggestions', () => {
     renderSummary({ reviews: [SAMPLE_REVIEW], reviewIndex: 0 });
-    expect(screen.getByText(/more standard french/i)).toBeInTheDocument();
+    expect(screen.queryByText(/more standard french/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/^mistakes$/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/vocabulary suggestions/i)).not.toBeInTheDocument();
-  });
-
-  it('renders original and standard rewrite from the review', () => {
-    renderSummary({ reviews: [SAMPLE_REVIEW], reviewIndex: 0 });
-    expect(screen.getByText(/c est bien pour toi/i)).toBeInTheDocument();
-    expect(screen.getByText(/ça te conviendrait vraiment bien/i)).toBeInTheDocument();
   });
 });
 

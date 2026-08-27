@@ -133,7 +133,6 @@ export interface TefReview {
   wentWell: string[];
   mistakes?: TefReviewMistake[];
   vocabularySuggestions?: TefReviewVocabSuggestion[];
-  standardizationItems?: ScenarioStandardizationItem[];
   topicSuggestions: TefTopicSuggestion[];      // Topics + bilingual example utterances
   criteriaEvaluation?: TefCriterionEvaluation[]; // Persuasion-specific criteria scoring
 }

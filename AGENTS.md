@@ -342,7 +342,7 @@ The TEF review service exists to give the **user** actionable feedback on their 
 Concretely:
 - Agent audio is never fetched or forwarded to the review model
 - The `[Agent said: ...]` prefix signals to the evaluator that these lines are context, not performance to grade
-- All `criteriaEvaluation`, CEFR level, `wentWell`, and `standardizationItems` fields refer exclusively to what the user said
+- All `criteriaEvaluation`, CEFR level, and `wentWell` fields refer exclusively to what the user said
 
 Do **not** remove the `[Agent said: ...]` prefix or pass agent audio to the review model — it would cause the evaluator to mix agent and user performance in its feedback.
 
@@ -470,9 +470,7 @@ Do **not** flag the missing counter increment on the first turn as a bug — it 
 
 After the session ends, `generateTefReview` evaluates the conversation. The `TefReview` object always carries `topicSuggestions: TefTopicSuggestion[]` — at least 5 structured topic entries the learner could have raised, each with a `topic` label and at least 2 bilingual `examples`, shown in `TefReviewPanel` for both exercise types. For persuasion sessions it also carries `criteriaEvaluation: TefCriterionEvaluation[]`, which scores the user against the 5 official TEF criteria and is displayed in `TefAdSummary`.
 
-**Language feedback is the same original/standard rewrite shape for both TEF exercises.** `generateTefReview` returns `standardizationItems: ScenarioStandardizationItem[]` — the same pairs used by the role-play review (`generateScenarioStandardizationReview`). Both `TefAdSummary` and `TefQuestioningSummary` pass `languageFeedback="standardization"` so `TefReviewPanel` renders the shared `StandardizationFeedbackSection` ("More Standard French") instead of Mistakes and Vocabulary Suggestions.
-
-Do **not** restore Mistakes or Vocabulary Suggestions on either TEF review. Persuasion still uniquely carries `criteriaEvaluation`; questioning does not.
+**TEF reviews do not include per-utterance language-feedback lists.** Role-play still uses `standardizationItems` / `StandardizationFeedbackSection` ("More Standard French"). TEF summaries omit that section — and they also do not restore Mistakes or Vocabulary Suggestions. Persuasion still uniquely carries `criteriaEvaluation`; questioning does not.
 
 ```typescript
 // types.ts
@@ -492,14 +490,8 @@ export interface TefTopicSuggestion {
   examples: TefTopicSuggestionExample[]; // at least 2 bilingual examples per topic
 }
 
-export interface ScenarioStandardizationItem {
-  original: string;
-  standard: string;
-}
-
 // TefReview (shared fields — both exercise types)
 topicSuggestions: TefTopicSuggestion[];  // required; ≥5 entries, each with a topic label and ≥2 bilingual examples
-standardizationItems?: ScenarioStandardizationItem[];
 
 // TefReview (persuasion-specific)
 criteriaEvaluation?: TefCriterionEvaluation[];
@@ -509,15 +501,15 @@ Do **not** confuse this with the old "direction/round/isConvinced" state — tha
 
 ### Related Files
 
-- `types.ts` — `TefCriterionEvaluation` interface; `criteriaEvaluation` field on `TefReview`; `standardizationItems` language feedback for both TEF exercises
+- `types.ts` — `TefCriterionEvaluation` interface; `criteriaEvaluation` field on `TefReview`
 - `services/geminiService.ts` — `sendVoiceMessage()` (accepts `contextText?`)
 - `services/scenarioService.ts` — `generateTefAdSystemInstruction()` (timer-based system prompt, no round-counting)
-- `services/tefReviewService.ts` — both exercise types use `standardizationItems`; persuasion also requires `criteriaEvaluation`
+- `services/tefReviewService.ts` — both exercise types omit per-utterance language-feedback lists; persuasion also requires `criteriaEvaluation`
 - `components/PersuasionTimer.tsx` — Shows "Turn N" driven by `tefAdTurnCount`
-- `components/TefAdSummary.tsx` — Criteria scorecard from `criteriaEvaluation`; passes `languageFeedback="standardization"`
-- `components/TefQuestioningSummary.tsx` — passes `languageFeedback="standardization"`
-- `components/TefReviewPanel.tsx` — corrections vs standardization language-feedback branch
-- `components/StandardizationFeedbackSection.tsx` — shared original/standard rewrite list (role-play + both TEF reviews)
+- `components/TefAdSummary.tsx` — Criteria scorecard from `criteriaEvaluation`; no "More Standard French" section
+- `components/TefQuestioningSummary.tsx` — no "More Standard French" section
+- `components/TefReviewPanel.tsx` — CEFR, What Went Well, and topic suggestions (no mistakes / vocabulary / standard-rewrite lists)
+- `components/StandardizationFeedbackSection.tsx` — original/standard rewrite list for role-play reviews only
 - `App.tsx` — `tefAdTurnCount`, `tefAdIsFirstMessage` state; phase context injection per turn
 
 ---
@@ -746,7 +738,7 @@ When reviewing this codebase:
 15. **Don't flag the `RoadmapSingleCharacterSchema` branch as redundant with `TefQuestioningSchema` or `SingleCharacterSchema`** - `currentStepIndex` must only be present/required when the scenario has roadmap steps (see "Scenario Roadmap: Schema Selection and Never-Regress Auto-Advance")
 16. **Don't simplify `advanceRoadmapStep` to trust the AI's `currentStepIndex` directly** - `Math.max(prevIndex, clampedAiIndex)` is intentional; it prevents a single bad model turn from making the roadmap sidebar jump backward
 17. **Don't remove `seedRoadmapStepsFromSummary` as dead code** - the AI-generated `steps` field from `processScenarioDescriptionOpenAI` is the primary source of roadmap steps, but this sentence-split heuristic is still the load-bearing fallback for a non-JSON legacy response or an empty/missing `steps` field - see "Roadmap Steps Are AI-Generated, With a Heuristic as a Defensive Fallback Only"
-18. **Don't restore Mistakes/Vocabulary Suggestions on TEF reviews** - both persuasion and questioning use `standardizationItems` and the shared `StandardizationFeedbackSection` (same original/standard rewrites as role-play). Persuasion still uniquely has `criteriaEvaluation`.
+18. **Don't restore Mistakes, Vocabulary Suggestions, or "More Standard French" on TEF reviews** — TEF summaries show CEFR, What Went Well, topic suggestions, and (for persuasion) `criteriaEvaluation` only. Per-utterance rewrite lists belong to role-play (`ScenarioStandardizationReviewPanel`).
 
 If you believe you've found a genuine bug in one of these areas, please:
 - Reference this document in your review
@@ -880,4 +872,5 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - 2026-07-14: Added the staged data-portability and topic-archive migration dossier under `docs/data-portability/`; future persistence/export work must follow its active single-deployment stage
 - 2026-07-23: Corrected the data-portability target so saved role-play scenarios migrate to IndexedDB through the same staged process as topic archives; all durable exercise data must be in IndexedDB before export/import
 - 2026-08-20: Replaced TEF review Mistakes and Vocabulary Suggestions with the role-play `standardizationItems` / "More Standard French" rewrite section for both persuasion and questioning
+- 2026-08-26: Removed the "More Standard French" section from TEF exercise reviews (role-play still has it); TEF reviews no longer generate `standardizationItems`
 - See git history for detailed implementation timeline
