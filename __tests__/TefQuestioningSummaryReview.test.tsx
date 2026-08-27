@@ -39,12 +39,6 @@ const SAMPLE_REVIEW: TefReview = {
   cefrLevel: 'B2',
   cefrJustification: 'Solid performance with room for improvement.',
   wentWell: ['Consistent question structure'],
-  standardizationItems: [
-    {
-      original: 'Est-ce que vous avez le prix',
-      standard: 'Quel est le prix ?',
-    },
-  ],
   topicSuggestions: [
     {
       topic: 'Les conditions de paiement',
@@ -253,17 +247,11 @@ describe('TefQuestioningSummary · TefReviewPanel integration', () => {
     expect(screen.getByText('B2')).toBeInTheDocument();
   });
 
-  it('renders "More Standard French" instead of Mistakes and Vocabulary Suggestions', () => {
+  it('does not render More Standard French, Mistakes, or Vocabulary Suggestions', () => {
     renderSummary({ reviews: [SAMPLE_REVIEW], reviewIndex: 0 });
-    expect(screen.getByText(/more standard french/i)).toBeInTheDocument();
+    expect(screen.queryByText(/more standard french/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/^mistakes$/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/vocabulary suggestions/i)).not.toBeInTheDocument();
-  });
-
-  it('renders original and standard rewrite from the review', () => {
-    renderSummary({ reviews: [SAMPLE_REVIEW], reviewIndex: 0 });
-    expect(screen.getByText(/est-ce que vous avez le prix/i)).toBeInTheDocument();
-    expect(screen.getByText(/quel est le prix \?/i)).toBeInTheDocument();
   });
 
   it('existing stats still visible when review content is shown', () => {
@@ -294,7 +282,6 @@ describe('TefQuestioningSummary · TefReviewPanel integration', () => {
       cefrLevel: 'C1',
       cefrJustification: 'Near-native fluency.',
       wentWell: [],
-      standardizationItems: [],
       topicSuggestions: [],
     };
     const onNavigateReview = vi.fn();

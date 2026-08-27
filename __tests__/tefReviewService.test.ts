@@ -81,12 +81,6 @@ const SAMPLE_REVIEW: TefReview = {
     { used: 'faire', better: 'effectuer', reason: 'Formal verb preferred in professional contexts.' },
     { used: 'voir', better: 'constater', reason: 'More precise observation verb in formal French.' },
   ],
-  standardizationItems: [
-    {
-      original: 'Ce produit est fiable et abordable',
-      standard: 'Ce produit est à la fois fiable et abordable',
-    },
-  ],
   topicSuggestions: [
     {
       topic: 'Conditions de paiement',
@@ -261,7 +255,6 @@ describe('generateTefReview · happy path', () => {
     expect(result).toHaveProperty('cefrLevel');
     expect(result).toHaveProperty('cefrJustification');
     expect(result).toHaveProperty('wentWell');
-    expect(result).toHaveProperty('standardizationItems');
     expect(result).toHaveProperty('topicSuggestions');
     // tipsForC1 has been removed from the schema — it must NOT appear on the result
     expect(result).not.toHaveProperty('tipsForC1');
@@ -288,20 +281,6 @@ describe('generateTefReview · happy path', () => {
     });
 
     expect(result.wentWell).toEqual(['Good use of connectors', 'Clear pronunciation']);
-  });
-
-  it('preserves standardizationItems with original and standard rewrites', async () => {
-    const result = await generateTefReview({
-      exerciseType: 'questioning',
-      messages: SAMPLE_MESSAGES_QUESTIONING,
-      elapsedSeconds: 120,
-    });
-
-    expect(result!.standardizationItems).toHaveLength(1);
-    expect(result!.standardizationItems![0]).toMatchObject({
-      original: 'Ce produit est fiable et abordable',
-      standard: 'Ce produit est à la fois fiable et abordable',
-    });
   });
 
   it('calls ai.models.generateContent exactly once', async () => {
@@ -913,25 +892,14 @@ describe('generateTefReview · error handling (malformed response)', () => {
     ).rejects.toThrow();
   });
 
-  it('throws when response is missing standardizationItems', async () => {
-    const { standardizationItems: _omitted, ...withoutItems } = SAMPLE_REVIEW;
+  it('does not require standardizationItems, mistakes, or vocabularySuggestions', async () => {
+    const {
+      mistakes: _m,
+      vocabularySuggestions: _v,
+      ...withoutLanguageLists
+    } = SAMPLE_REVIEW;
     mockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify(withoutItems),
-    });
-
-    await expect(
-      generateTefReview({
-        exerciseType: 'questioning',
-        messages: SAMPLE_MESSAGES_QUESTIONING,
-        elapsedSeconds: 120,
-      })
-    ).rejects.toThrow(/standardizationItems/);
-  });
-
-  it('does not require mistakes or vocabularySuggestions', async () => {
-    const { mistakes: _m, vocabularySuggestions: _v, ...withoutCorrections } = SAMPLE_REVIEW;
-    mockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify(withoutCorrections),
+      text: JSON.stringify(withoutLanguageLists),
     });
 
     const result = await generateTefReview({
@@ -942,6 +910,7 @@ describe('generateTefReview · error handling (malformed response)', () => {
     expect(result).not.toBeNull();
     expect(result).not.toHaveProperty('mistakes');
     expect(result).not.toHaveProperty('vocabularySuggestions');
+    expect(result).not.toHaveProperty('standardizationItems');
   });
 
   it('throws when response is missing topicSuggestions', async () => {
@@ -1382,10 +1351,10 @@ describe('generateTefReview · user-only evaluation scope', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Both exercise types: standardizationItems replaces mistakes + vocabularySuggestions
+// Both exercise types: no per-utterance language-feedback lists
 // ---------------------------------------------------------------------------
 
-describe('generateTefReview · standardization language feedback', () => {
+describe('generateTefReview · no language-feedback lists', () => {
   function reviewSchema() {
     return mockGenerateContent.mock.calls[0][0].config.responseSchema as {
       properties: Record<string, unknown>;
@@ -1411,11 +1380,11 @@ describe('generateTefReview · standardization language feedback', () => {
         elapsedSeconds: 120,
       },
     },
-  ])('asks the model for standard/idiomatic rewrites instead of mistake and vocab lists ($label)', async ({ args }) => {
+  ])('does not ask the model for standard rewrites, mistakes, or vocabulary lists ($label)', async ({ args }) => {
     await generateTefReview(args);
 
     const promptText = JSON.stringify(mockGenerateContent.mock.calls[0][0]);
-    expect(promptText.toLowerCase()).toMatch(/standard.*idiomatic|idiomatic.*standard|more standard/);
+    expect(promptText).not.toMatch(/more standard french|standardizationItems|idiomatic/i);
     expect(promptText).not.toContain('Grammatical/lexical mistakes');
     expect(promptText).not.toContain('at least 5 more precise or higher-register alternatives');
   });
@@ -1438,31 +1407,19 @@ describe('generateTefReview · standardization language feedback', () => {
         elapsedSeconds: 120,
       },
     },
-  ])('includes standardizationItems in the $label response schema and omits mistakes and vocabularySuggestions', async ({ args }) => {
+  ])('omits standardizationItems, mistakes, and vocabularySuggestions from the $label response schema', async ({ args }) => {
     await generateTefReview(args);
 
     const schema = reviewSchema();
-    expect(schema.properties).toHaveProperty('standardizationItems');
+    expect(schema.properties).not.toHaveProperty('standardizationItems');
     expect(schema.properties).not.toHaveProperty('mistakes');
     expect(schema.properties).not.toHaveProperty('vocabularySuggestions');
-    expect(schema.required).toContain('standardizationItems');
+    expect(schema.required).not.toContain('standardizationItems');
     expect(schema.required).not.toContain('mistakes');
     expect(schema.required).not.toContain('vocabularySuggestions');
   });
 
-  it('preserves standardizationItems from the model response', async () => {
-    const result = await generateTefReview({
-      exerciseType: 'persuasion',
-      messages: SAMPLE_MESSAGES_PERSUASION,
-      elapsedSeconds: 90,
-      adSummary: 'A car ad.',
-    });
-
-    expect(result).not.toBeNull();
-    expect(result!.standardizationItems).toEqual(SAMPLE_REVIEW.standardizationItems);
-  });
-
-  it('succeeds for persuasion when mistakes and vocabularySuggestions are omitted', async () => {
+  it('succeeds for persuasion when language-feedback lists are omitted', async () => {
     const { mistakes: _m, vocabularySuggestions: _v, ...persuasionOnly } = SAMPLE_REVIEW;
     mockGenerateContent = vi.fn().mockResolvedValue({
       text: JSON.stringify(persuasionOnly),
@@ -1476,58 +1433,8 @@ describe('generateTefReview · standardization language feedback', () => {
     });
 
     expect(result).not.toBeNull();
-    expect(result!.standardizationItems).toHaveLength(1);
+    expect(result).not.toHaveProperty('standardizationItems');
     expect(result).not.toHaveProperty('mistakes');
     expect(result).not.toHaveProperty('vocabularySuggestions');
-  });
-
-  it('accepts an empty standardizationItems array', async () => {
-    mockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify({ ...SAMPLE_REVIEW, standardizationItems: [] }),
-    });
-
-    const result = await generateTefReview({
-      exerciseType: 'persuasion',
-      messages: SAMPLE_MESSAGES_PERSUASION,
-      elapsedSeconds: 90,
-      adSummary: 'A car ad.',
-    });
-
-    expect(result).not.toBeNull();
-    expect(result!.standardizationItems).toEqual([]);
-  });
-
-  it('throws when persuasion response is missing standardizationItems', async () => {
-    const { standardizationItems: _omitted, ...withoutItems } = SAMPLE_REVIEW;
-    mockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify(withoutItems),
-    });
-
-    await expect(
-      generateTefReview({
-        exerciseType: 'persuasion',
-        messages: SAMPLE_MESSAGES_PERSUASION,
-        elapsedSeconds: 90,
-        adSummary: 'A car ad.',
-      })
-    ).rejects.toThrow(/standardizationItems/);
-  });
-
-  it('throws when a standardization item is missing original or standard', async () => {
-    mockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify({
-        ...SAMPLE_REVIEW,
-        standardizationItems: [{ original: 'bonjour' }],
-      }),
-    });
-
-    await expect(
-      generateTefReview({
-        exerciseType: 'persuasion',
-        messages: SAMPLE_MESSAGES_PERSUASION,
-        elapsedSeconds: 90,
-        adSummary: 'A car ad.',
-      })
-    ).rejects.toThrow(/standard/);
   });
 });
