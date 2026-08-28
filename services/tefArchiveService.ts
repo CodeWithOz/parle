@@ -1635,11 +1635,103 @@ export async function deleteSavedScenario(scenarioId: string): Promise<Scenario[
   );
 }
 
-export async function listSavedAds(exerciseType: TefExerciseType): Promise<TefSavedAd[]> {
+export async function listAllSavedAds(): Promise<TefSavedAd[]> {
   const all = await runReadTransaction((store) => idbGetAll<TefSavedAd>(store));
-  return all
-    .filter((ad) => ad.exerciseType === exerciseType)
-    .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+  return all.sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+}
+
+export async function listSavedAds(exerciseType: TefExerciseType): Promise<TefSavedAd[]> {
+  return (await listAllSavedAds()).filter((ad) => ad.exerciseType === exerciseType);
+}
+
+export interface DurableBackupImportCommit {
+  mode: 'merge' | 'replace';
+  adsToPut: TefSavedAd[];
+  archivesToPut: TefTopicArchive[];
+  scenariosToPut: Scenario[];
+}
+
+export interface DurableBackupImportResult {
+  ads: TefSavedAd[];
+  archives: TefTopicArchive[];
+  scenarios: Scenario[];
+  bridgeFailures: Array<'topic-archives' | 'scenarios'>;
+}
+
+/**
+ * Writes saved ads, topic archives, and scenarios in one IndexedDB transaction,
+ * then reconciles each Stage 4 localStorage rollback bridge from the committed
+ * IndexedDB result. Bridge failures are reported without rolling back the import.
+ */
+export async function commitDurableBackupImport(
+  commit: DurableBackupImportCommit
+): Promise<DurableBackupImportResult> {
+  await waitForTopicArchiveMirror();
+  await waitForScenarioMirror();
+
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(
+        [SAVED_ADS_STORE, TOPIC_ARCHIVES_STORE, SCENARIOS_STORE],
+        'readwrite'
+      );
+      const adsStore = tx.objectStore(SAVED_ADS_STORE);
+      const archivesStore = tx.objectStore(TOPIC_ARCHIVES_STORE);
+      const scenariosStore = tx.objectStore(SCENARIOS_STORE);
+      if (commit.mode === 'replace') {
+        adsStore.clear();
+        archivesStore.clear();
+        scenariosStore.clear();
+      }
+      for (const ad of commit.adsToPut) adsStore.put(ad);
+      for (const archive of commit.archivesToPut) archivesStore.put(archive);
+      for (const scenario of commit.scenariosToPut) scenariosStore.put(scenario);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error ?? new Error('Backup import transaction failed'));
+      tx.onabort = () => reject(tx.error ?? new Error('Backup import transaction was aborted'));
+    });
+  } finally {
+    db.close();
+  }
+
+  const [ads, archives, scenarios] = await Promise.all([
+    readAllFromStore<TefSavedAd>(SAVED_ADS_STORE),
+    readAllFromStore<TefTopicArchive>(TOPIC_ARCHIVES_STORE),
+    readAllFromStore<Scenario>(SCENARIOS_STORE),
+  ]);
+
+  const bridgeFailures: DurableBackupImportResult['bridgeFailures'] = [];
+  reconcileImportedBridge(topicArchiveMirrorConfig, archives, bridgeFailures, 'topic-archives');
+  reconcileImportedBridge(scenarioMirrorConfig, scenarios, bridgeFailures, 'scenarios');
+
+  return { ads, archives, scenarios, bridgeFailures };
+}
+
+function reconcileImportedBridge<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  records: T[],
+  bridgeFailures: DurableBackupImportResult['bridgeFailures'],
+  dataset: DurableBackupImportResult['bridgeFailures'][number]
+): void {
+  const durableConfig = config as MirrorConfig<DurableRecord>;
+  try {
+    const bridgeComplete = persistRollbackBridge(config, records);
+    if (
+      bridgeComplete
+      && readPendingMutations(durableConfig).length === 0
+      && !hasQuarantinedMutations(durableConfig)
+    ) {
+      clearRollbackBridgeDirty(durableConfig);
+    } else {
+      markRollbackBridgeDirty(durableConfig);
+      if (!bridgeComplete) bridgeFailures.push(dataset);
+    }
+  } catch (error) {
+    console.error(`Failed to reconcile ${config.label} rollback bridge after import:`, error);
+    markRollbackBridgeDirty(durableConfig);
+    bridgeFailures.push(dataset);
+  }
 }
 
 export async function getSavedAd(id: string): Promise<TefSavedAd | null> {

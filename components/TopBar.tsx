@@ -50,7 +50,7 @@ export const TopBar: React.FC<TopBarProps> = ({ activeMode, onSelectMode, onOpen
           onClick={onOpenSettings}
           className="p-2 text-parle-navy-700 hover:text-parle-navy-900 transition-colors bg-white rounded-full border border-parle-navy-100 hover:border-parle-navy-200"
           title="Settings"
-          aria-label="Open API settings"
+          aria-label="Open settings"
         >
           <GearIcon className="h-5 w-5" />
         </button>

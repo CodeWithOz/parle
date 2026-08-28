@@ -3,13 +3,15 @@ import { getApiKey, setApiKey } from '../services/apiKeyService';
 import { GearIcon } from './icons/GearIcon';
 import { EyeIcon } from './icons/EyeIcon';
 import { EyeOffIcon } from './icons/EyeOffIcon';
+import { BackupPanel } from './BackupPanel';
 
 interface ApiKeySetupProps {
   onClose: () => void;
   onSave?: () => void;
+  onImported?: () => void;
 }
 
-export const ApiKeySetup: React.FC<ApiKeySetupProps> = ({ onClose, onSave }) => {
+export const ApiKeySetup: React.FC<ApiKeySetupProps> = ({ onClose, onSave, onImported }) => {
   const [geminiKey, setGeminiKey] = useState('');
   const [openaiKey, setOpenaiKey] = useState('');
   const [showGeminiKey, setShowGeminiKey] = useState(false);
@@ -65,13 +67,13 @@ export const ApiKeySetup: React.FC<ApiKeySetupProps> = ({ onClose, onSave }) => 
       onClick={onClose}
     >
       <div
-        className="bg-white border border-parle-navy-100 rounded-2xl w-full max-w-md shadow-2xl p-6"
+        className="bg-white border border-parle-navy-100 rounded-2xl w-full max-w-md shadow-2xl p-6 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <h2 className="text-xl font-bold text-parle-navy-900 mb-6 flex items-center gap-2">
           <GearIcon className="h-6 w-6 text-parle-blue-500" />
-          API Settings
+          Settings
         </h2>
         <div className="space-y-6">
           {/* Gemini Section */}
@@ -182,6 +184,10 @@ export const ApiKeySetup: React.FC<ApiKeySetupProps> = ({ onClose, onSave }) => 
           >
             Save Keys
           </button>
+        </div>
+
+        <div className="mt-8 pt-6 border-t border-parle-navy-100">
+          <BackupPanel onImported={onImported} />
         </div>
       </div>
     </div>

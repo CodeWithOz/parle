@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { TefExerciseType, TefSavedAd } from '../types';
 import { listSavedAds } from '../services/tefArchiveService';
 import { formatLastUsedDate } from '../utils/tefArchiveDisplay';
+import { DURABLE_DATA_CHANGED_EVENT } from '../services/backupService';
 
 interface TefRecentAdsCarouselProps {
   exerciseType: TefExerciseType;
@@ -22,15 +23,20 @@ export const TefRecentAdsCarousel: React.FC<TefRecentAdsCarouselProps> = ({
 
   useEffect(() => {
     let cancelled = false;
-    void listSavedAds(exerciseType)
-      .then((loaded) => {
-        if (!cancelled) setAds(loaded);
-      })
-      .catch(() => {
-        if (!cancelled) setAds([]);
-      });
+    const load = () => {
+      void listSavedAds(exerciseType)
+        .then((loaded) => {
+          if (!cancelled) setAds(loaded);
+        })
+        .catch(() => {
+          if (!cancelled) setAds([]);
+        });
+    };
+    load();
+    window.addEventListener(DURABLE_DATA_CHANGED_EVENT, load);
     return () => {
       cancelled = true;
+      window.removeEventListener(DURABLE_DATA_CHANGED_EVENT, load);
     };
   }, [exerciseType, refreshToken]);
 

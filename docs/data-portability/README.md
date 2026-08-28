@@ -6,25 +6,25 @@ separate branches, deployments, and AI-agent chats.
 
 ## Current status
 
-- Program status: **Stage 4 complete; merged via [PR #51](https://github.com/CodeWithOz/parle/pull/51), deployed, and operator-verified through a closed observation window (2026-08-23 to 2026-08-26)**
-- Current implementation behavior: **verified IndexedDB primary reads with guarded per-dataset localStorage fallback and rollback bridge writes (unchanged from Stage 3 — Stage 4 added test coverage, documentation, and observation evidence only, no behavior change)**
-- Deployed behavior: **IndexedDB is primary for both durable datasets with guarded localStorage fallback and rollback bridge writes; both bridges are confirmed retained through Stage 4 and continue into Stage 5**
+- Program status: **Stage 5 implemented on this branch; pending merge, deployment, and cross-browser transfer verification**
+- Current implementation behavior: **verified IndexedDB primary reads with guarded per-dataset localStorage fallback and rollback bridge writes, plus browser-only `.parle` export/import**
+- Deployed behavior: **IndexedDB is primary for both durable datasets with guarded localStorage fallback and rollback bridge writes (Stage 4). Export/import is implemented in this branch and is not yet the deployed production behavior.**
 - Last completed stage: **[Stage 4 — rollback window](stages/04-rollback-window.md) (complete; deployed and operator-verified)**
-- Next action: **begin [Stage 5 — export/import](stages/05-export-import.md) in a fresh branch**
+- Next action: **merge, deploy, and record cross-browser transfer evidence for [Stage 5 — export/import](stages/05-export-import.md)**
 - Current authoritative topic-archive source in this branch: verified `IndexedDB`, with guarded `localStorage` fallback
 - Current authoritative saved-scenario source in this branch: verified `IndexedDB`, with guarded `localStorage` fallback
 - IndexedDB topic-archive store exists in this implementation: **yes (schema version 3)**
 - IndexedDB saved-scenario store exists in this implementation: **yes (schema version 3)**
 - Dual writes are active in this implementation: **yes for both datasets; IndexedDB first when verified, rollback bridge/fallback repair retained**
-- Export/import is available: **no**
+- Export/import is available: **yes in this branch (`.parle` v1 via Settings → Backup)**
 
 Compatibility requirement: Stage 1 topic-only builds have already created database version 2
 in at least one browser. The corrected schema target is therefore version 3; code must support
 both version 1 → 3 and version 2 → 3 upgrades without recreating or clearing existing stores.
 
-The deployed application implements Stage 4. It makes verified IndexedDB stores the primary read and
-mutation sources for both datasets while retaining independent guarded localStorage fallbacks,
-bridge writes, and repair latches. It does not remove or clear either localStorage dataset.
+The deployed application implements Stage 4. This branch implements Stage 5 export/import on
+top of that storage layout. It does not remove or clear either localStorage dataset. Both
+Stage 4 localStorage bridges remain active and are reconciled after a successful import.
 
 ## Accepted scope
 
@@ -96,7 +96,7 @@ See [backup-format.md](backup-format.md), [migration-plan.md](migration-plan.md)
 | 2 | Shadow-read, compare, and reconcile both datasets | Complete; merged, deployed, and verified |
 | 3 | Make IndexedDB primary for both with localStorage fallback | Complete; merged, deployed, and operator-verified |
 | 4 | Maintain rollback windows and prove both datasets stable | Complete; merged, deployed, and operator-verified |
-| 5 | Implement versioned export/import | Next authorized stage |
+| 5 | Implement versioned export/import | Implemented on this branch; pending merge, deployment, and cross-browser transfer verification |
 
 Detailed handoffs are in [`stages/`](stages/).
 
@@ -176,3 +176,8 @@ do not infer that the later stage is safe.
   dataset. Stage 4 is complete. Per its exit decision, both the topic-archive and saved-scenario
   localStorage bridges continue unchanged into Stage 5, which is now the next authorized
   implementation stage.
+- 2026-08-28: Stage 5 export/import was implemented on `cursor/3d90f5f9`. `fflate@0.8.3` (MIT)
+  was revalidated and installed. Backups are `.parle` ZIP packages with `parle-backup` format
+  version 1, SHA-256 image integrity, preview-before-write merge import, optional confirmed
+  replace, and post-commit reconciliation of both localStorage rollback bridges. Automated
+  coverage is 687/687. Merge, deployment, and two-profile transfer evidence remain outstanding.

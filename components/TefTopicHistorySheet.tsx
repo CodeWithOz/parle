@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import type { TefExerciseType, TefSavedAd, TefTopicArchive } from '../types';
 import { deleteTopicArchive, getSavedAd, listTopicArchives } from '../services/tefArchiveService';
+import { DURABLE_DATA_CHANGED_EVENT } from '../services/backupService';
 import { ImageLightbox } from './ImageLightbox';
 import { TefTopicSuggestionsList } from './TefTopicSuggestionsList';
 import {
@@ -63,8 +64,13 @@ export const TefTopicHistorySheet: React.FC<TefTopicHistorySheetProps> = ({
       setLightboxOpen(false);
       setDeleteError(null);
     }
+    const onChanged = () => {
+      if (open) void refresh(initialArchiveId);
+    };
+    window.addEventListener(DURABLE_DATA_CHANGED_EVENT, onChanged);
     return () => {
       archiveFetchTokenRef.current += 1;
+      window.removeEventListener(DURABLE_DATA_CHANGED_EVENT, onChanged);
     };
   }, [open, refresh, initialArchiveId]);
 

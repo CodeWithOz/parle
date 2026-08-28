@@ -2951,6 +2951,7 @@ const App: React.FC = () => {
         <ApiKeySetup
           onClose={handleApiKeyModalClose}
           onSave={handleApiKeySave}
+          onImported={() => setRecentAdsRefreshToken((token) => token + 1)}
         />
       )}
 
