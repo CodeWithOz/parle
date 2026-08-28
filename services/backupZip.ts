@@ -108,6 +108,12 @@ export function inspectZipCentralDirectory(bytes: Uint8Array): ZipEntryMeta[] {
       cursor = nameEnd + extraLength + commentLength;
       continue;
     }
+    if (compressionMethod !== 0 && compressionMethod !== 8) {
+      throw new BackupValidationError(
+        `Unsupported ZIP compression method ${compressionMethod} for ${name}`,
+        'invalid-zip'
+      );
+    }
     if ((flags & 0x0001) !== 0) {
       throw new BackupValidationError(`Encrypted ZIP entry is not allowed: ${name}`, 'encrypted-entry');
     }

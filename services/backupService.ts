@@ -122,6 +122,28 @@ function planCollection<T extends { id: string }>(
   return { toPut, skips, conflicts };
 }
 
+function conflictIdentity(conflict: BackupConflict): string {
+  return `${conflict.collection}:${conflict.incomingId}`;
+}
+
+function mergePreviewsMatch(expected: BackupImportPreview, actual: BackupImportPreview): boolean {
+  if (expected.mode !== actual.mode) return false;
+  if (expected.additions.ads !== actual.additions.ads
+    || expected.additions.archives !== actual.additions.archives
+    || expected.additions.scenarios !== actual.additions.scenarios) {
+    return false;
+  }
+  if (expected.skips.ads !== actual.skips.ads
+    || expected.skips.archives !== actual.skips.archives
+    || expected.skips.scenarios !== actual.skips.scenarios) {
+    return false;
+  }
+  if (expected.conflicts.length !== actual.conflicts.length) return false;
+  const expectedKeys = expected.conflicts.map(conflictIdentity).sort();
+  const actualKeys = actual.conflicts.map(conflictIdentity).sort();
+  return expectedKeys.every((key, index) => key === actualKeys[index]);
+}
+
 function buildMergePlan(
   incomingAds: TefSavedAd[],
   incomingArchives: TefTopicArchive[],
@@ -297,9 +319,28 @@ export async function exportParleBackup(): Promise<BackupExportResult> {
     store: false,
   };
 
+  const uncompressedBytes = Object.values(zipFiles).reduce(
+    (total, file) => total + file.bytes.byteLength,
+    0
+  );
+  if (uncompressedBytes > BACKUP_LIMITS.maxUncompressedBytes) {
+    throw new BackupValidationError(
+      `Uncompressed package size exceeds ${BACKUP_LIMITS.maxUncompressedBytes} bytes`,
+      'uncompressed-too-large'
+    );
+  }
+
+  const bytes = await createParleZip(zipFiles);
+  if (bytes.byteLength > BACKUP_LIMITS.maxCompressedBytes) {
+    throw new BackupValidationError(
+      `Compressed package exceeds ${BACKUP_LIMITS.maxCompressedBytes} bytes`,
+      'package-too-large'
+    );
+  }
+
   return {
     filename: backupFilename(),
-    bytes: await createParleZip(zipFiles),
+    bytes,
     diagnostics: {
       orphanedArchiveIds,
       savedAdCount: exportedAds.length,
@@ -362,13 +403,35 @@ export async function applyParleBackupImport(
       'replace-not-confirmed'
     );
   }
-  const planned = options.mode === 'replace' ? inspected.plannedReplace : inspected.plannedMerge;
+  const incoming = inspected.plannedReplace;
   const preview = options.mode === 'replace' ? inspected.replacePreview : inspected.preview;
+  const planned = options.mode === 'replace' ? inspected.plannedReplace : inspected.plannedMerge;
   const result = await commitDurableBackupImport({
     mode: options.mode,
     adsToPut: planned.adsToPut,
     archivesToPut: planned.archivesToPut,
     scenariosToPut: planned.scenariosToPut,
+    ...(options.mode === 'merge'
+      ? {
+        refreshMerge: (current) => {
+          const rebuilt = buildMergePlan(
+            incoming.adsToPut,
+            incoming.archivesToPut,
+            incoming.scenariosToPut,
+            current.ads,
+            current.archives,
+            current.scenarios
+          );
+          if (!mergePreviewsMatch(preview, rebuilt.preview)) {
+            throw new BackupValidationError(
+              'Local data changed since this backup was previewed. Inspect the file again before importing.',
+              'preview-stale'
+            );
+          }
+          return rebuilt.planned;
+        },
+      }
+      : {}),
   });
   notifyDurableDataChanged();
   return { ...result, preview };

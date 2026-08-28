@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { BackupPanel } from '../components/BackupPanel';
 import type { BackupInspectResult } from '../services/backupService';
@@ -42,7 +42,15 @@ const inspected: BackupInspectResult = {
 };
 
 describe('BackupPanel', () => {
+  const scrollIntoView = vi.fn();
+
   beforeEach(() => {
+    scrollIntoView.mockReset();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      writable: true,
+      value: scrollIntoView,
+    });
     inspectParleBackup.mockReset().mockResolvedValue(inspected);
     applyParleBackupImport.mockReset().mockResolvedValue({
       ads: [],
@@ -58,6 +66,10 @@ describe('BackupPanel', () => {
     });
     downloadParleBackup.mockReset();
     readBackupFile.mockReset().mockResolvedValue(new Uint8Array([9]));
+  });
+
+  afterEach(() => {
+    delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
   });
 
   it('shows a preview before writing and does not import on cancel', async () => {
@@ -92,5 +104,18 @@ describe('BackupPanel', () => {
       expect(applyParleBackupImport).toHaveBeenCalledWith(inspected, { mode: 'merge', confirmReplace: undefined });
     });
     await waitFor(() => expect(onImported).toHaveBeenCalledOnce());
+  });
+
+  it('scrolls the import preview into view after a file is inspected', async () => {
+    const { container } = render(<BackupPanel />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(input, {
+      target: { files: [new File([new Uint8Array([1])], 'demo.parle')] },
+    });
+
+    expect(await screen.findByText(/Preview of demo.parle/)).toBeInTheDocument();
+    await waitFor(() => {
+      expect(scrollIntoView).toHaveBeenCalled();
+    });
   });
 });

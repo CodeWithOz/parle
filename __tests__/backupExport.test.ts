@@ -152,4 +152,27 @@ describe('Stage 5 backup export', () => {
     expect(inspected.preview.additions).toEqual({ ads: 0, archives: 0, scenarios: 0 });
     expect(inspected.preview.skips).toEqual({ ads: 2, archives: 2, scenarios: 2 });
   });
+
+  it('enforces uncompressed and compressed export size limits', async () => {
+    await seedDurableData();
+    const { BACKUP_LIMITS } = await import('../services/backupLimits');
+    const backup = await import('../services/backupService');
+    const originalUncompressed = BACKUP_LIMITS.maxUncompressedBytes;
+    const originalCompressed = BACKUP_LIMITS.maxCompressedBytes;
+    const mutableLimits = BACKUP_LIMITS as {
+      maxUncompressedBytes: number;
+      maxCompressedBytes: number;
+    };
+    try {
+      mutableLimits.maxUncompressedBytes = 1;
+      await expect(backup.exportParleBackup()).rejects.toMatchObject({ code: 'uncompressed-too-large' });
+
+      mutableLimits.maxUncompressedBytes = originalUncompressed;
+      mutableLimits.maxCompressedBytes = 1;
+      await expect(backup.exportParleBackup()).rejects.toMatchObject({ code: 'package-too-large' });
+    } finally {
+      mutableLimits.maxUncompressedBytes = originalUncompressed;
+      mutableLimits.maxCompressedBytes = originalCompressed;
+    }
+  });
 });

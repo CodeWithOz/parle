@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   applyParleBackupImport,
   downloadParleBackup,
@@ -40,8 +40,15 @@ interface BackupPanelProps {
   onImported?: () => void;
 }
 
+function scrollNodeIntoView(node: HTMLElement | null): void {
+  node?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+}
+
 export const BackupPanel: React.FC<BackupPanelProps> = ({ onImported }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const statusRef = useRef<HTMLDivElement>(null);
+  const operationTokenRef = useRef(0);
   const [busy, setBusy] = useState<'export' | 'inspect' | 'import' | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,25 +64,33 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({ onImported }) => {
     if (fileInputRef.current) fileInputRef.current.value = '';
   }, []);
 
+  useEffect(() => {
+    scrollNodeIntoView(inspected ? previewRef.current : statusRef.current);
+  }, [inspected, message, error]);
+
   const handleExport = async () => {
+    const token = ++operationTokenRef.current;
     setBusy('export');
     setError(null);
     setMessage(null);
     try {
       const result = await exportParleBackup();
+      if (token !== operationTokenRef.current) return;
       downloadParleBackup(result.filename, result.bytes);
       const orphanNote = result.diagnostics.orphanedArchiveIds.length > 0
         ? ` ${result.diagnostics.orphanedArchiveIds.length} orphaned topic archive(s) were reported and not exported.`
         : '';
       setMessage(`Exported ${result.filename}.${orphanNote}`);
     } catch (caught) {
+      if (token !== operationTokenRef.current) return;
       setError(errorMessage(caught));
     } finally {
-      setBusy(null);
+      if (token === operationTokenRef.current) setBusy(null);
     }
   };
 
   const inspectFile = async (file: File) => {
+    const token = ++operationTokenRef.current;
     setBusy('inspect');
     setError(null);
     setMessage(null);
@@ -83,19 +98,22 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({ onImported }) => {
     try {
       const bytes = await readBackupFile(file);
       const next = await inspectParleBackup(bytes);
+      if (token !== operationTokenRef.current) return;
       setInspected(next);
       setFileName(file.name);
     } catch (caught) {
+      if (token !== operationTokenRef.current) return;
       setInspected(null);
       setFileName(null);
       setError(errorMessage(caught));
     } finally {
-      setBusy(null);
+      if (token === operationTokenRef.current) setBusy(null);
     }
   };
 
   const handleApply = async (mode: 'merge' | 'replace') => {
     if (!inspected) return;
+    const token = ++operationTokenRef.current;
     setBusy('import');
     setError(null);
     setMessage(null);
@@ -104,6 +122,7 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({ onImported }) => {
         mode,
         confirmReplace: mode === 'replace' ? replaceConfirmed : undefined,
       });
+      if (token !== operationTokenRef.current) return;
       const added = result.preview.additions;
       setMessage(
         mode === 'replace'
@@ -118,9 +137,10 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({ onImported }) => {
       resetPreview();
       onImported?.();
     } catch (caught) {
+      if (token !== operationTokenRef.current) return;
       setError(errorMessage(caught));
     } finally {
-      setBusy(null);
+      if (token === operationTokenRef.current) setBusy(null);
     }
   };
 
@@ -155,6 +175,7 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({ onImported }) => {
         onDrop={(event) => {
           event.preventDefault();
           setIsDragging(false);
+          if (busy !== null) return;
           const file = event.dataTransfer.files[0];
           if (file) void inspectFile(file);
         }}
@@ -182,7 +203,10 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({ onImported }) => {
       </div>
 
       {inspected && (
-        <div className="space-y-3 rounded-lg border border-parle-navy-100 bg-white p-3">
+        <div
+          ref={previewRef}
+          className="space-y-3 rounded-lg border border-parle-navy-100 bg-white p-3"
+        >
           <p className="text-xs font-medium text-parle-navy-800">
             Preview{fileName ? ` of ${fileName}` : ''}
           </p>
@@ -238,15 +262,19 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({ onImported }) => {
         </div>
       )}
 
-      {message && (
-        <p className="text-xs text-parle-navy-700 bg-parle-blue-50 border border-parle-navy-100 rounded-lg p-3">
-          {message}
-        </p>
-      )}
-      {error && (
-        <p className="text-xs text-parle-red-700 bg-parle-red-50 border border-parle-red-300 rounded-lg p-3">
-          {error}
-        </p>
+      {(message || error) && (
+        <div ref={statusRef} className="space-y-2">
+          {message && (
+            <p className="text-xs text-parle-navy-700 bg-parle-blue-50 border border-parle-navy-100 rounded-lg p-3">
+              {message}
+            </p>
+          )}
+          {error && (
+            <p className="text-xs text-parle-red-700 bg-parle-red-50 border border-parle-red-300 rounded-lg p-3">
+              {error}
+            </p>
+          )}
+        </div>
       )}
     </section>
   );

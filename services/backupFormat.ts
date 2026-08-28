@@ -94,14 +94,21 @@ export type ParleBackupSavedAd = ParleBackupV1['savedAds'][number];
 const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
 
+function jsonStringifyOmits(value: unknown): boolean {
+  return value === undefined || typeof value === 'function' || typeof value === 'symbol';
+}
+
 export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) {
-    return `[${value.map(canonicalJson).join(',')}]`;
+    return `[${value.map((item) => (
+      jsonStringifyOmits(item) ? 'null' : canonicalJson(item)
+    )).join(',')}]`;
   }
   if (value !== null && typeof value === 'object') {
     const record = value as Record<string, unknown>;
     return `{${Object.keys(record)
       .sort()
+      .filter((key) => !jsonStringifyOmits(record[key]))
       .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
       .join(',')}}`;
   }

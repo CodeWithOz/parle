@@ -286,4 +286,139 @@ describe('Stage 5 backup import', () => {
     await expect(backup.inspectParleBackup(zipSync(files)))
       .rejects.toMatchObject({ code: 'too-many-entries' });
   });
+
+  it('omits undefined object properties and emits null for undefined array elements', async () => {
+    const { canonicalJson, recordsEquivalent } = await import('../services/backupFormat');
+    expect(canonicalJson({ id: 'scenario_1', characters: undefined })).toBe(canonicalJson({ id: 'scenario_1' }));
+    expect(canonicalJson({ id: 'scenario_1', characters: undefined })).toBe('{"id":"scenario_1"}');
+    expect(canonicalJson(['keep', undefined, 'also'])).toBe('["keep",null,"also"]');
+    expect(recordsEquivalent(
+      {
+        id: 'scenario_1',
+        name: 'Bakery',
+        description: 'Order bread',
+        createdAt: 12,
+        isActive: true,
+        characters: undefined,
+        steps: undefined,
+      },
+      {
+        id: 'scenario_1',
+        name: 'Bakery',
+        description: 'Order bread',
+        createdAt: 12,
+        isActive: true,
+      }
+    )).toBe(true);
+  });
+
+  it('skips equivalent scenarios on repeated merge when optional fields are undefined versus omitted', async () => {
+    const archive = await import('../services/tefArchiveService');
+    await archive.verifyDurableDataMirrors();
+    await archive.saveSavedScenario({
+      id: 'scenario_1',
+      name: 'Bakery',
+      description: 'Order bread',
+      createdAt: 12,
+      isActive: true,
+      characters: undefined,
+      steps: undefined,
+      aiSummary: undefined,
+      isTefQuestioning: undefined,
+    } as Scenario);
+    await archive.waitForScenarioMirror();
+
+    const backup = await import('../services/backupService');
+    const bytes = await packageFromManifest(
+      await validManifest({
+        savedAds: [],
+        topicArchives: [],
+        scenarios: [{
+          id: 'scenario_1',
+          name: 'Bakery',
+          description: 'Order bread',
+          createdAt: 12,
+          isActive: true,
+        }],
+      }),
+      {}
+    );
+    const inspected = await backup.inspectParleBackup(bytes);
+    expect(inspected.preview.additions.scenarios).toBe(0);
+    expect(inspected.preview.skips.scenarios).toBe(1);
+    expect(inspected.preview.conflicts).toEqual([]);
+
+    await backup.applyParleBackupImport(inspected, { mode: 'merge' });
+    const scenarios = await archive.listSavedScenarios();
+    expect(scenarios).toHaveLength(1);
+    expect(scenarios[0].id).toBe('scenario_1');
+  });
+
+  it('rejects merge apply when local data changed since the preview', async () => {
+    const archive = await import('../services/tefArchiveService');
+    await archive.verifyDurableDataMirrors();
+    const backup = await import('../services/backupService');
+    const inspected = await backup.inspectParleBackup(await packageFromManifest(await validManifest()));
+    expect(inspected.preview.additions).toEqual({ ads: 1, archives: 1, scenarios: 1 });
+
+    await seedLocalDifferentAd();
+
+    await expect(backup.applyParleBackupImport(inspected, { mode: 'merge' }))
+      .rejects.toMatchObject({ code: 'preview-stale' });
+    expect(await archive.listAllSavedAds()).toHaveLength(1);
+    expect(await archive.getSavedAd('tef_ad_1')).toMatchObject({
+      confirmation: { summary: 'Different local ad' },
+    });
+    expect(await archive.listSavedScenarios()).toEqual([
+      expect.objectContaining({ id: 'scenario_1', name: 'Local bakery' }),
+    ]);
+    expect(await archive.listTopicArchives()).toHaveLength(0);
+  });
+
+  it('aborts import when a dataset still has pending recovery mutations', async () => {
+    const archive = await import('../services/tefArchiveService');
+    await archive.verifyDurableDataMirrors();
+    const backup = await import('../services/backupService');
+    const inspected = await backup.inspectParleBackup(await packageFromManifest(await validManifest()));
+
+    localStorage.setItem(
+      `parle-scenarios-pending-mutations:${encodeURIComponent('scenario_pending')}`,
+      JSON.stringify({
+        id: 'scenario_pending',
+        kind: 'upsert',
+        record: {
+          id: 'scenario_pending',
+          name: 'Pending',
+          description: 'Unresolved',
+          createdAt: 1,
+          isActive: true,
+        },
+      })
+    );
+
+    await expect(backup.applyParleBackupImport(inspected, { mode: 'merge' }))
+      .rejects.toMatchObject({ code: 'unresolved-recovery' });
+    expect(await archive.listAllSavedAds()).toHaveLength(0);
+    expect(await archive.listTopicArchives()).toHaveLength(0);
+    expect(await archive.getScenarioMirrorSnapshot()).toHaveLength(0);
+    expect(
+      localStorage.getItem(`parle-scenarios-pending-mutations:${encodeURIComponent('scenario_pending')}`)
+    ).toBeTruthy();
+  });
+
+  it('rejects ZIP entries that use unsupported compression methods', async () => {
+    const backup = await import('../services/backupService');
+    const bytes = await packageFromManifest(await validManifest());
+    const patched = Uint8Array.from(bytes);
+    const view = new DataView(patched.buffer, patched.byteOffset, patched.byteLength);
+    let patchedEntry = false;
+    for (let offset = 0; offset + 46 <= patched.byteLength; offset += 1) {
+      if (view.getUint32(offset, true) !== 0x02014b50) continue;
+      view.setUint16(offset + 10, 9, true);
+      patchedEntry = true;
+      break;
+    }
+    expect(patchedEntry).toBe(true);
+    await expect(backup.inspectParleBackup(patched)).rejects.toMatchObject({ code: 'invalid-zip' });
+  });
 });
