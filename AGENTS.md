@@ -759,7 +759,8 @@ Those documents are the source of truth for the active deployment stage, data-sa
 invariants, backup scope, and rollback requirements. Implement only one deployment
 stage per branch/deployment. Do not advance either read source, stop bridge writes, clear
 `parle-tef-topic-archives` or `parle-scenarios`, or implement a later stage unless the current
-stage document explicitly authorizes it.
+stage document explicitly authorizes it. Stage 5 is the last numbered stage and is deployed;
+there is no Stage 6.
 
 The topic-only Stage 1 implementation has already created IndexedDB version 2 in a browser.
 The corrected all-durable-data schema must use version 3 and preserve the v2 stores/records;
@@ -874,4 +875,5 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - 2026-08-20: Replaced TEF review Mistakes and Vocabulary Suggestions with the role-play `standardizationItems` / "More Standard French" rewrite section for both persuasion and questioning
 - 2026-08-26: Removed the "More Standard French" section from TEF exercise reviews (role-play still has it); TEF reviews no longer generate `standardizationItems`
 - 2026-08-28: Documented Stage 5 browser `.parle` export/import (`fflate@0.8.3`, format v1, Settings → Backup)
+- 2026-08-29: Recorded Stage 5 merge/deployment (PR #54); numbered data-portability program ends at Stage 5 (no Stage 6)
 - See git history for detailed implementation timeline

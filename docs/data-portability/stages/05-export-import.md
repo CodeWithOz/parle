@@ -1,6 +1,6 @@
 # Stage 5 — Browser Export and Import
 
-Status: **implemented on `cursor/3d90f5f9`; pending merge, deployment, and cross-browser transfer verification**
+Status: **complete — merged via [PR #54](https://github.com/CodeWithOz/parle/pull/54), deployed, and operator-confirmed 2026-08-29**
 
 ## Objective
 
@@ -97,10 +97,7 @@ with system Chrome: export produced `parle-backup-YYYY-MM-DD.parle`, choosing th
 a preview before write, Cancel dismissed the preview without importing, Replace stayed disabled
 until the confirmation checkbox, and Import (merge) applied the previewed empty package.
 
-**Still outstanding before Stage 5 can be marked complete:**
-
-- Merge and deployment through the normal project process
-- Operator cross-browser / two-profile `.parle` transfer: imported ads restart both TEF
-  exercise types, topic history stays linked, and imported role-play scenarios open with
-  saved characters and roadmap steps
-- Post-deployment verification recorded here
+**Deployment confirmed (2026-08-29):** Merged into `main` via
+[PR #54](https://github.com/CodeWithOz/parle/pull/54), pulled into the primary workspace, and
+deployed, confirmed by the operator. Stage 5 is complete. The numbered data-portability
+program ends at Stage 5; there is no Stage 6. Both Stage 4 localStorage bridges remain active.

@@ -15,8 +15,9 @@ exercise data.
 | 4 | IndexedDB; fallbacks retained as specified | Both datasets dual-written | Rollback copy |
 | 5 | IndexedDB | Through repository; bridge policy still honored | Determined after Stage 4 evidence |
 
-Stopping localStorage bridge writes is a separate future decision. It is not implicitly
-authorized by implementing export/import.
+Stopping localStorage bridge writes is a separate future decision. It is not Stage 6, and it
+is not implicitly authorized by implementing or deploying export/import. The numbered program
+ends at Stage 5.
 
 Migration state is per dataset throughout this matrix. An archive migration marked verified or
 IDB-primary must not be used as evidence that the scenario migration has reached the same state,

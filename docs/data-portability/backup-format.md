@@ -1,6 +1,6 @@
 # Parle Backup Format Contract
 
-Status: implemented in Stage 5 (`parle-backup` version 1); package contract below.
+Status: deployed in Stage 5 (`parle-backup` version 1); package contract below.
 
 ## Container
 
