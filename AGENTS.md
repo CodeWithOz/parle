@@ -873,4 +873,5 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - 2026-07-23: Corrected the data-portability target so saved role-play scenarios migrate to IndexedDB through the same staged process as topic archives; all durable exercise data must be in IndexedDB before export/import
 - 2026-08-20: Replaced TEF review Mistakes and Vocabulary Suggestions with the role-play `standardizationItems` / "More Standard French" rewrite section for both persuasion and questioning
 - 2026-08-26: Removed the "More Standard French" section from TEF exercise reviews (role-play still has it); TEF reviews no longer generate `standardizationItems`
+- 2026-08-28: Documented Stage 5 browser `.parle` export/import (`fflate@0.8.3`, format v1, Settings → Backup)
 - See git history for detailed implementation timeline

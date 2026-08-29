@@ -17,7 +17,9 @@ Parle is a web app for practicing French conversation using your microphone and 
 | **TEF Ad Persuasion** | Practice the TEF “persuasion” task: upload an ad image, argue your position for 10 minutes while the AI coaches you through early, mid, and late-session phases. Post-session review scores you against the 5 official TEF criteria. |
 | **TEF Ad Questioning** | Practice the TEF “questioning” task: upload an ad, ask questions in French; the app tracks questions and repeated questions for review. |
 
-Scenarios are stored in the browser. Conversation history, hints, and (where applicable) timers and summaries are shown in the UI.
+Scenarios, saved TEF ads, and topic history are stored in the browser. Settings includes a
+**Backup** export/import for that durable data (`.parle` file). Conversation history, hints,
+and (where applicable) timers and summaries are shown in the UI.
 
 ---
 
@@ -78,7 +80,7 @@ Scenarios are stored in the browser. Conversation history, hints, and (where app
 |------|----------|
 | `App.tsx` | Main UI and mode orchestration (free chat, scenario, TEF Ad persuasion/questioning) |
 | `components/` | UI (Orb, Controls, conversation history, setup flows, timers, summaries); app shell (`NavRail`, `TopBar`) and `ScenarioRoadmap` (scenario step progress outline) |
-| `services/` | Gemini (session, voice message, TTS), OpenAI (scenario planning), scenario/voice/API-key helpers |
+| `services/` | Gemini (session, voice message, TTS), OpenAI (scenario planning), scenario/voice/API-key helpers, IndexedDB archives, `.parle` backup export/import |
 | `hooks/` | Audio, conversation timer, document head |
 | `utils/` | Abort signal combiner, abort error helper, time helpers |
 | `__tests__/` | Unit tests |

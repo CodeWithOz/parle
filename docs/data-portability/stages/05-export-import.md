@@ -1,6 +1,6 @@
 # Stage 5 — Browser Export and Import
 
-Status: **pending Stage 4 deployment verification and bridge-policy decision**
+Status: **implemented on `cursor/3d90f5f9`; pending merge, deployment, and cross-browser transfer verification**
 
 ## Objective
 
@@ -45,5 +45,62 @@ and imported role-play scenarios open with their saved characters and roadmap st
 
 ## Completion record
 
-Record final format version, library/version/license, resource limits, branch/commits, test
-results, cross-browser transfer evidence, merge, deployment, and post-deployment verification.
+**Branch:** `cursor/3d90f5f9`
+
+**Format version:** `parle-backup` v1 (`manifest.json` + `images/<id>.{png,jpeg,webp}`)
+
+**ZIP library:** `fflate@0.8.3` (MIT). Revalidated 2026-08-28: current npm release, ESM/browser
+exports, async `zip`/`unzip`, per-file compression levels (DEFLATE for `manifest.json`, store
+for already-compressed images), and `UnzipFileFilter` inspection of uncompressed sizes. No
+incompatibility was found, so the planned candidate was installed rather than JSZip or
+`@zip.js/zip.js`.
+
+**Resource limits** (from `services/backupLimits.ts`):
+
+| Limit | Value |
+|---|---|
+| Compressed package | 40 MiB |
+| Uncompressed total | 50 MiB |
+| ZIP entries | 128 |
+| Images | 40 |
+| Per-image size | 8 MiB |
+| Manifest size | 1 MiB |
+| Saved ads | 40 |
+| Topic archives | 50 |
+| Scenarios | 100 |
+
+Supported image types are PNG, JPEG, and WebP, validated by magic-number signature, declared
+MIME, filename extension, and SHA-256.
+
+**Implementation paths:**
+
+- `services/backupLimits.ts`, `services/backupFormat.ts`, `services/backupZip.ts`,
+  `services/backupService.ts` — format, ZIP, export, inspect/preview, and apply
+- `services/tefArchiveService.ts` — `listAllSavedAds()` and `commitDurableBackupImport()`
+  (one IndexedDB transaction across `savedAds`, `topicArchives`, and `scenarios`, then
+  per-dataset localStorage bridge reconciliation)
+- `components/BackupPanel.tsx` + `components/ApiKeySetup.tsx` — Settings backup UI with
+  preview-before-write, merge default, and explicit replace confirmation
+- `components/ScenarioSetup.tsx`, `components/TefRecentAdsCarousel.tsx`,
+  `components/TefTopicHistorySheet.tsx` — refresh from `parle-durable-data-changed`
+
+**Bridge policy honored:** After a committed import, topic-archive and saved-scenario
+localStorage rollback copies are rewritten from IndexedDB. A bridge failure is reported and
+marked dirty; the IndexedDB import is not rolled back.
+
+**Automated tests:** `__tests__/backupExport.test.ts`, `__tests__/backupImport.test.ts`,
+`__tests__/BackupPanel.test.tsx`. Full suite **687/687** passing. `npm run build` succeeded
+(existing large-chunk advisory remains non-blocking).
+
+**Manual checks in this session:** Settings → Backup was exercised in the local Vite app
+with system Chrome: export produced `parle-backup-YYYY-MM-DD.parle`, choosing that file showed
+a preview before write, Cancel dismissed the preview without importing, Replace stayed disabled
+until the confirmation checkbox, and Import (merge) applied the previewed empty package.
+
+**Still outstanding before Stage 5 can be marked complete:**
+
+- Merge and deployment through the normal project process
+- Operator cross-browser / two-profile `.parle` transfer: imported ads restart both TEF
+  exercise types, topic history stays linked, and imported role-play scenarios open with
+  saved characters and roadmap steps
+- Post-deployment verification recorded here

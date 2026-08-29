@@ -12,6 +12,7 @@ import type {
   TefTopicSuggestion,
   TopicArchiveMigrationMetadata,
 } from '../types';
+import { BackupValidationError } from './backupFormat';
 
 const TOPIC_ARCHIVES_KEY = 'parle-tef-topic-archives';
 const SCENARIOS_KEY = 'parle-scenarios';
@@ -1635,11 +1636,206 @@ export async function deleteSavedScenario(scenarioId: string): Promise<Scenario[
   );
 }
 
-export async function listSavedAds(exerciseType: TefExerciseType): Promise<TefSavedAd[]> {
+export async function listAllSavedAds(): Promise<TefSavedAd[]> {
   const all = await runReadTransaction((store) => idbGetAll<TefSavedAd>(store));
-  return all
-    .filter((ad) => ad.exerciseType === exerciseType)
-    .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+  return all.sort((a, b) => b.lastUsedAt - a.lastUsedAt);
+}
+
+export async function listSavedAds(exerciseType: TefExerciseType): Promise<TefSavedAd[]> {
+  return (await listAllSavedAds()).filter((ad) => ad.exerciseType === exerciseType);
+}
+
+export interface DurableBackupCurrentRecords {
+  ads: TefSavedAd[];
+  archives: TefTopicArchive[];
+  scenarios: Scenario[];
+}
+
+export interface DurableBackupImportCommit {
+  mode: 'merge' | 'replace';
+  adsToPut: TefSavedAd[];
+  archivesToPut: TefTopicArchive[];
+  scenariosToPut: Scenario[];
+  refreshMerge?: (current: DurableBackupCurrentRecords) => {
+    adsToPut: TefSavedAd[];
+    archivesToPut: TefTopicArchive[];
+    scenariosToPut: Scenario[];
+  };
+}
+
+export interface DurableBackupImportResult {
+  ads: TefSavedAd[];
+  archives: TefTopicArchive[];
+  scenarios: Scenario[];
+  bridgeFailures: Array<'topic-archives' | 'scenarios'>;
+}
+
+function assertNoUnresolvedRecoveryIntents(): void {
+  const datasets: Array<MirrorConfig<DurableRecord>> = [
+    topicArchiveMirrorConfig as MirrorConfig<DurableRecord>,
+    scenarioMirrorConfig as MirrorConfig<DurableRecord>,
+  ];
+  for (const config of datasets) {
+    const pendingCount = readPendingMutations(config).length;
+    const quarantined = hasQuarantinedMutations(config);
+    if (pendingCount > 0 || quarantined) {
+      throw new BackupValidationError(
+        `Cannot import while ${config.label} recovery still has ${
+          pendingCount > 0 ? 'pending' : 'quarantined'
+        } mutations`,
+        'unresolved-recovery'
+      );
+    }
+  }
+}
+
+function putImportedRecords(
+  adsStore: IDBObjectStore,
+  archivesStore: IDBObjectStore,
+  scenariosStore: IDBObjectStore,
+  planned: {
+    adsToPut: TefSavedAd[];
+    archivesToPut: TefTopicArchive[];
+    scenariosToPut: Scenario[];
+  }
+): void {
+  for (const ad of planned.adsToPut) adsStore.put(ad);
+  for (const archive of planned.archivesToPut) archivesStore.put(archive);
+  for (const scenario of planned.scenariosToPut) scenariosStore.put(scenario);
+}
+
+/**
+ * Writes saved ads, topic archives, and scenarios in one IndexedDB transaction,
+ * then reconciles each Stage 4 localStorage rollback bridge from the committed
+ * IndexedDB result. Bridge failures are reported without rolling back the import.
+ */
+export async function commitDurableBackupImport(
+  commit: DurableBackupImportCommit
+): Promise<DurableBackupImportResult> {
+  await waitForTopicArchiveMirror();
+  await waitForScenarioMirror();
+  assertNoUnresolvedRecoveryIntents();
+
+  const db = await openDb();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(
+        [SAVED_ADS_STORE, TOPIC_ARCHIVES_STORE, SCENARIOS_STORE],
+        'readwrite'
+      );
+      let settled = false;
+      const fail = (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        try {
+          tx.abort();
+        } catch {
+          // Already complete or aborted.
+        }
+        reject(error);
+      };
+      const adsStore = tx.objectStore(SAVED_ADS_STORE);
+      const archivesStore = tx.objectStore(TOPIC_ARCHIVES_STORE);
+      const scenariosStore = tx.objectStore(SCENARIOS_STORE);
+      tx.oncomplete = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+      tx.onerror = () => {
+        if (settled) return;
+        settled = true;
+        reject(tx.error ?? new Error('Backup import transaction failed'));
+      };
+      tx.onabort = () => {
+        if (settled) return;
+        settled = true;
+        reject(tx.error ?? new Error('Backup import transaction was aborted'));
+      };
+
+      if (commit.mode === 'replace') {
+        adsStore.clear();
+        archivesStore.clear();
+        scenariosStore.clear();
+        putImportedRecords(adsStore, archivesStore, scenariosStore, commit);
+        return;
+      }
+
+      if (!commit.refreshMerge) {
+        putImportedRecords(adsStore, archivesStore, scenariosStore, commit);
+        return;
+      }
+
+      const adsReq = adsStore.getAll();
+      const archivesReq = archivesStore.getAll();
+      const scenariosReq = scenariosStore.getAll();
+      let remaining = 3;
+      const onCurrentReady = () => {
+        remaining -= 1;
+        if (remaining !== 0 || settled) return;
+        try {
+          const planned = commit.refreshMerge!({
+            ads: (adsReq.result as TefSavedAd[]) ?? [],
+            archives: (archivesReq.result as TefTopicArchive[]) ?? [],
+            scenarios: (scenariosReq.result as Scenario[]) ?? [],
+          });
+          putImportedRecords(adsStore, archivesStore, scenariosStore, planned);
+        } catch (error) {
+          fail(error);
+        }
+      };
+      adsReq.onsuccess = onCurrentReady;
+      archivesReq.onsuccess = onCurrentReady;
+      scenariosReq.onsuccess = onCurrentReady;
+      adsReq.onerror = () => fail(adsReq.error ?? new Error('Failed reading saved ads for import'));
+      archivesReq.onerror = () => fail(
+        archivesReq.error ?? new Error('Failed reading topic archives for import')
+      );
+      scenariosReq.onerror = () => fail(
+        scenariosReq.error ?? new Error('Failed reading scenarios for import')
+      );
+    });
+  } finally {
+    db.close();
+  }
+
+  const [ads, archives, scenarios] = await Promise.all([
+    readAllFromStore<TefSavedAd>(SAVED_ADS_STORE),
+    readAllFromStore<TefTopicArchive>(TOPIC_ARCHIVES_STORE),
+    readAllFromStore<Scenario>(SCENARIOS_STORE),
+  ]);
+
+  const bridgeFailures: DurableBackupImportResult['bridgeFailures'] = [];
+  reconcileImportedBridge(topicArchiveMirrorConfig, archives, bridgeFailures, 'topic-archives');
+  reconcileImportedBridge(scenarioMirrorConfig, scenarios, bridgeFailures, 'scenarios');
+
+  return { ads, archives, scenarios, bridgeFailures };
+}
+
+function reconcileImportedBridge<T extends DurableRecord>(
+  config: MirrorConfig<T>,
+  records: T[],
+  bridgeFailures: DurableBackupImportResult['bridgeFailures'],
+  dataset: DurableBackupImportResult['bridgeFailures'][number]
+): void {
+  const durableConfig = config as MirrorConfig<DurableRecord>;
+  try {
+    const bridgeComplete = persistRollbackBridge(config, records);
+    if (
+      bridgeComplete
+      && readPendingMutations(durableConfig).length === 0
+      && !hasQuarantinedMutations(durableConfig)
+    ) {
+      clearRollbackBridgeDirty(durableConfig);
+    } else {
+      markRollbackBridgeDirty(durableConfig);
+      if (!bridgeComplete) bridgeFailures.push(dataset);
+    }
+  } catch (error) {
+    console.error(`Failed to reconcile ${config.label} rollback bridge after import:`, error);
+    markRollbackBridgeDirty(durableConfig);
+    bridgeFailures.push(dataset);
+  }
 }
 
 export async function getSavedAd(id: string): Promise<TefSavedAd | null> {

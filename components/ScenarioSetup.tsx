@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Scenario, Character } from '../types';
 import { loadScenarios, saveScenario, deleteScenario, generateId } from '../services/scenarioService';
 import { hasApiKeyOrEnv } from '../services/apiKeyService';
+import { DURABLE_DATA_CHANGED_EVENT } from '../services/backupService';
 
 interface ScenarioSetupProps {
   onStartPractice: (scenario: Scenario) => void | Promise<void>;
@@ -86,25 +87,30 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   const startingPracticeRef = useRef(false);
 
   useEffect(() => {
-    const requestToken = ++scenarioLoadTokenRef.current;
-    setSavedScenariosLoading(true);
-    setSavedScenariosError(null);
-    void loadScenarios()
-      .then((scenarios) => {
-        if (requestToken !== scenarioLoadTokenRef.current) return;
-        setSavedScenarios(scenarios);
-      })
-      .catch((error) => {
-        if (requestToken !== scenarioLoadTokenRef.current) return;
-        setSavedScenariosError(
-          error instanceof Error ? error.message : 'Unable to load saved scenarios'
-        );
-      })
-      .finally(() => {
-        if (requestToken === scenarioLoadTokenRef.current) setSavedScenariosLoading(false);
-      });
+    const load = () => {
+      const requestToken = ++scenarioLoadTokenRef.current;
+      setSavedScenariosLoading(true);
+      setSavedScenariosError(null);
+      void loadScenarios()
+        .then((scenarios) => {
+          if (requestToken !== scenarioLoadTokenRef.current) return;
+          setSavedScenarios(scenarios);
+        })
+        .catch((error) => {
+          if (requestToken !== scenarioLoadTokenRef.current) return;
+          setSavedScenariosError(
+            error instanceof Error ? error.message : 'Unable to load saved scenarios'
+          );
+        })
+        .finally(() => {
+          if (requestToken === scenarioLoadTokenRef.current) setSavedScenariosLoading(false);
+        });
+    };
+    load();
+    window.addEventListener(DURABLE_DATA_CHANGED_EVENT, load);
     return () => {
       scenarioLoadTokenRef.current += 1;
+      window.removeEventListener(DURABLE_DATA_CHANGED_EVENT, load);
     };
   }, []);
 

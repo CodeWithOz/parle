@@ -1,6 +1,6 @@
 # Parle Backup Format Contract
 
-Status: design accepted; implementation belongs to Stage 5.
+Status: implemented in Stage 5 (`parle-backup` version 1); package contract below.
 
 ## Container
 
@@ -36,6 +36,7 @@ interface ParleBackupV1 {
     exerciseType: 'persuasion' | 'questioning';
     imagePath: string;
     mimeType: string;
+    sha256: string; // hex SHA-256 of the image bytes
     confirmation: { summary: string; roleSummary: string };
     createdAt: number;
     lastUsedAt: number;
@@ -45,9 +46,8 @@ interface ParleBackupV1 {
 }
 ```
 
-The implementation may add integrity metadata such as SHA-256 asset hashes without changing
-the accepted scope. Any material schema change must increment or explicitly migrate the
-format version.
+The implementation includes SHA-256 asset hashes. Any further material schema change must
+increment or explicitly migrate the format version.
 
 ## Relationship invariants
 
@@ -63,16 +63,16 @@ import must reject orphaned archives.
 ## ZIP implementation candidate
 
 The preferred library is `fflate` because it supports browsers, ES modules, asynchronous
-processing, streaming ZIP APIs, and a small bundle. Stage 5 must re-check the current package,
-license, browser support, and APIs before adding the dependency.
+processing, streaming ZIP APIs, and a small bundle. Stage 5 re-checked the current package on
+2026-08-28 and installed `fflate@0.8.3` (MIT). No incompatibility was found.
 
 - Use DEFLATE for `manifest.json`.
 - Store already-compressed PNG/JPEG/WebP assets without recompressing them.
 - Avoid synchronous compression/extraction on the main thread for large packages.
 
-Alternative libraries, if Stage 5 discovers a concrete incompatibility, are JSZip (simpler,
-more memory-oriented) and `@zip.js/zip.js` (richer streaming and worker architecture). Record
-any selection change in the root decision log.
+Alternative libraries, if a later change discovers a concrete incompatibility, are JSZip
+(simpler, more memory-oriented) and `@zip.js/zip.js` (richer streaming and worker architecture).
+Record any selection change in the root decision log.
 
 ## Import workflow
 
