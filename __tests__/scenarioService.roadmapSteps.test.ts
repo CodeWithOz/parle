@@ -1,6 +1,6 @@
 /**
  * TDD tests for `Scenario.steps` (the new scenario-roadmap feature) persistence
- * via `services/scenarioService.ts` (localStorage-backed, key "parle-scenarios").
+ * via `services/scenarioService.ts` (IndexedDB-backed, store "scenarios").
  *
  * Contract this test file pins down:
  *
@@ -12,7 +12,7 @@
  *     and `Scenario` gains an optional `steps?: ScenarioStep[]` field, in the
  *     order the steps should be displayed/followed.
  *
- *   - `saveScenario` / `loadScenarios` (already generic JSON-in-localStorage)
+ *   - `saveScenario` / `loadScenarios` (generic JSON records)
  *     must continue to round-trip the `steps` field with no special handling
  *     required beyond what they already do — this is a regression/contract
  *     test locking that behavior in as the roadmap feature is built.
@@ -31,18 +31,21 @@
  * exported yet, so calling it throws "getScenarioSteps is not a function".
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { IDBFactory } from 'fake-indexeddb';
 import type { Scenario } from '../types';
 import {
   loadScenarios,
   saveScenario,
   getScenarioSteps,
 } from '../services/scenarioService';
+import { initializeDurableData } from '../services/tefArchiveService';
 
-const STORAGE_KEY = 'parle-scenarios';
+const LEGACY_STORAGE_KEY = 'parle-scenarios';
 
 beforeEach(() => {
   localStorage.clear();
+  vi.stubGlobal('indexedDB', new IDBFactory());
 });
 
 function makeScenario(overrides: Partial<Scenario> & { id: string }): Scenario {
@@ -118,7 +121,8 @@ describe('Scenario.steps · save/load round trip', () => {
   });
 
   it('backward compatibility: a scenario saved before the roadmap feature existed (no steps key) still loads correctly', async () => {
-    // Simulate data written by an older version of the app, with no `steps` key at all.
+    // Simulate data written by an older, localStorage-backed version of the app,
+    // with no `steps` key at all. It reaches IndexedDB through one-time adoption.
     const legacyScenario = {
       id: 'legacy-scenario-1',
       name: 'Old Scenario',
@@ -126,7 +130,8 @@ describe('Scenario.steps · save/load round trip', () => {
       createdAt: Date.now() - 1000,
       isActive: true,
     };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify([legacyScenario]));
+    localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify([legacyScenario]));
+    await initializeDurableData();
 
     const loaded = await loadScenarios();
     const found = loaded.find((s) => s.id === 'legacy-scenario-1');

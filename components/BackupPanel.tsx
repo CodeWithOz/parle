@@ -129,11 +129,6 @@ export const BackupPanel: React.FC<BackupPanelProps> = ({ onImported }) => {
           ? 'Local data was replaced with the imported backup.'
           : `Imported ${added.ads} ads, ${added.archives} topic archives, and ${added.scenarios} scenarios.`
       );
-      if (result.bridgeFailures.length > 0) {
-        setError(
-          `Imported into IndexedDB, but the localStorage rollback copy failed for ${result.bridgeFailures.join(', ')}.`
-        );
-      }
       resetPreview();
       onImported?.();
     } catch (caught) {

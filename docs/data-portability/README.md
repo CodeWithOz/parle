@@ -6,25 +6,40 @@ separate branches, deployments, and AI-agent chats.
 
 ## Current status
 
-- Program status: **Stage 5 complete — merged, deployed, and operator-confirmed. The numbered program ends here; there is no Stage 6.**
-- Current implementation behavior: **verified IndexedDB primary reads with guarded per-dataset localStorage fallback and rollback bridge writes, plus browser-only `.parle` export/import**
-- Deployed behavior: **IndexedDB is primary for both durable datasets with guarded localStorage fallback and rollback bridge writes, plus Settings → Backup `.parle` export/import (Stage 5)**
+- Program status: **Stages 0–5 complete. The operator then authorized retiring the
+  localStorage bridge, which is implemented but not yet deployed.**
+- Current implementation behavior: **IndexedDB is the only store durable datasets are read
+  from and written to in steady state.** `services/tefArchiveService.ts` still touches
+  localStorage on two paths, neither of which writes durable data: `initializeDurableData()`
+  reads any leftover pre-IndexedDB keys once per startup and removes them after adoption is
+  verified, and the backup-import guard checks whether such leftovers are still present.
+  Legacy data that cannot be parsed is retained and reported, so a browser holding it keeps
+  reading those keys on every launch until it is resolved.
+- Deployed behavior: **IndexedDB primary with guarded localStorage fallback and rollback
+  bridge writes, plus Settings → Backup `.parle` export/import (Stage 5)**
 - Last completed stage: **[Stage 5 — export/import](stages/05-export-import.md) (complete; merged via [PR #54](https://github.com/CodeWithOz/parle/pull/54), deployed, and operator-confirmed 2026-08-29)**
-- Next action: **none among the numbered stages.** Stopping localStorage bridge writes remains a separate future decision (see [migration-plan.md](migration-plan.md)); it is not Stage 6 and is not authorized by Stage 5 completion.
-- Current authoritative topic-archive source: verified `IndexedDB`, with guarded `localStorage` fallback
-- Current authoritative saved-scenario source: verified `IndexedDB`, with guarded `localStorage` fallback
+- Next action: **deploy and verify the bridge removal.** After it ships, rolling the
+  application back to a Stage ≤ 5 build no longer restores data from localStorage; a
+  `.parle` export is the only rollback copy.
+- Current authoritative topic-archive source: `IndexedDB` (no fallback)
+- Current authoritative saved-scenario source: `IndexedDB` (no fallback)
 - IndexedDB topic-archive store exists in this implementation: **yes (schema version 3)**
 - IndexedDB saved-scenario store exists in this implementation: **yes (schema version 3)**
-- Dual writes are active in this implementation: **yes for both datasets; IndexedDB first when verified, rollback bridge/fallback repair retained**
+- Dual writes are active in this implementation: **no. Both bridges were removed.**
 - Export/import is available: **yes in the deployed app (`.parle` v1 via Settings → Backup)**
+
+`services/apiKeyService.ts` (`parle_api_key_gemini`, `parle_api_key_openai`) is the only
+ongoing localStorage consumer: the only code that keeps reading and writing localStorage once
+adoption has completed. Credentials are deliberately excluded from this program and from
+backups; they were left in localStorage untouched.
 
 Compatibility requirement: Stage 1 topic-only builds have already created database version 2
 in at least one browser. The corrected schema target is therefore version 3; code must support
 both version 1 → 3 and version 2 → 3 upgrades without recreating or clearing existing stores.
 
-The deployed application implements Stage 5 export/import on the Stage 4 storage layout. It
-does not remove or clear either localStorage dataset. Both Stage 4 localStorage bridges remain
-active and are reconciled after a successful import.
+The currently deployed application implements Stage 5 export/import on the Stage 4 storage
+layout, with both localStorage bridges still active. The bridge removal described above is
+implemented on this branch and changes that as soon as it deploys.
 
 ## Accepted scope
 
@@ -44,9 +59,15 @@ The backup explicitly excludes:
 
 ## Non-negotiable principles
 
-1. Existing local data must survive every deployment and rollback.
+1. Existing local data must survive every deployment, and every rollback through Stage 5.
+   The authorized bridge removal (2026-08-31) narrows the rollback half of this guarantee: once
+   it deploys, rolling back to a Stage ≤ 5 build recovers durable data only from a `.parle`
+   export taken beforehand, because localStorage no longer holds a copy to fall back to.
+   Forward deployments still preserve existing data unconditionally.
 2. Migration is incremental: backfill, mirror, verify, cut over, retain rollback, then retire.
 3. No stage may silently clear `parle-tef-topic-archives` or `parle-scenarios` from localStorage.
+   The authorized bridge removal (2026-08-31) clears them only after the same records have been
+   written to IndexedDB and read back; unreadable legacy data is left in place and reported.
 4. Backfill and reconciliation must be idempotent and must not create duplicates.
 5. Deletions must not reappear after reconciliation.
 6. `TefTopicArchive.adId` must continue to reference the correct `TefSavedAd.id`, and saved
@@ -61,9 +82,14 @@ The backup explicitly excludes:
 | Data | Current location | Current key/store |
 |---|---|---|
 | Saved TEF ads and images | IndexedDB | database `parle-tef`, store `savedAds` |
-| TEF topic archives | Verified IndexedDB primary; guarded localStorage fallback/bridge | `parle-tef-topic-archives` / `topicArchives` |
-| Saved role-play scenarios | Verified IndexedDB primary; guarded localStorage fallback/bridge | `parle-scenarios` / `scenarios` |
-| API keys | localStorage | `parle_api_key_*` (excluded from backups) |
+| TEF topic archives | IndexedDB only | store `topicArchives` |
+| Saved role-play scenarios | IndexedDB only | store `scenarios` |
+| API keys | localStorage (out of scope for this program) | `parle_api_key_*` (excluded from backups) |
+
+Legacy localStorage keys (`parle-tef-topic-archives`, `parle-scenarios`, and their
+`-mirror-dirty` / `-bridge-dirty` / `-idb-primary` / `-pending-mutations` /
+`-quarantined-mutations` companions) are read once by `initializeDurableData()` and removed
+after their records are verified in IndexedDB. Nothing writes them again.
 
 Primary implementation locations:
 
@@ -81,9 +107,10 @@ Primary implementation locations:
 
 - `savedAds`, `topicArchives`, and saved role-play `scenarios` reside in the same IndexedDB
   database so the complete backup can be imported transactionally.
-- A repository/service boundary owns migration, reconciliation, reads, and writes.
-- During migration, topic archives and saved scenarios remain localStorage-authoritative and
-  are mirrored independently until both datasets are verified and cut over.
+- A repository/service boundary owns reads, writes, and the one-time adoption of any leftover
+  pre-IndexedDB localStorage data.
+- localStorage holds no durable exercise data. A `.parle` export is the only copy outside the
+  database.
 - A versioned `.parle` ZIP contains `manifest.json` and binary image assets.
 - Export and import execute entirely in the browser.
 
@@ -101,9 +128,9 @@ See [backup-format.md](backup-format.md), [migration-plan.md](migration-plan.md)
 | 4 | Maintain rollback windows and prove both datasets stable | Complete; merged, deployed, and operator-verified |
 | 5 | Implement versioned export/import | Complete; merged, deployed, and operator-confirmed |
 
-There is no Stage 6. The numbered program is Stages 0–5. Stopping localStorage bridge writes
-is a separate future decision and must not be implemented until a later document explicitly
-authorizes it.
+The numbered program is Stages 0–5. Stopping localStorage bridge writes was the separate
+decision the plan reserved; the operator authorized it on 2026-08-31 and it is implemented
+outside the numbered stages.
 
 Detailed handoffs are in [`stages/`](stages/).
 
@@ -190,3 +217,12 @@ do not infer that the later stage is safe.
   [PR #54](https://github.com/CodeWithOz/parle/pull/54), pulled into the primary workspace, and
   deployed, confirmed by the operator. Stage 5 is complete. There is no Stage 6; stopping
   localStorage bridge writes remains an unauthorized future decision.
+- 2026-08-31: The operator authorized retiring the localStorage bridge. `services/tefArchiveService.ts`
+  now reads and writes durable exercise data through IndexedDB only: the rollback bridge, the
+  fallback reads, the dirty/primary markers, the recovery journal, and the Stage 1/2 mirror
+  machinery were all removed, along with the migration-metadata types they used. A browser that
+  still holds pre-IndexedDB localStorage data has it folded into IndexedDB once at startup by
+  `initializeDurableData()` — IndexedDB wins on ID conflicts, any unreplayed recovery-journal
+  entries are applied, and the legacy keys are removed only after the merged result is read back.
+  Unreadable legacy data is left in place and reported instead of being discarded. API keys were
+  intentionally left in localStorage; they are outside this program's scope.

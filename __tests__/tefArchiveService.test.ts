@@ -11,7 +11,7 @@ const sampleTopics = [
   },
 ];
 
-describe('tefArchiveService · topic archives (localStorage)', () => {
+describe('tefArchiveService · topic archives (IndexedDB)', () => {
   beforeEach(() => {
     localStorage.clear();
     vi.stubGlobal('indexedDB', new IDBFactory());
@@ -24,7 +24,6 @@ describe('tefArchiveService · topic archives (localStorage)', () => {
       listTopicArchives,
       getLatestTopicArchive,
       deleteTopicArchive,
-      waitForTopicArchiveMirror,
     } = await import('../services/tefArchiveService');
 
     const a1 = await saveTopicArchive({
@@ -48,11 +47,10 @@ describe('tefArchiveService · topic archives (localStorage)', () => {
 
     await deleteTopicArchive(a1.id);
     expect(await listTopicArchives()).toHaveLength(1);
-    await waitForTopicArchiveMirror();
   });
 
   it('caps archives at 50 entries', async () => {
-    const { saveTopicArchive, listTopicArchives, waitForTopicArchiveMirror } =
+    const { saveTopicArchive, listTopicArchives } =
       await import('../services/tefArchiveService');
 
     for (let i = 0; i < 55; i++) {
@@ -63,7 +61,6 @@ describe('tefArchiveService · topic archives (localStorage)', () => {
       });
     }
     expect((await listTopicArchives()).length).toBe(50);
-    await waitForTopicArchiveMirror();
   });
 });
 
@@ -81,7 +78,6 @@ describe('tefArchiveService · saved ads (IndexedDB)', () => {
       getSavedAd,
       deleteSavedAd,
       touchSavedAdLastUsed,
-      waitForTopicArchiveMirror,
     } = await import('../services/tefArchiveService');
 
     const ad = await upsertSavedAd({
@@ -106,11 +102,10 @@ describe('tefArchiveService · saved ads (IndexedDB)', () => {
     await deleteSavedAd('tef_ad_test');
     expect(await getSavedAd('tef_ad_test')).toBeNull();
     expect(await listSavedAds('persuasion')).toHaveLength(0);
-    await waitForTopicArchiveMirror();
   });
 
   it('deleteSavedAd removes linked topic archives', async () => {
-    const { upsertSavedAd, deleteSavedAd, saveTopicArchive, listTopicArchives, waitForTopicArchiveMirror } =
+    const { upsertSavedAd, deleteSavedAd, saveTopicArchive, listTopicArchives } =
       await import('../services/tefArchiveService');
 
     await upsertSavedAd({
@@ -129,6 +124,5 @@ describe('tefArchiveService · saved ads (IndexedDB)', () => {
 
     await deleteSavedAd('ad-linked');
     expect(await listTopicArchives('ad-linked')).toHaveLength(0);
-    await waitForTopicArchiveMirror();
   });
 });

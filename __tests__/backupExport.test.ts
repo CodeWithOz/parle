@@ -42,7 +42,6 @@ const currentScenario = (id: string): Scenario => {
 
 async function seedDurableData() {
   const archive = await import('../services/tefArchiveService');
-  await archive.verifyDurableDataMirrors();
   const persuasion = await archive.upsertSavedAd({
     id: 'tef_ad_persuasion',
     exerciseType: 'persuasion',
@@ -69,8 +68,6 @@ async function seedDurableData() {
   });
   await archive.saveSavedScenario(legacyScenario('scenario_legacy'));
   await archive.saveSavedScenario(currentScenario('scenario_current'));
-  await archive.waitForTopicArchiveMirror();
-  await archive.waitForScenarioMirror();
   return { persuasion, questioning, archiveOne, archiveTwo };
 }
 
@@ -129,7 +126,6 @@ describe('Stage 5 backup export', () => {
 
   it('reports orphaned archives instead of silently dropping them', async () => {
     const archive = await import('../services/tefArchiveService');
-    await archive.verifyDurableDataMirrors();
     await archive.saveTopicArchive({
       adId: 'missing-ad',
       exerciseType: 'persuasion',
