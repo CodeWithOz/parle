@@ -29,7 +29,7 @@ import {
   createSavedAdId,
   deleteSavedAd,
   getLatestTopicArchive,
-  recoverDurableDataAtStartup,
+  initializeDurableData,
   saveTopicArchive,
   touchSavedAdLastUsed,
   upsertSavedAd,
@@ -665,9 +665,9 @@ const App: React.FC = () => {
   useEffect(() => {
     const checkApiKeys = async () => {
       try {
-        await recoverDurableDataAtStartup();
+        await initializeDurableData();
       } catch (error) {
-        console.error('Failed to recover durable local data:', error);
+        console.error('Failed to initialize durable local data:', error);
       }
       setApiKeyCheckDone(true);
       if (hasApiKeyOrEnv('gemini')) {

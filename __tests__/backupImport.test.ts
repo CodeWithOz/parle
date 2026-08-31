@@ -73,7 +73,6 @@ async function validManifest(overrides: Record<string, unknown> = {}) {
 
 async function seedLocalDifferentAd() {
   const archive = await import('../services/tefArchiveService');
-  await archive.verifyDurableDataMirrors();
   await archive.upsertSavedAd({
     id: 'tef_ad_1',
     exerciseType: 'persuasion',
@@ -88,7 +87,6 @@ async function seedLocalDifferentAd() {
     createdAt: 99,
     isActive: true,
   });
-  await archive.waitForScenarioMirror();
 }
 
 describe('Stage 5 backup import', () => {
@@ -101,7 +99,6 @@ describe('Stage 5 backup import', () => {
 
   it('imports declared data and is idempotent on a second apply', async () => {
     const archive = await import('../services/tefArchiveService');
-    await archive.verifyDurableDataMirrors();
     const backup = await import('../services/backupService');
     const bytes = await packageFromManifest(await validManifest());
     const inspected = await backup.inspectParleBackup(bytes);
@@ -111,8 +108,9 @@ describe('Stage 5 backup import', () => {
     expect(await archive.listAllSavedAds()).toHaveLength(1);
     expect(await archive.listTopicArchives()).toHaveLength(1);
     expect(await archive.listSavedScenarios()).toHaveLength(1);
-    expect(JSON.parse(localStorage.getItem('parle-tef-topic-archives') ?? '[]')).toHaveLength(1);
-    expect(JSON.parse(localStorage.getItem('parle-scenarios') ?? '[]')).toHaveLength(1);
+    // IndexedDB is the only database: an import writes no localStorage copy.
+    expect(localStorage.getItem('parle-tef-topic-archives')).toBeNull();
+    expect(localStorage.getItem('parle-scenarios')).toBeNull();
 
     const second = await backup.inspectParleBackup(bytes);
     expect(second.preview.additions).toEqual({ ads: 0, archives: 0, scenarios: 0 });
@@ -148,7 +146,6 @@ describe('Stage 5 backup import', () => {
 
   it('rejects missing, path-traversing, signature-mismatched, and extra assets before writes', async () => {
     const archive = await import('../services/tefArchiveService');
-    await archive.verifyDurableDataMirrors();
     const backup = await import('../services/backupService');
     const jpegBytes = Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]);
 
@@ -175,7 +172,6 @@ describe('Stage 5 backup import', () => {
 
   it('rejects unsupported versions and malformed scenarios before writes', async () => {
     const archive = await import('../services/tefArchiveService');
-    await archive.verifyDurableDataMirrors();
     await archive.upsertSavedAd({
       id: 'keep-me',
       exerciseType: 'persuasion',
@@ -200,7 +196,6 @@ describe('Stage 5 backup import', () => {
 
   it('leaves existing data unchanged when the import transaction fails', async () => {
     const archive = await import('../services/tefArchiveService');
-    await archive.verifyDurableDataMirrors();
     await archive.upsertSavedAd({
       id: 'keep-me',
       exerciseType: 'persuasion',
@@ -314,7 +309,6 @@ describe('Stage 5 backup import', () => {
 
   it('skips equivalent scenarios on repeated merge when optional fields are undefined versus omitted', async () => {
     const archive = await import('../services/tefArchiveService');
-    await archive.verifyDurableDataMirrors();
     await archive.saveSavedScenario({
       id: 'scenario_1',
       name: 'Bakery',
@@ -326,7 +320,6 @@ describe('Stage 5 backup import', () => {
       aiSummary: undefined,
       isTefQuestioning: undefined,
     } as Scenario);
-    await archive.waitForScenarioMirror();
 
     const backup = await import('../services/backupService');
     const bytes = await packageFromManifest(
@@ -356,7 +349,6 @@ describe('Stage 5 backup import', () => {
 
   it('rejects merge apply when local data changed since the preview', async () => {
     const archive = await import('../services/tefArchiveService');
-    await archive.verifyDurableDataMirrors();
     const backup = await import('../services/backupService');
     const inspected = await backup.inspectParleBackup(await packageFromManifest(await validManifest()));
     expect(inspected.preview.additions).toEqual({ ads: 1, archives: 1, scenarios: 1 });
@@ -375,9 +367,8 @@ describe('Stage 5 backup import', () => {
     expect(await archive.listTopicArchives()).toHaveLength(0);
   });
 
-  it('aborts import when a dataset still has pending recovery mutations', async () => {
+  it('aborts import when a dataset still has unadopted legacy localStorage data', async () => {
     const archive = await import('../services/tefArchiveService');
-    await archive.verifyDurableDataMirrors();
     const backup = await import('../services/backupService');
     const inspected = await backup.inspectParleBackup(await packageFromManifest(await validManifest()));
 
@@ -400,7 +391,7 @@ describe('Stage 5 backup import', () => {
       .rejects.toMatchObject({ code: 'unresolved-recovery' });
     expect(await archive.listAllSavedAds()).toHaveLength(0);
     expect(await archive.listTopicArchives()).toHaveLength(0);
-    expect(await archive.getScenarioMirrorSnapshot()).toHaveLength(0);
+    expect(await archive.listSavedScenarios()).toHaveLength(0);
     expect(
       localStorage.getItem(`parle-scenarios-pending-mutations:${encodeURIComponent('scenario_pending')}`)
     ).toBeTruthy();

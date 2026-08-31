@@ -14,10 +14,12 @@ exercise data.
 | 3 | IndexedDB; guarded per-dataset localStorage fallback | IDB primary, localStorage mirrors | Rollback copy |
 | 4 | IndexedDB; fallbacks retained as specified | Both datasets dual-written | Rollback copy |
 | 5 | IndexedDB | Through repository; bridge policy still honored | Determined after Stage 4 evidence |
+| after 5 | IndexedDB | IndexedDB only; no bridge writes | Removed once leftovers are adopted |
 
-Stopping localStorage bridge writes is a separate future decision. It is not Stage 6, and it
-is not implicitly authorized by implementing or deploying export/import. The numbered program
-ends at Stage 5.
+Stopping localStorage bridge writes was the separate decision this plan reserved. The operator
+authorized it on 2026-08-31, after Stage 5 was deployed and confirmed. It is not a numbered
+stage; the numbered program still ends at Stage 5. See the decision log in
+[README.md](README.md) for what the removal actually does.
 
 Migration state is per dataset throughout this matrix. An archive migration marked verified or
 IDB-primary must not be used as evidence that the scenario migration has reached the same state,
@@ -132,6 +134,8 @@ primary.
 - No stage deletes or rewrites saved-ad images as part of topic-archive migration.
 - No stage drops optional or unknown-compatible fields from legacy saved scenarios.
 - A failed backfill or verification attempt is retryable on the next launch.
+- After the authorized bridge removal, rolling the application back to a Stage ≤ 5 build no
+  longer recovers data from localStorage. A `.parle` export is the rollback copy.
 
 ## Migration metadata example
 
