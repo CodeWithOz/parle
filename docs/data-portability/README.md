@@ -8,9 +8,13 @@ separate branches, deployments, and AI-agent chats.
 
 - Program status: **Stages 0–5 complete. The operator then authorized retiring the
   localStorage bridge, which is implemented but not yet deployed.**
-- Current implementation behavior: **IndexedDB only. No durable dataset is read from or
-  written to localStorage. Leftover pre-IndexedDB localStorage state is adopted once at
-  startup and then removed.**
+- Current implementation behavior: **IndexedDB is the only store durable datasets are read
+  from and written to in steady state.** `services/tefArchiveService.ts` still touches
+  localStorage on two paths, neither of which writes durable data: `initializeDurableData()`
+  reads any leftover pre-IndexedDB keys once per startup and removes them after adoption is
+  verified, and the backup-import guard checks whether such leftovers are still present.
+  Legacy data that cannot be parsed is retained and reported, so a browser holding it keeps
+  reading those keys on every launch until it is resolved.
 - Deployed behavior: **IndexedDB primary with guarded localStorage fallback and rollback
   bridge writes, plus Settings → Backup `.parle` export/import (Stage 5)**
 - Last completed stage: **[Stage 5 — export/import](stages/05-export-import.md) (complete; merged via [PR #54](https://github.com/CodeWithOz/parle/pull/54), deployed, and operator-confirmed 2026-08-29)**
@@ -24,9 +28,10 @@ separate branches, deployments, and AI-agent chats.
 - Dual writes are active in this implementation: **no. Both bridges were removed.**
 - Export/import is available: **yes in the deployed app (`.parle` v1 via Settings → Backup)**
 
-The only remaining localStorage consumer in the application is `services/apiKeyService.ts`
-(`parle_api_key_gemini`, `parle_api_key_openai`). Credentials are deliberately excluded from
-this program and from backups; they were left in localStorage untouched.
+`services/apiKeyService.ts` (`parle_api_key_gemini`, `parle_api_key_openai`) is the only
+ongoing localStorage consumer: the only code that keeps reading and writing localStorage once
+adoption has completed. Credentials are deliberately excluded from this program and from
+backups; they were left in localStorage untouched.
 
 Compatibility requirement: Stage 1 topic-only builds have already created database version 2
 in at least one browser. The corrected schema target is therefore version 3; code must support
@@ -54,7 +59,11 @@ The backup explicitly excludes:
 
 ## Non-negotiable principles
 
-1. Existing local data must survive every deployment and rollback.
+1. Existing local data must survive every deployment, and every rollback through Stage 5.
+   The authorized bridge removal (2026-08-31) narrows the rollback half of this guarantee: once
+   it deploys, rolling back to a Stage ≤ 5 build recovers durable data only from a `.parle`
+   export taken beforehand, because localStorage no longer holds a copy to fall back to.
+   Forward deployments still preserve existing data unconditionally.
 2. Migration is incremental: backfill, mirror, verify, cut over, retain rollback, then retire.
 3. No stage may silently clear `parle-tef-topic-archives` or `parle-scenarios` from localStorage.
    The authorized bridge removal (2026-08-31) clears them only after the same records have been
