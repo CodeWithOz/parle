@@ -1,0 +1,5 @@
+# Copy to `.dev.vars` for local `wrangler dev`. Never commit `.dev.vars`.
+# Generate with: openssl rand -base64 32
+API_KEY_COOKIE_SECRET=
+# Optional, for secret rotation:
+# API_KEY_COOKIE_SECRET_PREVIOUS=
