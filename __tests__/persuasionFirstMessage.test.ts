@@ -17,16 +17,6 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-vi.mock('@google/genai', async (importActual) => {
-  const actual = await importActual<typeof import('@google/genai')>();
-  return {
-    ...actual,
-    GoogleGenAI: vi.fn(),
-  };
-});
-
-import { GoogleGenAI } from '@google/genai';
-
 // ---------------------------------------------------------------------------
 // Source-text specs: verify the fix in App.tsx
 // ---------------------------------------------------------------------------
@@ -87,97 +77,49 @@ describe('persuasionFirstMessage · App.tsx source-text specs', () => {
 describe('persuasionFirstMessage · sendVoiceMessage receives no context on first turn', () => {
   const FAKE_AUDIO = 'ZmFrZWF1ZGlv';
   const FAKE_MIME = 'audio/webm';
-  const FAKE_MODEL_RESPONSE = JSON.stringify({
-    french: 'Bonjour!',
-    english: 'Hello!',
-    hint: 'Introduce the ad',
-  });
-
-  function buildMockAi() {
-    const mockSendMessage = vi.fn().mockResolvedValue({ text: FAKE_MODEL_RESPONSE });
-    const mockChatSession = { sendMessage: mockSendMessage };
-    const mockGenerateContent = vi.fn()
-      .mockResolvedValue({ text: 'Bonjour mon ami.' });
-
-    const mockAi = {
-      models: { generateContent: mockGenerateContent },
-      chats: { create: vi.fn().mockReturnValue(mockChatSession) },
-    };
-
-    vi.mocked(GoogleGenAI).mockReturnValue(mockAi as unknown as GoogleGenAI);
-    return { mockSendMessage };
-  }
-
-  beforeEach(() => {
-    localStorage.setItem('parle_api_key_gemini', 'test-key-persuasion-first');
-  });
 
   afterEach(() => {
-    localStorage.clear();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
     vi.resetModules();
   });
 
   it('sendVoiceMessage 4th argument (contextText) must be undefined/absent for first turn', async () => {
-    /**
-     * This test verifies the sendVoiceMessage module export directly:
-     * when called with no contextText, no text part is prepended.
-     * That matches the contract: first-turn in App.tsx must NOT pass contextText.
-     */
-    const { mockSendMessage } = buildMockAi();
+    const chatBodies: Array<Record<string, unknown>> = [];
+    const { mockParleBff } = await import('./helpers/mockParleBff');
+    mockParleBff({ onChat: (body) => chatBodies.push(body) });
     const { sendVoiceMessage, initializeSession, setScenario } = await import('../services/geminiService');
 
-    const tefScenario = {
+    setScenario({
       id: 'tef-persuasion',
       name: 'TEF Ad Persuasion',
       description: 'You are a skeptical friend.',
       createdAt: Date.now(),
       isActive: true,
       characters: [{ id: 'friend', name: 'Friend', role: 'friend', voiceName: 'aoede' }],
-    };
-
-    setScenario(tefScenario as Parameters<typeof setScenario>[0]);
+    });
     await initializeSession();
-
-    // Simulate first turn: call without contextText (as App.tsx should on first message)
     await sendVoiceMessage(FAKE_AUDIO, FAKE_MIME, undefined, undefined);
-
-    expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    const callArg = mockSendMessage.mock.calls[0][0];
-    const parts = callArg?.message ?? [];
-    const textParts = parts.filter((p: Record<string, unknown>) => typeof p.text === 'string');
-    // No context text part on the first turn
-    expect(textParts).toHaveLength(0);
+    expect(chatBodies[0]?.contextText).toBeUndefined();
   });
 
   it('sendVoiceMessage with contextText passes a text part — confirming second-turn behaviour', async () => {
-    const { mockSendMessage } = buildMockAi();
+    const chatBodies: Array<Record<string, unknown>> = [];
+    const { mockParleBff } = await import('./helpers/mockParleBff');
+    mockParleBff({ onChat: (body) => chatBodies.push(body) });
     const { sendVoiceMessage, initializeSession, setScenario } = await import('../services/geminiService');
 
-    const tefScenario = {
+    setScenario({
       id: 'tef-persuasion-2',
       name: 'TEF Ad Persuasion',
       description: 'You are a skeptical friend.',
       createdAt: Date.now(),
       isActive: true,
       characters: [{ id: 'friend', name: 'Friend', role: 'friend', voiceName: 'aoede' }],
-    };
-
-    setScenario(tefScenario as Parameters<typeof setScenario>[0]);
+    });
     await initializeSession();
-
     const contextText = '[Per-turn context: early phase — encourage the user to introduce and present the advertisement clearly.]';
     await sendVoiceMessage(FAKE_AUDIO, FAKE_MIME, undefined, contextText);
-
-    expect(mockSendMessage).toHaveBeenCalledTimes(1);
-    const callArg = mockSendMessage.mock.calls[0][0];
-    const parts = callArg?.message ?? [];
-    const textParts = parts.filter((p: Record<string, unknown>) => typeof p.text === 'string');
-    // Context text part IS present on the second turn
-    expect(textParts.length).toBeGreaterThan(0);
-    const hasContext = textParts.some(
-      (p: { text: string }) => p.text.includes('[Per-turn context:')
-    );
-    expect(hasContext).toBe(true);
+    expect(String(chatBodies[0]?.contextText ?? '')).toContain('[Per-turn context:');
   });
 });

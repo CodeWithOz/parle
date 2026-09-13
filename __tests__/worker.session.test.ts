@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { COOKIE_NAME } from '../worker/constants';
-import type { Env } from '../worker/env';
 import { handleCreateSession, handleRevoke, handleSessionStatus } from '../worker/routes/session';
 import { seal } from '../worker/seal';
 import type { SessionPayload } from '../worker/session';

@@ -1,6 +1,5 @@
 import { MAX_API_KEY_LENGTH, MIN_API_KEY_LENGTH } from './constants';
 import { readNamedCookie, serializeDeletedSessionCookie, serializeSessionCookie } from './cookies';
-import type { Env } from './env';
 import { seal, unsealWithRotation } from './seal';
 
 export interface SessionKeys {

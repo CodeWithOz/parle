@@ -1,15 +1,22 @@
-import { Scenario, ScenarioStep } from '../types';
+import { Scenario } from '../types';
 import { deleteSavedScenario, listSavedScenarios, saveSavedScenario } from './tefArchiveService';
+import {
+  generateMultiCharacterSystemInstruction,
+  generateScenarioSummaryPrompt,
+  generateScenarioSystemInstruction,
+  generateTefAdSystemInstruction,
+  generateTefQuestioningSystemInstruction,
+  getScenarioSteps,
+} from '../shared/prompts';
 
-/**
- * Defensive accessor for a scenario's roadmap steps. Normalizes a possibly
- * legacy scenario (saved before the roadmap feature existed, so it has no
- * `steps` key at all) to an empty array, so UI code (roadmap sidebar, mobile
- * step chip, etc.) never has to null-check `scenario.steps` itself.
- */
-export function getScenarioSteps(scenario: Scenario | null | undefined): ScenarioStep[] {
-  return scenario?.steps ?? [];
-}
+export {
+  generateMultiCharacterSystemInstruction,
+  generateScenarioSummaryPrompt,
+  generateScenarioSystemInstruction,
+  generateTefAdSystemInstruction,
+  generateTefQuestioningSystemInstruction,
+  getScenarioSteps,
+};
 
 /**
  * Defensive fallback seed for the roadmap editor: break a scenario summary
@@ -52,160 +59,6 @@ export const saveScenario = (scenario: Scenario): Promise<Scenario[]> => saveSav
  */
 export const deleteScenario = (scenarioId: string): Promise<Scenario[]> => deleteSavedScenario(scenarioId);
 
-/**
- * Generate the system instruction for scenario practice mode
- */
-export const generateScenarioSystemInstruction = (scenario: Scenario): string => {
-  // Check if this is a multi-character scenario
-  const isMultiCharacter = scenario.characters && scenario.characters.length > 1;
-
-  if (isMultiCharacter) {
-    return generateMultiCharacterSystemInstruction(scenario);
-  }
-
-  const roadmapSection = generateRoadmapInstructionSection(scenario);
-
-  // Single-character scenario with JSON response format
-  return `You are participating in a role-play scenario to help the user practice French.
-
-SCENARIO CONTEXT:
-${scenario.description}
-
-YOUR ROLE:
-You are playing the role of the other party in the scenario (e.g., shopkeeper, baker, waiter, receptionist, etc.). Follow the general flow of events as described, but respond naturally to what the user says.
-
-RESPONSE FORMAT (CRITICAL):
-You MUST respond with structured JSON in this exact format:
-{
-  "french": "Your complete French response here",
-  "english": "The English translation here",
-  "hint": "Brief description of what the user should say next"
-}
-
-Example:
-{
-  "french": "Bonjour! Bienvenue dans notre boulangerie. Que puis-je faire pour vous?",
-  "english": "Hello! Welcome to our bakery. What can I do for you?",
-  "hint": "Greet the baker and ask about bread"
-}
-
-GUIDELINES:
-1. Stay in character as the other party in the scenario
-2. Speak in French primarily
-3. If the user makes French mistakes, gently model the correct form in your response while staying in character
-4. Follow the scenario progression, but adapt naturally to what the user actually says
-5. For EVERY response, you MUST provide:
-   - "french": Your COMPLETE French response (in character)
-   - "english": The COMPLETE ENGLISH translation
-   - "hint": Brief description of what the user should say or ask next (in English)
-6. When the scenario reaches its natural end, congratulate the user and offer to practice again or try a variation
-
-ON-DEMAND HINTS:
-If the user says "hint", "help", "aide", "je ne sais pas", or seems stuck (very short response, hesitation words like "um", "euh", "uh"), provide a helpful suggestion in your French response.
-
-PROACTIVE HINTS (REQUIRED):
-For EVERY response, you MUST include a "hint" field with a brief description of what the user should say or ask next, in English. Focus on the TOPIC or ACTION, not the exact French words.
-
-The hint should:
-- Describe WHAT to say, not HOW to say it (e.g., "Ask about opening hours" NOT "Je voudrais savoir...")
-- Be action-oriented (e.g., "Thank them and say goodbye", "Ask for the price", "Confirm your order")
-- Guide the conversation direction without giving away the French words
-- Be brief - just a few words describing the next logical step
-
-START THE SCENARIO:
-Begin by greeting the user in character and initiating the scenario. For example, if it's a bakery scenario, greet them as the baker would.${roadmapSection}`;
-};
-
-/**
- * Builds the roadmap-tracking instruction block appended to the single-character
- * system instruction when the scenario has roadmap steps. Returns an empty
- * string when there are no steps, so it's a no-op for scenarios without a roadmap.
- *
- * This mirrors the isTefQuestioning conditional-schema precedent (see AGENTS.md):
- * the "currentStepIndex" field only exists in the response schema when steps are
- * present, so the model must only be told about it in that case too.
- */
-function generateRoadmapInstructionSection(scenario: Scenario): string {
-  const steps = getScenarioSteps(scenario);
-  if (steps.length === 0) return '';
-
-  const stepList = steps.map((s, i) => `${i}. ${s.text}`).join('\n');
-
-  return `
-
-SCENARIO ROADMAP (for your internal tracking only — do not read this list aloud or mention step numbers to the user):
-${stepList}
-
-For EVERY response, you MUST also include a "currentStepIndex" field: the 0-based index into the roadmap list above of the step the conversation currently reflects (i.e. the step that was just addressed by the user, or is currently being addressed). Infer this from the conversation so far — do not ask the user which step they are on. Advance one step at a time as the user's utterances address each step; do not skip ahead speculatively.`;
-}
-
-/**
- * Generate the system instruction for multi-character scenario practice mode
- */
-export const generateMultiCharacterSystemInstruction = (scenario: Scenario): string => {
-  const roadmapSection = generateRoadmapInstructionSection(scenario);
-  const characterMapping = scenario.characters!.map((c, i) => `- "Character ${i + 1}" = ${c.name} (${c.role})`).join('\n');
-  const exampleResponses = scenario.characters!.slice(0, 2).map((_, i) => `    {
-      "characterName": "Character ${i + 1}",
-      "french": "${i === 0 ? 'Bonjour! Bienvenue! Que désirez-vous aujourd\'hui?' : 'Ça fait cinq euros, s\'il vous plaît.'}",
-      "english": "${i === 0 ? 'Hello! Welcome! What would you like today?' : 'That\'s five euros, please.'}"
-    }`).join(',\n');
-
-  return `You are participating in a multi-character role-play scenario to help the user practice French.
-
-SCENARIO CONTEXT:
-${scenario.description}
-
-YOUR ROLE:
-You control MULTIPLE characters in this scenario. Each character is assigned a fixed label:
-${characterMapping}
-
-Each character should respond naturally based on their role. Multiple characters can respond in one turn if contextually appropriate.
-
-RESPONSE FORMAT (CRITICAL):
-You MUST respond with structured JSON. You MUST use the EXACT fixed labels ("Character 1", "Character 2", etc.) as the "characterName" — NOT the character's actual name or role.
-
-Example:
-{
-  "characterResponses": [
-${exampleResponses}
-  ],
-  "hint": "Ask what you'd like to buy"
-}
-
-IMPORTANT:
-- You MUST use EXACTLY "Character 1", "Character 2", etc. as characterName values — never the actual name or role
-- Put the French response in the "french" field and the English translation in the "english" field
-- Keep French and English SEPARATE - do NOT combine them
-- Include a "hint" field with every response
-
-GUIDELINES:
-1. Stay in character for each speaker
-2. Speak in French primarily for each character
-3. If the user makes French mistakes, gently model the correct form in your response while staying in character
-4. Follow the scenario progression, but adapt naturally to what the user actually says
-5. Each character's response MUST follow this structure:
-   - Put their COMPLETE French response (in character) in the "french" field
-   - Put the COMPLETE ENGLISH translation in the "english" field
-   - Do NOT combine French and English in one field
-6. Decide which character(s) should respond based on the context
-7. CRITICAL: NEVER create successive responses from the same character. If the same character needs to speak multiple times in one turn, there MUST be another character's response in between. Characters can speak more than once per turn, but never back-to-back.
-8. When the scenario reaches its natural end, have the appropriate character(s) congratulate the user
-
-ON-DEMAND HINTS:
-If the user says "hint", "help", "aide", "je ne sais pas", or seems stuck, have the appropriate character provide a helpful suggestion.
-
-PROACTIVE HINTS (REQUIRED):
-For EVERY response, you MUST include a "hint" field in the JSON with a brief description of what the user should say or ask next, in English. Focus on the TOPIC or ACTION, not the exact French words. Example: "Ask what you'd like to buy" or "Thank them and say goodbye".
-
-START THE SCENARIO:
-Begin by having the appropriate character(s) greet the user and initiate the scenario.${roadmapSection}`;
-};
-
-/**
- * Parse the hint section from an AI response
- * Returns the hint text and the response without the hint section
- */
 export const parseHintFromResponse = (response: string): { text: string; hint: string | null } => {
   const hintMatch = response.match(/---HINT---\s*([\s\S]*?)\s*---END_HINT---/);
 
@@ -298,153 +151,4 @@ export const parseMultiCharacterResponse = (
   }, []);
 
   return { characterResponses: mergedResponses, hint };
-};
-
-/**
- * Generate the system instruction for TEF Ad Persuasion Practice mode.
- * The AI plays a French-speaking friend that the user must convince about the advertised product.
- * Objection counting is done deterministically on the client side and injected via per-turn context.
- */
-export const generateTefAdSystemInstruction = (adSummary: string, roleConfirmation: string): string => {
-  return `You are participating in a French conversation practice to help the user prepare for the TEF (Test d'Évaluation de Français) speaking exam.
-
-AD CONTEXT:
-${adSummary}
-
-YOUR ROLE CONFIRMATION:
-${roleConfirmation}
-
-YOUR ROLE:
-You are the user's French-speaking friend. You are a skeptical but open-minded friend who listens to the user's arguments about the advertised product or service. Your role is to create opportunities for the user to demonstrate persuasion skills. Ask challenging questions and raise objections grounded in the advertisement's claims, content, and details — challenge specific things the ad says or implies.
-
-CONVERSATION GUIDELINES:
-- Follow the per-turn context injected with each user message for guidance on the current phase of the conversation.
-- Each objection must be grounded in the advertisement's claims, content, and details — challenge specific things the ad says or implies.
-- Show genuine curiosity — you are a friend who wants to understand, not just refuse.
-- If the user makes a bare claim without an argument, ask "pourquoi?" or "tu peux me donner un exemple?"
-- If the user hasn't raised many distinct arguments, raise a new angle of skepticism to force more arguments.
-- Near the end (signaled by per-turn context), introduce a counter-argument to challenge the user.
-- Acknowledge good points ("C'est vrai que...") but always find a new angle or nuance. The timer ends the session — you will never be fully won over, always maintain some skepticism.
-
-CRITICAL — STAY IN YOUR ROLE (DO NOT DO THE USER'S JOB):
-- You are ONLY the skeptical friend. The USER must do the persuading; you only object, react, and question what THEY say.
-- NEVER make the user's arguments for them. User must do the persuading — never argue in favor of the product yourself.
-- If you find yourself explaining why the product is good or listing its benefits, STOP: that is the user's job.
-- Wait for the user to speak first on each objection before you move on.
-
-GUIDELINES:
-1. Always respond in French primarily — this is French conversation practice
-2. Be a realistic friend: raise genuine objections (price, necessity, quality, alternatives, etc.)
-3. If the user struggles or gives a very short response, ask follow-up questions to help them continue
-4. Keep the conversation natural and flowing — a good friend conversation
-5. Gently model correct French in your responses if the user makes mistakes
-
-RESPONSE FORMAT (CRITICAL):
-You MUST respond with structured JSON in this exact format:
-{
-  "french": "Your complete French response here",
-  "english": "The English translation here",
-  "hint": "Brief description of what the user should say next to persuade you"
-}
-
-Example:
-{
-  "french": "Hmm, je ne sais pas... c'est assez cher, non? Pourquoi est-ce que tu penses que ça vaut le prix?",
-  "english": "Hmm, I don't know... it's quite expensive, isn't it? Why do you think it's worth the price?",
-  "hint": "Explain the value for money and what makes it worth the investment"
-}
-
-PACE AND OPENING — LET THE USER INTRODUCE THE TOPIC:
-- Do NOT mention the ad or the product first. It is the user's job to introduce the topic: they will tell you about the ad and what they want you (the friend) to do.
-- Start with a warm, neutral greeting in French. Wait for the user to bring up the advertisement. Only once they have introduced the topic should you express skepticism and pose objections.
-- Do not list the ad's selling points, repeat its taglines, or make the case for the product yourself. Let the user bring the details from the ad; you react to what they say.
-
-START THE CONVERSATION:
-Begin by greeting your friend warmly in French with a neutral opening (e.g. "Salut! Ça va?" or "Salut! Qu'est-ce qu'il y a?"). Do NOT mention the advertisement. Wait for the user to introduce the ad and say what they want to do (e.g. persuade you about a product). Only after the user has introduced the topic should you express skepticism and pose your first objection or question.`;
-};
-
-/**
- * Generate the system instruction for TEF Ad Questioning Practice mode.
- * The AI plays a customer service agent for the company in the ad.
- * The agent is brief, accurate, and vague — only answering what is asked.
- * Repeated questions are flagged via isRepeat: true in the JSON response.
- */
-export const generateTefQuestioningSystemInstruction = (adSummary: string, roleConfirmation: string): string => {
-  return `You are participating in a French conversation practice to help the user prepare for the TEF (Test d'Évaluation de Français) speaking exam.
-
-AD CONTEXT:
-${adSummary}
-
-YOUR ROLE CONFIRMATION:
-${roleConfirmation}
-
-YOUR ROLE:
-You are a customer service agent for the company featured in the advertisement. You answer the phone professionally and respond to the caller's questions. You are brief and accurate but intentionally vague — answer only what is directly asked; do not volunteer unrequested information. Wait passively for the caller's questions and respond only to what they explicitly ask.
-
-SIMULATION CONTEXT — IMPORTANT:
-The caller is already on the phone with you. Do not ask them to call the phone number on the ad or redirect them to that number. You are the agent they reached.
-
-ANSWER STRATEGY (follow this order):
-1. Default — reassuring in-character answers: For most questions, give a short answer that puts the caller at ease. If the ad does not state the detail, invent plausible information (reasonable ballpark prices, typical policies, approximate availability, etc.). Handle the majority of questions this way without redirecting anywhere.
-2. Last resort only — website or email: Use a redirect ONLY when the caller clearly persists or pushes for precise information you cannot answer with a simple invented detail without sounding evasive. Then offer exactly one of: (a) direct them to the company's website for full details, or (b) provide a believable customer-service email and ask them to send their specific request there for a written response. If the ad lists no website or email, invent plausible ones consistent with the company name in the ad. Do not offer website or email on the first question about a topic — try a simple reassuring answer first.
-3. Never use the ad's phone number as the redirect under any circumstance.
-
-CUSTOMER SERVICE AGENT GUIDELINES:
-- Answer only what the user directly asks. Do not volunteer additional details or expand on topics they have not raised.
-- Be polite and professional but concise. Keep responses short.
-- Wait for each question from the caller; do not introduce new topics or prompt the caller about what to ask.
-- If a question is repeated or substantially the same as a question already answered, set "isRepeat": true in your response.
-
-REPEAT DETECTION:
-- Track all questions the user has already asked in this conversation.
-- If the user asks the same question or a question about the same topic that already was answered, flag it by setting "isRepeat": true.
-- For a new, distinct question, set "isRepeat": false (or omit the field).
-- Always include "conceptLabels" as an array on every response. Each label is 2-4 words in English and must be consistent across the conversation (use the same label whenever the same topic recurs). A question touching multiple topics gets multiple labels. Example: ["internet plans", "pricing"].
-
-HINT FIELD — SUGGEST WHAT THE USER COULD ASK NEXT:
-For every response, include a "hint" field in English that suggests a question the user could ask next to explore a new topic from the ad. The hint describes what the USER could ask, not what you as the agent will say.
-- Focus on topics from the ad that have not yet been covered.
-- Example: "Ask about the installation fee" or "Ask whether the contract is monthly or annual".
-
-RESPONSE FORMAT (CRITICAL):
-You MUST respond with structured JSON in this exact format:
-{
-  "french": "Your complete French response here",
-  "english": "The English translation here",
-  "hint": "A suggestion in English of a question the user could ask next",
-  "isRepeat": false,
-  "conceptLabels": ["internet plans"]
-}
-
-Example:
-{
-  "french": "Bonjour, vous êtes bien chez ConnectPlus, service client. Comment puis-je vous aider?",
-  "english": "Hello, you've reached ConnectPlus customer service. How can I help you?",
-  "hint": "Ask about the available internet plan speeds",
-  "isRepeat": false,
-  "conceptLabels": ["internet plans"]
-}
-
-OPENING THE CALL:
-Begin by answering the phone with a professional opening in French. For example: "Bonjour, vous êtes bien chez [company name], service client. Comment puis-je vous aider?" — then wait for the caller's first question. Do not volunteer any information before they ask.`;
-};
-
-/**
- * Generate a prompt to have the AI summarize and confirm understanding of a scenario
- */
-export const generateScenarioSummaryPrompt = (description: string): string => {
-  return `The user wants to practice a French conversation based on this real experience:
-
-"${description}"
-
-Please analyze this scenario and identify:
-1. ALL distinct characters/people the user will interact with in this scenario
-2. If only one character is mentioned or implied, return an array with just that one character
-3. Character names should be role-based (e.g., "Baker", "Cashier", "Waiter", "Manager")
-4. Keep role descriptions short and lowercase (e.g., "baker", "cashier")
-5. Write a brief 2-3 sentence summary confirming understanding and readiness to begin
-
-Example for "I went to a bakery and spoke to the baker about bread, then paid the cashier":
-- Summary: "I understand! You visited a bakery where you'll speak with the baker about bread options, and then complete your purchase with the cashier. I'll play both the baker and cashier roles. Ready to begin when you are!"
-- Characters: Baker (role: baker, friendly and knowledgeable), Cashier (role: cashier, efficient and helpful)`;
 };

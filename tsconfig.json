@@ -11,6 +11,7 @@
     ],
     "skipLibCheck": true,
     "types": [
+      "./worker-configuration.d.ts",
       "node"
     ],
     "moduleResolution": "bundler",

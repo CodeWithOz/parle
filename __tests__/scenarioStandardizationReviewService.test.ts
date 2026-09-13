@@ -1,34 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { GoogleGenAI, Type } from '@google/genai';
-
-vi.mock('@google/genai', async (importActual) => {
-  const actual = await importActual<typeof import('@google/genai')>();
-  return {
-    ...actual,
-    GoogleGenAI: vi.fn(function GoogleGenAIMock() {}),
-  };
-});
-
-const mockFetch = vi.fn();
-vi.stubGlobal('fetch', mockFetch);
-
 import { generateScenarioStandardizationReview } from '../services/scenarioStandardizationReviewService';
 import type { Message, ScenarioStandardizationReview } from '../types';
-
-let mockGenerateContent = vi.fn();
-
-const mockAi = {
-  models: {
-    get generateContent() {
-      return mockGenerateContent;
-    },
-  },
-  chats: { create: vi.fn() },
-};
-
-vi.mocked(GoogleGenAI).mockImplementation(function GoogleGenAIConstructorMock() {
-  return mockAi as unknown as GoogleGenAI;
-});
+import { jsonResponse } from './helpers/mockParleBff';
 
 const SAMPLE_REVIEW: ScenarioStandardizationReview = {
   items: [
@@ -42,47 +15,39 @@ const SAMPLE_REVIEW: ScenarioStandardizationReview = {
 const FAKE_AUDIO_BASE64 = 'ZmFrZWF1ZGlv';
 const FAKE_MIME_TYPE = 'audio/webm';
 
-function setupSuccessfulAudioFetch() {
-  const fakeBlob = new Blob([Buffer.from(FAKE_AUDIO_BASE64, 'base64')], { type: FAKE_MIME_TYPE });
-  mockFetch.mockResolvedValue({
-    ok: true,
-    blob: () => Promise.resolve(fakeBlob),
-  });
-}
-
 function makeUserMessage(text: string, audioUrl?: string): Message {
-  return {
-    role: 'user',
-    text,
-    timestamp: Date.now(),
-    audioUrl,
-  };
+  return { role: 'user', text, timestamp: Date.now(), audioUrl };
 }
 
 function makeModelMessage(text: string): Message {
-  return {
-    role: 'model',
-    text,
-    timestamp: Date.now(),
-  };
+  return { role: 'model', text, timestamp: Date.now() };
 }
 
+let lastReviewBody: Record<string, unknown> | null = null;
+
 beforeEach(() => {
-  localStorage.setItem('parle_api_key_gemini', 'test-key-scenario-review');
-  mockGenerateContent = vi.fn().mockResolvedValue({
-    text: JSON.stringify(SAMPLE_REVIEW),
-  });
-  setupSuccessfulAudioFetch();
+  lastReviewBody = null;
+  const fakeBlob = new Blob([Buffer.from(FAKE_AUDIO_BASE64, 'base64')], { type: FAKE_MIME_TYPE });
+  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.startsWith('blob:')) {
+      return { ok: true, blob: async () => fakeBlob } as Response;
+    }
+    if (url.includes('/api/scenario-review')) {
+      lastReviewBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      return jsonResponse(SAMPLE_REVIEW);
+    }
+    return jsonResponse({ error: 'NOT_FOUND' }, 404);
+  }));
 });
 
 afterEach(() => {
-  localStorage.clear();
+  vi.unstubAllGlobals();
   vi.restoreAllMocks();
-  mockFetch.mockReset();
 });
 
 describe('generateScenarioStandardizationReview', () => {
-  it('uses user audio as inlineData and agent text only as context', async () => {
+  it('sends user audio as inlineData turns and agent text only as context', async () => {
     const messages: Message[] = [
       makeModelMessage('Bonjour, vous désirez ?'),
       makeUserMessage('je cherche pour acheter un billet', 'blob:http://localhost/user-audio-1'),
@@ -96,36 +61,38 @@ describe('generateScenarioStandardizationReview', () => {
     });
 
     expect(result).toEqual(SAMPLE_REVIEW);
-    expect(mockGenerateContent).toHaveBeenCalledTimes(1);
-
-    const request = mockGenerateContent.mock.calls[0][0];
-    expect(request.config.responseMimeType).toBe('application/json');
-    expect(request.config.responseSchema.properties.items.type).toBe(Type.ARRAY);
-
-    const parts = request.contents[0].parts as Array<{ text?: string; inlineData?: { data: string; mimeType: string } }>;
-    expect(parts.some((part) => part.inlineData?.data === FAKE_AUDIO_BASE64)).toBe(true);
-    expect(parts.some((part) => part.text?.includes('[Agent said: Bonjour, vous désirez ?]'))).toBe(true);
-    expect(parts.some((part) => part.text?.includes('[User said (transcript fallback only): je cherche pour acheter un billet]'))).toBe(false);
+    const turns = lastReviewBody?.turns as Array<Record<string, unknown>>;
+    expect(turns.some((turn) => turn.audioBase64 === FAKE_AUDIO_BASE64)).toBe(true);
+    expect(turns.some((turn) => turn.role === 'model' && String(turn.text).includes('Bonjour, vous désirez ?'))).toBe(true);
   });
 
   it('falls back to transcript text when user audio cannot be fetched', async () => {
-    mockFetch.mockRejectedValue(new Error('blob fetch failed'));
+    vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith('blob:')) {
+        throw new Error('blob fetch failed');
+      }
+      if (url.includes('/api/scenario-review')) {
+        lastReviewBody = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+        return jsonResponse(SAMPLE_REVIEW);
+      }
+      return jsonResponse({ error: 'NOT_FOUND' }, 404);
+    });
 
     await generateScenarioStandardizationReview({
       messages: [makeUserMessage('je cherche pour acheter un billet', 'blob:http://localhost/user-audio-1')],
     });
 
-    const request = mockGenerateContent.mock.calls[0][0];
-    const parts = request.contents[0].parts as Array<{ text?: string; inlineData?: { data: string; mimeType: string } }>;
-    expect(parts.some((part) => part.text?.includes('[User said (transcript fallback only): je cherche pour acheter un billet]'))).toBe(true);
+    const turns = lastReviewBody?.turns as Array<Record<string, unknown>>;
+    expect(turns[0]?.text).toContain('je cherche pour acheter un billet');
+    expect(turns[0]?.audioBase64).toBeUndefined();
   });
 
-  it('returns an empty review without calling the model when there are no user messages', async () => {
+  it('returns an empty review without calling the BFF when there are no user messages', async () => {
     const result = await generateScenarioStandardizationReview({
       messages: [makeModelMessage('Bonjour')],
     });
-
     expect(result).toEqual({ items: [] });
-    expect(mockGenerateContent).not.toHaveBeenCalled();
+    expect(lastReviewBody).toBeNull();
   });
 });

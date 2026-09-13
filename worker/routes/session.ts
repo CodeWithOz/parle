@@ -1,6 +1,5 @@
 import { serializeDeletedSessionCookie } from '../cookies';
 import { isAllowedOrigin } from '../csrf';
-import type { Env } from '../env';
 import { errorJson, isJsonContentType, json } from '../http';
 import {
   mergeSessionKeys,

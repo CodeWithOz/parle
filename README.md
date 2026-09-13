@@ -6,7 +6,7 @@
 
 ## What is Parle?
 
-Parle is a web app for practicing French conversation using your microphone and AI. You speak, the app transcribes and replies in French (with optional English), and you hear the reply via text-to-speech. No account required to try it; API keys are configured in the app or via environment variables.
+Parle is a web app for practicing French conversation using your microphone and AI. You speak, the app transcribes and replies in French (with optional English), and you hear the reply via text-to-speech. No account required to try it; paste your API keys in Settings. The browser never stores readable keys — they are sealed in an HttpOnly cookie by the Cloudflare Worker BFF.
 
 ### Features
 
@@ -26,7 +26,7 @@ and (where applicable) timers and summaries are shown in the UI.
 ## Tech stack
 
 - **Frontend:** React 19, Vite 7, TypeScript, Tailwind CSS (French-flag-inspired blue/white/red design tokens; responsive at `tablet` 760px / `desktop` 1200px breakpoints)  
-- **AI:** Google Gemini (transcription, chat, TTS); OpenAI optional for scenario creation from a description  
+- **BFF:** Cloudflare Worker (`worker/`) with static assets + `/api/*` routes; Gemini via `@google/genai` on the Worker; OpenAI scenario planning via `fetch`  
 - **Tests:** Vitest (unit), Playwright (e2e)
 
 ---
@@ -34,7 +34,8 @@ and (where applicable) timers and summaries are shown in the UI.
 ## Prerequisites
 
 - **Node.js** (LTS recommended)
-- **API keys:**
+- **Wrangler** (installed with `npm install`) for the local BFF Worker
+- **API keys** (pasted in Settings; sealed into an HttpOnly cookie):
   - **Gemini** — required for voice conversation, scenario practice, and TEF modes (transcription, chat, TTS).
   - **OpenAI** — optional; used only when creating a scenario from a spoken/typed description (scenario planning).
 
@@ -47,27 +48,27 @@ and (where applicable) timers and summaries are shown in the UI.
    npm install
    ```
 
-2. **Configure API keys** (pick one approach)
-   - **Option A — Environment (recommended for development)**  
-     Create `.env.local` in the project root:
-     ```env
-     GEMINI_API_KEY=your_gemini_key
-     OPENAI_API_KEY=your_openai_key   # optional, for scenario-from-description
-     ```
-   - **Option B — In-app**  
-     Run the app; if no keys are found, you’ll be prompted to enter them. Keys are stored in the browser and override env vars.
-
-3. **Start the app**
+2. **Configure the Worker cookie secret**
    ```bash
-   npm run dev
+   cp .dev.vars.example .dev.vars
+   # Set API_KEY_COOKIE_SECRET to a high-entropy value, e.g. `openssl rand -base64 32`
    ```
-   Open the URL shown in the terminal (e.g. `http://localhost:5173`).
+
+3. **Start Vite and the Worker together**
+   ```bash
+   npm run dev:full
+   ```
+   Or run `npm run dev` (http://localhost:3000) and `npm run dev:worker` (http://localhost:8787) in two terminals. Vite proxies `/api` to the Worker.
+
+4. **Paste API keys in Settings** (gear icon). Empty fields leave a saved key unchanged. Use Remove to delete a key.
 
 ### Other commands
 
 | Command | Purpose |
 |---------|--------|
-| `npm run build` | Production build |
+| `npm run build` | Production frontend build |
+| `npm run deploy` | Build + `wrangler deploy` |
+| `npm run types` | Regenerate `worker-configuration.d.ts` from `wrangler.jsonc` |
 | `npm run preview` | Preview production build locally |
 | `npm test` | Run unit tests (Vitest) |
 | `npm run test:e2e` | Run E2E tests (Playwright; run `npm run test:e2e:install` once to install browsers) |
@@ -80,7 +81,9 @@ and (where applicable) timers and summaries are shown in the UI.
 |------|----------|
 | `App.tsx` | Main UI and mode orchestration (free chat, scenario, TEF Ad persuasion/questioning) |
 | `components/` | UI (Orb, Controls, conversation history, setup flows, timers, summaries); app shell (`NavRail`, `TopBar`) and `ScenarioRoadmap` (scenario step progress outline) |
-| `services/` | Gemini (session, voice message, TTS), OpenAI (scenario planning), scenario/voice/API-key helpers, IndexedDB archives, `.parle` backup export/import |
+| `services/` | Client BFF calls (`geminiService`, scenario planning, reviews); IndexedDB archives, `.parle` backup |
+| `worker/` | Cloudflare Worker: session cookie seal/CSRF, typed `/api/*` AI routes |
+| `shared/` | Prompts and Zod chat schemas used by Worker and client |
 | `hooks/` | Audio, conversation timer, document head |
 | `utils/` | Abort signal combiner, abort error helper, time helpers |
 | `__tests__/` | Unit tests |

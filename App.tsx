@@ -6,7 +6,12 @@ import { useConversationTimer } from './hooks/useConversationTimer';
 import { initializeSession, sendVoiceMessage, resetSession, resetSessionWithUserAudioHistory, setScenario, transcribeAndCleanupAudio, generateCharacterSpeech, PIPELINE_MAX_MS } from './services/geminiService';
 import { processScenarioDescriptionOpenAI } from './services/openaiService';
 import { clearHistory, getConversationHistory, setHistory } from './services/conversationHistory';
-import { hasApiKeyOrEnv } from './services/apiKeyService';
+import { BffError } from './services/bffClient';
+import {
+  clearLegacyLocalStorageKeys,
+  hasApiKeyOrEnv,
+  refreshSessionStatus,
+} from './services/apiKeyService';
 import { assignVoicesToCharacters } from './services/voiceService';
 import {
   generateId,
@@ -600,6 +605,8 @@ const App: React.FC = () => {
 
   // API Key management state
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
+  const [apiKeyModalError, setApiKeyModalError] = useState<string | null>(null);
+  const [sessionEpoch, setSessionEpoch] = useState(0);
   const [apiKeyCheckDone, setApiKeyCheckDone] = useState(false);
 
   // Ref to track if we're recording for scenario description
@@ -633,6 +640,7 @@ const App: React.FC = () => {
   const [chatProcessingErrorMessage, setChatProcessingErrorMessage] = useState('');
 
   const hasMessages = messages.length > 0;
+  void sessionEpoch;
   const geminiKeyMissing = apiKeyCheckDone && !hasApiKeyOrEnv('gemini');
 
   /**
@@ -669,6 +677,9 @@ const App: React.FC = () => {
       } catch (error) {
         console.error('Failed to initialize durable local data:', error);
       }
+      clearLegacyLocalStorageKeys();
+      await refreshSessionStatus();
+      setSessionEpoch((value) => value + 1);
       setApiKeyCheckDone(true);
       if (hasApiKeyOrEnv('gemini')) {
         try {
@@ -683,7 +694,7 @@ const App: React.FC = () => {
 
   // Handle API key save - re-initialize services if needed
   const handleApiKeySave = async () => {
-    // Re-initialize Gemini session if Gemini key is now available
+    setSessionEpoch((value) => value + 1);
     if (hasApiKeyOrEnv('gemini')) {
       try {
         await initializeSession();
@@ -694,10 +705,15 @@ const App: React.FC = () => {
     setApiKeyCheckDone(true);
   };
 
+  const openApiKeyModal = (message?: string) => {
+    setApiKeyModalError(message ?? null);
+    setShowApiKeyModal(true);
+  };
+
   // Handle API key modal close
   const handleApiKeyModalClose = () => {
     setShowApiKeyModal(false);
-    // Mark that user has been offered the chance to enter keys
+    setApiKeyModalError(null);
     setApiKeyCheckDone(true);
   };
 
@@ -761,7 +777,7 @@ const App: React.FC = () => {
 
   const handleStartRecording = async () => {
     if (!hasApiKeyOrEnv('gemini')) {
-      setShowApiKeyModal(true);
+      openApiKeyModal();
       return;
     }
     if (!hasStarted) await handleStartInteraction();
@@ -883,6 +899,13 @@ const App: React.FC = () => {
 
       const { base64, mimeType } = audioData;
 
+      const priorMessages = isRegenerate
+        ? (() => {
+            const turn = findLastAssistantTurn(messagesRef.current);
+            return turn ? messagesRef.current.slice(0, turn.lastUserIndex) : [];
+          })()
+        : messagesRef.current;
+
       // Build phase-based per-turn context for TEF Ad practice
       // Skip context injection for the very first message (greeting turn)
       let phaseContextText: string | undefined;
@@ -904,7 +927,8 @@ const App: React.FC = () => {
         base64,
         mimeType,
         pipelineSignal,
-        phaseContextText
+        phaseContextText,
+        priorMessages
       );
 
       // Check if user aborted or a newer request has started (stale response)
@@ -1194,6 +1218,14 @@ const App: React.FC = () => {
       }
 
       console.error("Interaction failed", error);
+      if (error instanceof BffError && error.code === 'UPSTREAM_AUTH_FAILED') {
+        openApiKeyModal(error.message);
+        setChatProcessingErrorMessage(error.message);
+        setCanRetryChatAudio(true);
+        setAppState(AppState.ERROR);
+        showErrorFlash(error.message);
+        return;
+      }
       setChatProcessingErrorMessage(defaultMsg);
       setCanRetryChatAudio(true);
       setAppState(AppState.ERROR);
@@ -1435,7 +1467,7 @@ const App: React.FC = () => {
   const handleStartRecordingDescription = async () => {
     // Scenario creation requires both Gemini (transcription) and OpenAI (planning)
     if (!hasApiKeyOrEnv('gemini') || !hasApiKeyOrEnv('openai')) {
-      setShowApiKeyModal(true);
+      openApiKeyModal();
       return;
     }
     try {
@@ -1686,7 +1718,7 @@ const App: React.FC = () => {
   const handleSubmitScenarioDescription = async (description: string, name: string) => {
     // Scenario creation requires both Gemini (transcription) and OpenAI (planning)
     if (!hasApiKeyOrEnv('gemini') || !hasApiKeyOrEnv('openai')) {
-      setShowApiKeyModal(true);
+      openApiKeyModal();
       return;
     }
     await processScenarioDescriptionAndPopulate(description);
@@ -1700,7 +1732,7 @@ const App: React.FC = () => {
   // existing id so "Start Practice" from there updates it in place.
   const handleRegenerateRoadmapForScenario = async (scenario: Scenario) => {
     if (!hasApiKeyOrEnv('gemini') || !hasApiKeyOrEnv('openai')) {
-      setShowApiKeyModal(true);
+      openApiKeyModal();
       return;
     }
     setRegeneratingScenario(scenario);
@@ -1937,7 +1969,7 @@ const App: React.FC = () => {
     existingAdId?: string
   ) => {
     if (!hasApiKeyOrEnv('gemini')) {
-      setShowApiKeyModal(true);
+      openApiKeyModal();
       return;
     }
 
@@ -2183,7 +2215,7 @@ const App: React.FC = () => {
     existingAdId?: string
   ) => {
     if (!hasApiKeyOrEnv('gemini')) {
-      setShowApiKeyModal(true);
+      openApiKeyModal();
       return;
     }
 
@@ -2516,7 +2548,7 @@ const App: React.FC = () => {
       <TopBar
         activeMode={activeMode}
         onSelectMode={handleNavSelect}
-        onOpenSettings={() => setShowApiKeyModal(true)}
+        onOpenSettings={() => openApiKeyModal()}
         disabledModes={navDisabledModes}
         rightSlot={
           <>
@@ -2781,7 +2813,7 @@ const App: React.FC = () => {
           recentAdsRefreshToken={recentAdsRefreshToken}
           onClose={handleCloseTefAdSetup}
           geminiKeyMissing={geminiKeyMissing}
-          onOpenApiKeyModal={() => setShowApiKeyModal(true)}
+          onOpenApiKeyModal={() => openApiKeyModal()}
         />
       )}
 
@@ -2795,7 +2827,7 @@ const App: React.FC = () => {
           recentAdsRefreshToken={recentAdsRefreshToken}
           onClose={() => setTefQuestioningMode('none')}
           geminiKeyMissing={geminiKeyMissing}
-          onOpenApiKeyModal={() => setShowApiKeyModal(true)}
+          onOpenApiKeyModal={() => openApiKeyModal()}
         />
       )}
 
@@ -2914,7 +2946,7 @@ const App: React.FC = () => {
       {scenarioMode === 'setup' && (
         <ScenarioSetup
           onStartPractice={handleStartPractice}
-          onOpenApiKeyModal={() => setShowApiKeyModal(true)}
+          onOpenApiKeyModal={() => openApiKeyModal()}
           onClose={handleCloseScenarioSetup}
           isRecordingDescription={isRecordingDescription}
           isTranscribingDescription={isTranscribingDescription}
@@ -2952,6 +2984,7 @@ const App: React.FC = () => {
           onClose={handleApiKeyModalClose}
           onSave={handleApiKeySave}
           onImported={() => setRecentAdsRefreshToken((token) => token + 1)}
+          initialError={apiKeyModalError}
         />
       )}
 

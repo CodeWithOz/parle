@@ -17,8 +17,10 @@
  * Tests FAIL before the abort/discard fix is implemented.
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
+import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { jsonResponse } from './helpers/mockParleBff';
 
 type Deferred<T> = {
   promise: Promise<T>;
@@ -39,56 +41,12 @@ const createDeferred = <T,>(): Deferred<T> => {
 const FAKE_AUDIO_BASE64 = 'ZmFrZWF1ZGlv';
 const FAKE_MIME_TYPE = 'audio/webm';
 
-// ---------------------------------------------------------------------------
-// Mock @google/genai so Gemini transcription calls are fully controlled
-// ---------------------------------------------------------------------------
-vi.mock('@google/genai', async (importActual) => {
-  const actual = await importActual<typeof import('@google/genai')>();
-  return {
-    ...actual,
-    GoogleGenAI: vi.fn(),
-  };
-});
-
-import { GoogleGenAI } from '@google/genai';
-
 let transcriptionCalls: Array<{
-  deferred: Deferred<{ text: string }>;
+  deferred: Deferred<Response>;
   abortSignal?: AbortSignal;
 }> = [];
 
-// Some tests need to simulate "late resolve even after abort" to verify
-// request-id based discard works on close+reopen races.
 let rejectOnAbort = true;
-
-const mockGenerateContent = vi.fn().mockImplementation((request: any) => {
-  const abortSignal: AbortSignal | undefined = request?.config?.abortSignal;
-  const deferred = createDeferred<{ text: string }>();
-
-  transcriptionCalls.push({ deferred, abortSignal });
-
-  // If the app wires abortSignal through to Gemini, we reject when aborted.
-  if (abortSignal) {
-    abortSignal.addEventListener('abort', () => {
-      if (rejectOnAbort) {
-        deferred.reject(new DOMException('Request aborted', 'AbortError'));
-      }
-    });
-  }
-
-  return deferred.promise;
-});
-
-const mockAi = {
-  models: {
-    generateContent: mockGenerateContent,
-  },
-  chats: {
-    create: vi.fn().mockReturnValue({ sendMessage: vi.fn() }),
-  },
-};
-
-vi.mocked(GoogleGenAI).mockReturnValue(mockAi as unknown as GoogleGenAI);
 
 // ---------------------------------------------------------------------------
 // Mock Vaul so PracticeModeSheet can be imported without the real library.
@@ -193,19 +151,38 @@ beforeAll(() => {
 });
 
 describe('ScenarioSetup · describe by voice abort + discard', () => {
-  beforeEach(() => {
-    localStorage.setItem('parle_api_key_gemini', 'test-key-scenario-abort');
-    localStorage.setItem('parle_api_key_openai', 'test-key-openai');
+  beforeEach(async () => {
     transcriptionCalls = [];
     rejectOnAbort = true;
-    mockGenerateContent.mockClear();
+    const { hydrateSessionStatus } = await import('../services/apiKeyService');
+    hydrateSessionStatus({ hasGemini: true, hasOpenai: true, hasApiKey: true });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/session/status')) {
+        return jsonResponse({ hasGemini: true, hasOpenai: true, hasApiKey: true });
+      }
+      if (url.includes('/api/transcribe')) {
+        const abortSignal = init?.signal;
+        const deferred = createDeferred<Response>();
+        transcriptionCalls.push({ deferred, abortSignal });
+        if (abortSignal) {
+          abortSignal.addEventListener('abort', () => {
+            if (rejectOnAbort) {
+              deferred.reject(new DOMException('Request aborted', 'AbortError'));
+            }
+          });
+        }
+        return deferred.promise;
+      }
+      return jsonResponse({ error: 'NOT_FOUND' }, 404);
+    }));
     mockStartRecording.mockClear();
     mockStopRecording.mockClear();
     mockCancelRecording.mockClear();
   });
 
   afterEach(() => {
-    localStorage.clear();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -260,9 +237,7 @@ describe('ScenarioSetup · describe by voice abort + discard', () => {
     // If stale results are not discarded, the UI will switch away from the
     // second transcription spinner and show transcript1 instead.
     await act(async () => {
-      call1.deferred.resolve({
-        text: JSON.stringify({ rawTranscript: 'RAW_ONE', cleanedTranscript: 'CLEAN_ONE' }),
-      });
+      call1.deferred.resolve(jsonResponse({ rawTranscript: 'RAW_ONE', cleanedTranscript: 'CLEAN_ONE' }));
     });
 
     // Second transcription must still be in-flight and must not be overwritten.
@@ -273,9 +248,7 @@ describe('ScenarioSetup · describe by voice abort + discard', () => {
 
     // Resolve the second transcription and ensure only attempt #2 appears.
     await act(async () => {
-      call2.deferred.resolve({
-        text: JSON.stringify({ rawTranscript: 'RAW_TWO', cleanedTranscript: 'CLEAN_TWO' }),
-      });
+      call2.deferred.resolve(jsonResponse({ rawTranscript: 'RAW_TWO', cleanedTranscript: 'CLEAN_TWO' }));
     });
 
     expect(await screen.findByText('RAW_TWO')).toBeInTheDocument();
@@ -321,9 +294,7 @@ describe('ScenarioSetup · describe by voice abort + discard', () => {
 
     // Late resolve of the first transcription should not overwrite the reopened modal.
     await act(async () => {
-      call1.deferred.resolve({
-        text: JSON.stringify({ rawTranscript: 'RAW_ONE', cleanedTranscript: 'CLEAN_ONE' }),
-      });
+      call1.deferred.resolve(jsonResponse({ rawTranscript: 'RAW_ONE', cleanedTranscript: 'CLEAN_ONE' }));
     });
 
     expect(screen.queryByText('Transcribing...')).not.toBeInTheDocument();
