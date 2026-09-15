@@ -29,4 +29,9 @@ describe('session cookies', () => {
     expect(parseCookieHeader(`${COOKIE_NAME}=abc; other=1`, COOKIE_NAME)).toBe('abc');
     expect(parseCookieHeader('other=1', COOKIE_NAME)).toBeUndefined();
   });
+
+  it('treats a malformed percent-encoded cookie as missing instead of throwing', () => {
+    expect(parseCookieHeader(`${COOKIE_NAME}=%`, COOKIE_NAME)).toBeUndefined();
+    expect(parseCookieHeader(`${COOKIE_NAME}=%E0%A4%A`, COOKIE_NAME)).toBeUndefined();
+  });
 });

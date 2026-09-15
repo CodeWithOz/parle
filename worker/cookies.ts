@@ -10,7 +10,11 @@ export function parseCookieHeader(header: string | null, name: string): string |
     if (separator === -1) continue;
     const key = part.slice(0, separator).trim();
     if (key === name) {
-      return decodeURIComponent(part.slice(separator + 1).trim());
+      try {
+        return decodeURIComponent(part.slice(separator + 1).trim());
+      } catch {
+        return undefined;
+      }
     }
   }
   return undefined;
