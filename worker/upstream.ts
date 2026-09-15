@@ -51,14 +51,3 @@ export function classifyHttpStatus(status: number, bodyText: string): {
   }
   return { code: 'UPSTREAM_ERROR', httpStatus: 502, message: UPSTREAM_GENERIC_MESSAGE };
 }
-
-export function withTimeout<T>(promise: Promise<T>, ms: number, signal?: AbortSignal): Promise<T> {
-  const timeout = new AbortController();
-  const timer = setTimeout(() => timeout.abort(), ms);
-  const onOuterAbort = () => timeout.abort();
-  signal?.addEventListener('abort', onOuterAbort, { once: true });
-  return promise.finally(() => {
-    clearTimeout(timer);
-    signal?.removeEventListener('abort', onOuterAbort);
-  });
-}
