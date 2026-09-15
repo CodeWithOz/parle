@@ -1,4 +1,4 @@
-import { MAX_API_KEY_LENGTH, MIN_API_KEY_LENGTH } from './constants';
+import { COOKIE_MAX_AGE_SECONDS, MAX_API_KEY_LENGTH, MIN_API_KEY_LENGTH } from './constants';
 import { readNamedCookie, serializeDeletedSessionCookie, serializeSessionCookie } from './cookies';
 import { seal, unsealWithRotation } from './seal';
 
@@ -55,6 +55,14 @@ export async function readSession(request: Request, env: Env): Promise<SessionRe
     env.API_KEY_COOKIE_SECRET_PREVIOUS
   );
   if (!result || result.payload.v !== 1 || typeof result.payload.keys !== 'object') {
+    return { status: 'invalid' };
+  }
+  const createdAt = result.payload.createdAt;
+  if (typeof createdAt !== 'number' || !Number.isFinite(createdAt)) {
+    return { status: 'invalid' };
+  }
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (nowSeconds - createdAt > COOKIE_MAX_AGE_SECONDS) {
     return { status: 'invalid' };
   }
   return { status: 'ok', payload: result.payload, resealed: result.resealed };

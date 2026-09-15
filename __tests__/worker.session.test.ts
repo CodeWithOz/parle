@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COOKIE_NAME } from '../worker/constants';
+import { COOKIE_MAX_AGE_SECONDS, COOKIE_NAME } from '../worker/constants';
 import { handleCreateSession, handleRevoke, handleSessionStatus } from '../worker/routes/session';
 import { seal } from '../worker/seal';
 import type { SessionPayload } from '../worker/session';
@@ -52,7 +52,7 @@ describe('session routes', () => {
     const payload: SessionPayload = {
       v: 1,
       keys: { gemini: 'AIza-existing-gemini-key' },
-      createdAt: 10,
+      createdAt: Math.floor(Date.now() / 1000),
     };
     const token = await seal(payload, SECRET);
     const request = new Request('http://localhost:8787/api/session', {
@@ -86,6 +86,21 @@ describe('session routes', () => {
     expect(response.status).toBe(200);
     expect(cookieFrom(response)).toContain('Max-Age=0');
     expect(await response.json()).toMatchObject({ success: true, hasApiKey: false });
+  });
+
+  it('treats a session older than COOKIE_MAX_AGE_SECONDS as invalid and clears the cookie', async () => {
+    const payload: SessionPayload = {
+      v: 1,
+      keys: { gemini: 'AIza-existing-gemini-key' },
+      createdAt: Math.floor(Date.now() / 1000) - COOKIE_MAX_AGE_SECONDS - 1,
+    };
+    const token = await seal(payload, SECRET);
+    const request = new Request('http://localhost:8787/api/session/status', {
+      headers: { Cookie: `${COOKIE_NAME}=${token}` },
+    });
+    const response = await handleSessionStatus(request, env);
+    expect(await response.json()).toMatchObject({ hasGemini: false, hasOpenai: false, hasApiKey: false });
+    expect(cookieFrom(response)).toContain('Max-Age=0');
   });
 
   it('rejects a control-character key', async () => {
