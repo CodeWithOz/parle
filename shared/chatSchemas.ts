@@ -51,14 +51,27 @@ export const ScenarioSummarySchema = z.object({
   ),
 });
 
+export const ChatHistoryTurnSchema = z.object({
+  role: z.enum(['user', 'model']),
+  text: z.string().optional(),
+  frenchText: z.string().optional(),
+  audioBase64: z.string().optional(),
+  mimeType: z.string().optional(),
+});
+
+export const ChatHistoryTurnsSchema = z.array(ChatHistoryTurnSchema);
+
 export const createMultiCharacterSchema = (scenario: Scenario) => {
   const count = Math.min(scenario.characters!.length, MAX_CHARACTERS);
-  const labels = Array.from({ length: count }, (_, i) => `Character ${i + 1}`);
+  const labels = Array.from({ length: Math.max(count, 1) }, (_, i) => `Character ${i + 1}`) as [
+    string,
+    ...string[],
+  ];
 
   const base = z.object({
     characterResponses: z.array(
       z.object({
-        characterName: z.string().describe(`Must be one of: ${labels.join(', ')}`),
+        characterName: z.enum(labels).describe(`Must be one of: ${labels.join(', ')}`),
         french: z.string().describe("The character's complete response in French only"),
         english: z.string().describe('The English translation of the French response'),
         hint: z.string().optional().describe('Optional per-character hint'),

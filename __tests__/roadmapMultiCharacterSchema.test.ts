@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { selectGeminiResponseSchema } from '../shared/chatSchemas';
+import { createMultiCharacterSchema, selectGeminiResponseSchema } from '../shared/chatSchemas';
 
 const multiCharacterRoadmapScenario = {
   id: 'bakery-multichar-1',
@@ -23,6 +23,26 @@ describe('Worker chat schema · multi-character scenario with roadmap steps', ()
     const schemaStr = JSON.stringify(selectGeminiResponseSchema(multiCharacterRoadmapScenario));
     expect(schemaStr).toMatch(/characterResponses/i);
     expect(schemaStr).toMatch(/currentStepIndex/i);
+  });
+
+  it('constrains characterName to the fixed Character N labels', () => {
+    const schema = selectGeminiResponseSchema(multiCharacterRoadmapScenario);
+    expect(JSON.stringify(schema)).toMatch(/"enum":\["Character 1","Character 2"\]/);
+
+    const zodSchema = createMultiCharacterSchema(multiCharacterRoadmapScenario);
+    const valid = zodSchema.safeParse({
+      characterResponses: [
+        { characterName: 'Character 1', french: 'Bonjour', english: 'Hello' },
+      ],
+      currentStepIndex: 0,
+    });
+    expect(valid.success).toBe(true);
+    const invalid = zodSchema.safeParse({
+      characterResponses: [
+        { characterName: 'Baker', french: 'Bonjour', english: 'Hello' },
+      ],
+    });
+    expect(invalid.success).toBe(false);
   });
 
   it('omits "currentStepIndex" for a multi-character scenario without roadmap steps (no regression)', () => {
