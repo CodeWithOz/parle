@@ -1,7 +1,15 @@
 import { OPENAI_PLAN_MODEL, UPSTREAM_TIMEOUT_MS } from './constants';
-import { classifyHttpStatus } from './upstream';
+import { classifyHttpStatus, UPSTREAM_GENERIC_MESSAGE } from './upstream';
 import { ScenarioSummarySchema } from '../shared/chatSchemas';
 import { generateScenarioSummaryPrompt } from '../shared/prompts';
+
+function upstreamPlanError(): never {
+  throw Object.assign(new Error('openai_plan_failed'), {
+    code: 'UPSTREAM_ERROR',
+    httpStatus: 502,
+    message: UPSTREAM_GENERIC_MESSAGE,
+  });
+}
 
 export async function planScenarioWithOpenAI(
   apiKey: string,
@@ -66,27 +74,19 @@ export async function planScenarioWithOpenAI(
   };
   const content = json.choices?.[0]?.message?.content;
   if (!content) {
-    throw Object.assign(new Error('openai_empty'), {
-      code: 'UPSTREAM_ERROR',
-      httpStatus: 502,
-      message: 'The AI provider could not complete this request.',
-    });
+    upstreamPlanError();
   }
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(content);
+    parsed = JSON.parse(content as string);
   } catch {
-    return JSON.stringify({ summary: content, characters: [], steps: [] });
+    upstreamPlanError();
   }
 
   const validated = ScenarioSummarySchema.safeParse(parsed);
   if (!validated.success) {
-    return JSON.stringify({
-      summary: 'I understand the scenario. Ready to begin when you are!',
-      characters: [],
-      steps: [],
-    });
+    upstreamPlanError();
   }
   return JSON.stringify(validated.data);
 }

@@ -1,5 +1,4 @@
 import { VoiceResponse, Scenario } from '../types';
-import { isAbortLikeError } from '../utils/isAbortLikeError';
 import { bffFetch } from './bffClient';
 
 let activeScenario: Scenario | null = null;
@@ -15,24 +14,12 @@ export const processScenarioDescriptionOpenAI = async (
   description: string,
   signal?: AbortSignal
 ): Promise<string> => {
-  try {
-    const payload = await bffFetch<{ result: string }>('/api/scenario-plan', {
-      method: 'POST',
-      body: JSON.stringify({ description }),
-      signal,
-    });
-    return payload.result;
-  } catch (error) {
-    if (isAbortLikeError(error)) {
-      throw error;
-    }
-    console.warn('Failed to process scenario with OpenAI:', error);
-    return JSON.stringify({
-      summary: 'I understand the scenario. Ready to begin when you are!',
-      characters: [],
-      steps: [],
-    });
-  }
+  const payload = await bffFetch<{ result: string }>('/api/scenario-plan', {
+    method: 'POST',
+    body: JSON.stringify({ description }),
+    signal,
+  });
+  return payload.result;
 };
 
 export const transcribeAudioOpenAI = async (

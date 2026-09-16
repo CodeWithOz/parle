@@ -57,7 +57,7 @@ describe('AI-generated scenario roadmap steps (services/openaiService.ts)', () =
     expect(parsed.steps).toEqual(aiSteps);
   });
 
-  it('falls back to an empty steps array (not undefined) when the OpenAI call fails', async () => {
+  it('propagates a 502 UPSTREAM_ERROR instead of returning empty characters and steps', async () => {
     vi.mocked(fetch).mockResolvedValue(
       new Response(JSON.stringify({ error: 'UPSTREAM_ERROR' }), {
         status: 502,
@@ -66,10 +66,10 @@ describe('AI-generated scenario roadmap steps (services/openaiService.ts)', () =
     );
 
     const { processScenarioDescriptionOpenAI } = await import('../services/openaiService');
-    const result = await processScenarioDescriptionOpenAI('a scenario description');
-    const parsed = JSON.parse(result);
-    expect(parsed.steps).toEqual([]);
-    expect(typeof parsed.summary).toBe('string');
-    expect(parsed.characters).toEqual([]);
+    await expect(processScenarioDescriptionOpenAI('a scenario description')).rejects.toMatchObject({
+      name: 'BffError',
+      code: 'UPSTREAM_ERROR',
+      httpStatus: 502,
+    });
   });
 });

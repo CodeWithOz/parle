@@ -55,12 +55,13 @@ describe('processScenarioDescriptionOpenAI: AbortSignal threading', () => {
     await expect(processScenarioDescriptionOpenAI('a description', controller.signal)).rejects.toThrow();
   });
 
-  it('still returns the fallback response for a genuine (non-abort) error', async () => {
+  it('propagates a genuine (non-abort) error instead of a fallback JSON payload', async () => {
     vi.mocked(fetch).mockRejectedValue(new Error('network error'));
     const { processScenarioDescriptionOpenAI } = await import('../services/openaiService');
-    const result = await processScenarioDescriptionOpenAI('a description');
-    const parsed = JSON.parse(result);
-    expect(parsed.steps).toEqual([]);
-    expect(typeof parsed.summary).toBe('string');
+    await expect(processScenarioDescriptionOpenAI('a description')).rejects.toMatchObject({
+      name: 'BffError',
+      code: 'UPSTREAM_ERROR',
+      httpStatus: 502,
+    });
   });
 });
