@@ -1,6 +1,12 @@
 import { GoogleGenAI, Modality, Type } from '@google/genai';
 import type { Scenario } from '../../types';
-import { ImageAnalysisSchema, TranscribeCleanupSchema, selectGeminiResponseSchema, selectZodChatSchema } from '../../shared/chatSchemas';
+import {
+  ChatHistoryTurnsSchema,
+  ImageAnalysisSchema,
+  TranscribeCleanupSchema,
+  selectGeminiResponseSchema,
+  selectZodChatSchema,
+} from '../../shared/chatSchemas';
 import {
   FREE_CONVERSATION_SYSTEM_INSTRUCTION,
   TEF_AD_IMAGE_PROMPT,
@@ -27,6 +33,15 @@ type ChatHistoryTurn = {
   audioBase64?: string;
   mimeType?: string;
 };
+
+function parseTurnsField(value: unknown, fieldName: string): ChatHistoryTurn[] | Response {
+  if (value === undefined) return [];
+  const parsed = ChatHistoryTurnsSchema.safeParse(value);
+  if (!parsed.success) {
+    return errorJson('VALIDATION_ERROR', 400, `Invalid ${fieldName}`);
+  }
+  return parsed.data;
+}
 
 function originDenied(): Response {
   return errorJson('FORBIDDEN', 403);
@@ -176,7 +191,9 @@ export async function handleChat(request: Request, env: Env): Promise<Response> 
     return errorJson('VALIDATION_ERROR', 400, 'audioBase64 and mimeType are required');
   }
   const scenario = (bodyOrErr.scenario ?? null) as Scenario | null;
-  const history = Array.isArray(bodyOrErr.history) ? bodyOrErr.history as ChatHistoryTurn[] : [];
+  const historyOrErr = parseTurnsField(bodyOrErr.history, 'history');
+  if (historyOrErr instanceof Response) return historyOrErr;
+  const history = historyOrErr;
   const contextText = typeof bodyOrErr.contextText === 'string' && bodyOrErr.contextText.trim()
     ? bodyOrErr.contextText
     : undefined;
@@ -363,7 +380,9 @@ export async function handleTefReview(request: Request, env: Env): Promise<Respo
   }
   const elapsedSeconds = typeof bodyOrErr.elapsedSeconds === 'number' ? bodyOrErr.elapsedSeconds : 0;
   const adSummary = typeof bodyOrErr.adSummary === 'string' ? bodyOrErr.adSummary : undefined;
-  const turns = Array.isArray(bodyOrErr.turns) ? bodyOrErr.turns : [];
+  const turnsOrErr = parseTurnsField(bodyOrErr.turns, 'turns');
+  if (turnsOrErr instanceof Response) return turnsOrErr;
+  const turns = turnsOrErr;
 
   try {
     const { parts, responseSchema } = buildTefReviewParts({
@@ -410,8 +429,10 @@ export async function handleScenarioReview(request: Request, env: Env): Promise<
   const session = await requireGeminiSession(request, env);
   if (!session.ok) return sessionError(session.reason, session.setCookie);
 
-  const turns = Array.isArray(bodyOrErr.turns) ? bodyOrErr.turns : [];
-  const hasUser = turns.some((turn) => typeof turn === 'object' && turn && (turn as { role?: string }).role === 'user');
+  const turnsOrErr = parseTurnsField(bodyOrErr.turns, 'turns');
+  if (turnsOrErr instanceof Response) return turnsOrErr;
+  const turns = turnsOrErr;
+  const hasUser = turns.some((turn) => turn.role === 'user');
   if (!hasUser) {
     const setCookie = await slidingSessionCookie(session.payload, env, session.setCookie);
     return json({ items: [] }, 200, cookieHeaders(setCookie));
