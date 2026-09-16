@@ -103,6 +103,34 @@ describe('session routes', () => {
     expect(cookieFrom(response)).toContain('Max-Age=0');
   });
 
+  it('treats a sealed payload with null keys as invalid and clears the cookie', async () => {
+    const token = await seal({
+      v: 1,
+      keys: null,
+      createdAt: Math.floor(Date.now() / 1000),
+    }, SECRET);
+    const request = new Request('http://localhost:8787/api/session/status', {
+      headers: { Cookie: `${COOKIE_NAME}=${token}` },
+    });
+    const response = await handleSessionStatus(request, env);
+    expect(await response.json()).toMatchObject({ hasGemini: false, hasOpenai: false, hasApiKey: false });
+    expect(cookieFrom(response)).toContain('Max-Age=0');
+  });
+
+  it('treats a sealed payload with a non-string provider key as invalid', async () => {
+    const token = await seal({
+      v: 1,
+      keys: { gemini: 123 },
+      createdAt: Math.floor(Date.now() / 1000),
+    }, SECRET);
+    const request = new Request('http://localhost:8787/api/session/status', {
+      headers: { Cookie: `${COOKIE_NAME}=${token}` },
+    });
+    const response = await handleSessionStatus(request, env);
+    expect(await response.json()).toMatchObject({ hasApiKey: false });
+    expect(cookieFrom(response)).toContain('Max-Age=0');
+  });
+
   it('rejects a control-character key', async () => {
     const request = new Request('http://localhost:8787/api/session', {
       method: 'POST',

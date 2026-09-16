@@ -28,6 +28,20 @@ export function isPlausibleApiKey(key: string): boolean {
   return true;
 }
 
+function isValidSessionKeys(keys: unknown): keys is SessionKeys {
+  if (typeof keys !== 'object' || keys === null || Array.isArray(keys)) {
+    return false;
+  }
+  const record = keys as Record<string, unknown>;
+  if (record.gemini !== undefined && typeof record.gemini !== 'string') {
+    return false;
+  }
+  if (record.openai !== undefined && typeof record.openai !== 'string') {
+    return false;
+  }
+  return true;
+}
+
 export function publicSessionStatus(payload: SessionPayload | null): {
   hasGemini: boolean;
   hasOpenai: boolean;
@@ -54,7 +68,7 @@ export async function readSession(request: Request, env: Env): Promise<SessionRe
     env.API_KEY_COOKIE_SECRET,
     env.API_KEY_COOKIE_SECRET_PREVIOUS
   );
-  if (!result || result.payload.v !== 1 || typeof result.payload.keys !== 'object') {
+  if (!result || result.payload.v !== 1 || !isValidSessionKeys(result.payload.keys)) {
     return { status: 'invalid' };
   }
   const createdAt = result.payload.createdAt;
