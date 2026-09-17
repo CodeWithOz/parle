@@ -1,78 +1,110 @@
-/**
- * API Key Management Service
- * Handles storage and retrieval of API keys from localStorage
- * with fallback to environment variables for backward compatibility.
- */
+import { BffError, bffFetch } from './bffClient';
 
-const STORAGE_KEY_PREFIX = 'parle_api_key_';
+const LEGACY_STORAGE_PREFIX = 'parle_api_key_';
 
-/**
- * Get an API key from localStorage for a specific provider.
- * Uses the canonical prefixed key format: parle_api_key_<provider>.
- */
-export const getApiKey = (provider: 'gemini' | 'openai'): string | null => {
+export interface SessionStatus {
+  hasGemini: boolean;
+  hasOpenai: boolean;
+  hasApiKey: boolean;
+  createdAt?: number;
+}
+
+const emptyStatus = (): SessionStatus => ({
+  hasGemini: false,
+  hasOpenai: false,
+  hasApiKey: false,
+});
+
+let cachedStatus: SessionStatus = emptyStatus();
+
+function applyStatus(status: SessionStatus): SessionStatus {
+  cachedStatus = {
+    hasGemini: Boolean(status.hasGemini),
+    hasOpenai: Boolean(status.hasOpenai),
+    hasApiKey: Boolean(status.hasApiKey || status.hasGemini || status.hasOpenai),
+    ...(typeof status.createdAt === 'number' ? { createdAt: status.createdAt } : {}),
+  };
+  return cachedStatus;
+}
+
+export function getCachedSessionStatus(): SessionStatus {
+  return cachedStatus;
+}
+
+export function hydrateSessionStatus(status: Partial<SessionStatus>): SessionStatus {
+  return applyStatus({
+    ...emptyStatus(),
+    ...status,
+    hasApiKey: Boolean(status.hasApiKey ?? (status.hasGemini || status.hasOpenai)),
+  });
+}
+
+export async function refreshSessionStatus(): Promise<SessionStatus> {
   try {
-    const key = localStorage.getItem(`${STORAGE_KEY_PREFIX}${provider}`);
-    return key || null;
-  } catch (error) {
-    console.error(`Error reading ${provider} API key from localStorage:`, error);
-    return null;
+    const status = await bffFetch<SessionStatus>('/api/session/status');
+    return applyStatus(status);
+  } catch (err) {
+    if (err instanceof BffError && err.code === 'UPSTREAM_AUTH_FAILED') {
+      return cachedStatus;
+    }
+    return applyStatus(emptyStatus());
   }
-};
+}
+
+export async function saveKeys(input: {
+  geminiApiKey?: string;
+  openaiApiKey?: string;
+}): Promise<SessionStatus> {
+  const status = await bffFetch<SessionStatus & { success?: boolean }>('/api/session', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...(input.geminiApiKey?.trim() ? { geminiApiKey: input.geminiApiKey.trim() } : {}),
+      ...(input.openaiApiKey?.trim() ? { openaiApiKey: input.openaiApiKey.trim() } : {}),
+    }),
+  });
+  return applyStatus(status);
+}
+
+export async function revokeKeys(provider?: 'gemini' | 'openai'): Promise<SessionStatus> {
+  const status = await bffFetch<SessionStatus & { success?: boolean }>('/api/revoke', {
+    method: 'POST',
+    body: JSON.stringify(provider ? { provider } : {}),
+  });
+  return applyStatus(status);
+}
+
+export function clearLegacyLocalStorageKeys(): void {
+  try {
+    localStorage.removeItem(`${LEGACY_STORAGE_PREFIX}gemini`);
+    localStorage.removeItem(`${LEGACY_STORAGE_PREFIX}openai`);
+  } catch {
+    // Ignore quota / private-mode failures.
+  }
+}
+
+/** @deprecated Keys are never readable from JavaScript after the BFF migration. */
+export const getApiKey = (_provider: 'gemini' | 'openai'): string | null => null;
 
 /**
- * Set an API key in localStorage for a specific provider.
+ * Test/legacy helper: updates the in-memory session flags only.
+ * Does not store the raw key.
  */
 export const setApiKey = (provider: 'gemini' | 'openai', key: string): void => {
-  try {
-    if (key.trim()) {
-      localStorage.setItem(`${STORAGE_KEY_PREFIX}${provider}`, key.trim());
-    } else {
-      // Remove key if empty string
-      localStorage.removeItem(`${STORAGE_KEY_PREFIX}${provider}`);
-    }
-  } catch (error) {
-    console.error(`Error saving ${provider} API key to localStorage:`, error);
-    throw error;
+  if (provider === 'gemini') {
+    cachedStatus.hasGemini = Boolean(key.trim());
+  } else {
+    cachedStatus.hasOpenai = Boolean(key.trim());
   }
+  cachedStatus.hasApiKey = cachedStatus.hasGemini || cachedStatus.hasOpenai;
 };
 
-/**
- * Check if an API key exists in localStorage for a specific provider.
- */
 export const hasApiKey = (provider: 'gemini' | 'openai'): boolean => {
-  return getApiKey(provider) !== null;
+  return provider === 'gemini' ? cachedStatus.hasGemini : cachedStatus.hasOpenai;
 };
 
-/**
- * Get API key from localStorage, falling back to environment variable.
- * Checks localStorage first, then process.env for backward compatibility.
- */
-export const getApiKeyOrEnv = (provider: 'gemini' | 'openai'): string | null => {
-  // Check localStorage first
-  const storedKey = getApiKey(provider);
-  if (storedKey) {
-    return storedKey;
-  }
+/** @deprecated Raw keys are never available to the client. Use hasApiKeyOrEnv. */
+export const getApiKeyOrEnv = (_provider: 'gemini' | 'openai'): string | null => null;
 
-  // Fallback to environment variable
-  const envKey = provider === 'gemini' 
-    ? process.env.GEMINI_API_KEY 
-    : process.env.OPENAI_API_KEY;
-  
-  return envKey || null;
-};
+export const hasAnyApiKey = (): boolean => cachedStatus.hasApiKey;
 
-/**
- * Check if at least one API key is available (from localStorage or env).
- */
-export const hasAnyApiKey = (): boolean => {
-  return getApiKeyOrEnv('gemini') !== null || getApiKeyOrEnv('openai') !== null;
-};
-
-/**
- * Check if a specific provider has an API key available (from localStorage or env).
- */
-export const hasApiKeyOrEnv = (provider: 'gemini' | 'openai'): boolean => {
-  return getApiKeyOrEnv(provider) !== null;
-};
+export const hasApiKeyOrEnv = (provider: 'gemini' | 'openai'): boolean => hasApiKey(provider);

@@ -3,15 +3,6 @@ import { test, expect } from '@playwright/test';
 test.describe('ScenarioSetup · describe by voice abort/discard', () => {
   test.beforeEach(async ({ page }) => {
     await page.addInitScript(() => {
-      // Provide dummy API keys so the app doesn't block with the API key modal.
-      try {
-        localStorage.setItem('parle_api_key_gemini', 'test-e2e-gemini');
-        localStorage.setItem('parle_api_key_openai', 'test-e2e-openai');
-      } catch {
-        // Ignore localStorage failures (shouldn't happen in real browser contexts)
-      }
-
-      // ---- Stub microphone/audio recording ----
       // The ScenarioSetup "describe by voice" flow depends on Web Audio + MediaRecorder.
       // In CI/headless Playwright we stub these so the UI can progress deterministically.
       const fakeStream = {
@@ -91,6 +82,17 @@ test.describe('ScenarioSetup · describe by voice abort/discard', () => {
     });
 
     await page.goto('/');
+    await page.evaluate(async () => {
+      await fetch('/api/session', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          geminiApiKey: 'test-e2e-gemini-key-16',
+          openaiApiKey: 'test-e2e-openai-key-16',
+        }),
+      });
+    });
   });
 
   test('closing while transcription is in-flight discards stale transcript', async ({ page }) => {
@@ -114,7 +116,7 @@ test.describe('ScenarioSetup · describe by voice abort/discard', () => {
 
     // Intercept Gemini transcription calls and keep the first/second attempts pending
     // until the test explicitly resolves them.
-    await page.route('**/models/gemini-2.5-flash-lite:generateContent*', async route => {
+    await page.route('**/api/transcribe', async route => {
       const req = route.request();
       let bodyJson: any = null;
       try {
@@ -124,9 +126,7 @@ test.describe('ScenarioSetup · describe by voice abort/discard', () => {
       }
 
       const bodyStr = bodyJson ? JSON.stringify(bodyJson) : '';
-      const looksLikeScenarioTranscription =
-        bodyStr.includes('produce two versions of the transcript') ||
-        bodyStr.includes('Transcribe this audio exactly as spoken');
+      const looksLikeScenarioTranscription = true;
 
       if (!looksLikeScenarioTranscription) {
         // We only expect scenario transcription calls in this test.
@@ -155,7 +155,7 @@ test.describe('ScenarioSetup · describe by voice abort/discard', () => {
           await route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify(payload),
+            body: JSON.stringify({ rawTranscript: '', cleanedTranscript: '' }),
           });
         } catch {
           // Ignore fulfillment errors
@@ -204,24 +204,11 @@ test.describe('ScenarioSetup · describe by voice abort/discard', () => {
     const fulfillTranscription = async (pending: PendingRoute | undefined, raw: string, cleaned: string) => {
       if (!pending || pending.fulfilled) return;
       pending.fulfilled = true;
-      const payload = {
-        candidates: [
-          {
-            content: {
-              role: 'model',
-              parts: [{ text: JSON.stringify({ rawTranscript: raw, cleanedTranscript: cleaned }) }],
-            },
-          },
-        ],
-      };
-
-      // Route fulfillment may throw if the request was fully aborted, but the app should still
-      // remain responsive; we treat that as acceptable for this regression test.
       try {
         await pending.route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ rawTranscript: raw, cleanedTranscript: cleaned }),
         });
       } catch {
         // Intentionally ignored.

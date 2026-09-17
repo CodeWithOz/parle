@@ -849,12 +849,15 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - Hide `ConversationHint` during TEF Ad Persuasion and TEF Ad Questioning practice only; keep hints for role-play scenario practice and free conversation.
 - TEF in-session practice guide: per-topic accordions; on start/restart auto-attach the latest topic archive for the current ad (`latest_auto`).
 - In LLM system prompts, prefer short behavioral rules over hardcoded lists of French verbs or phrases that may be appropriate in other conversational contexts.
-- When rebuilding conversation context for the LLM (including regenerating an AI reply), send every user turn as the original audio recording, not transcript text—transcripts are often inaccurate. Match the TEF/review audio-first pattern.
+- When rebuilding conversation context for the LLM (including regenerating an AI reply and BFF `POST /api/chat`), send every user turn as the original audio recording, not transcript text—transcripts are often inaccurate. Existing text-history reconstruction may remain for text-only paths; do not add new transcript-only substitutes for audio-history flows (chat, reviews).
 
 ## Learned Workspace Facts
 
-- Continual-learning transcript processing for this project uses an index file under the main checkout: `01-projects/parle/.cursor/hooks/state/continual-learning-index.json`. `AGENTS.md` may be edited from a Cursor worktree (e.g. `worktrees/parle/<branch>/AGENTS.md`), so hook state and agent memory paths are not always the same directory.
+- Continual-learning indexes can live in the main checkout (`01-projects/parle/.cursor/hooks/state/continual-learning-index.json`) or a worktree (`.cursor/hooks/state/continual-learning-index.json`); `AGENTS.md` may be edited from either, so hook state and memory paths are not always the same directory.
 - Approved UI reference mockups for Parle may be extracted under `.mockup-ref/` (e.g. `TopicHistoryV2Demo.tsx`); treat as implementation reference only, not production dependencies.
+- API keys are stored in an HttpOnly cookie sealed by a Cloudflare Worker BFF (`worker/`); `/api/*` runs Worker-first. Instantiate `@google/genai` per request in the Worker; do not bundle LangChain there—OpenAI planning uses fetch plus shared Zod.
+- Stateless chat and related AI routes validate model JSON fail-closed on the Worker with the shared Zod schemas in `shared/chatSchemas.ts`, even if the client omits the schema.
+- `.wrangler/` is gitignored Miniflare local state; keep `wrangler.jsonc`, `worker/`, and `worker-configuration.d.ts` in git. Local full-stack is `npm run dev:full` (Vite :3000 + wrangler :8787).
 
 ---
 

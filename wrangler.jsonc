@@ -1,7 +1,19 @@
 {
+  "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "parle",
-  "compatibility_date": "2026-01-23",
+  "main": "worker/index.ts",
+  // Secrets live in `.dev.vars` locally and `wrangler secret put` in production:
+  // API_KEY_COOKIE_SECRET, optional API_KEY_COOKIE_SECRET_PREVIOUS
+  "compatibility_date": "2026-09-13",
+  "compatibility_flags": ["nodejs_compat"],
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
   }
 }

@@ -15,40 +15,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { AppState } from '../types';
 import { useConversationTimer } from '../hooks/useConversationTimer';
-
-// ---------------------------------------------------------------------------
-// B4 mock setup — must be hoisted above imports of geminiService
-// ---------------------------------------------------------------------------
-
-vi.mock('@google/genai', async (importActual) => {
-  const actual = await importActual<typeof import('@google/genai')>();
-  return {
-    ...actual,
-    GoogleGenAI: vi.fn(),
-  };
-});
-
-import { GoogleGenAI } from '@google/genai';
+import { jsonResponse } from './helpers/mockParleBff';
 import { confirmTefAdImageForQuestioning } from '../services/geminiService';
-
-// ---------------------------------------------------------------------------
-// Shared mock for B4 — a single ai singleton is created per module lifecycle,
-// so all B4 tests share the same mockAi object and configure its generateContent
-// spy via the module-level variable below.
-// ---------------------------------------------------------------------------
-
-let b4MockGenerateContent = vi.fn();
-
-const b4MockAi = {
-  models: {
-    get generateContent() {
-      return b4MockGenerateContent;
-    },
-  },
-  chats: { create: vi.fn() },
-};
-
-vi.mocked(GoogleGenAI).mockReturnValue(b4MockAi as unknown as GoogleGenAI);
 
 // B1 hint visibility is covered by conversationHintVisibility.test.ts
 
@@ -123,64 +91,39 @@ describe('B3 · abort in-flight requests on exit and timer expiry (App.tsx sourc
 
 describe('B4 · confirmTefAdImageForQuestioning throws on invalid summary field', () => {
   beforeEach(() => {
-    localStorage.setItem('parle_api_key_gemini', 'test-key-b4');
-    // Reset the shared spy to a default (overridden per test as needed)
-    b4MockGenerateContent = vi.fn().mockResolvedValue({ text: '' });
+    vi.stubGlobal('fetch', vi.fn());
   });
 
   afterEach(() => {
-    localStorage.clear();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
   it('throws when the API returns a response with summary missing entirely', async () => {
-    b4MockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify({ roleSummary: 'I am ready.' }),
-    });
-
-    await expect(
-      confirmTefAdImageForQuestioning('base64data', 'image/jpeg')
-    ).rejects.toThrow();
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ roleSummary: 'I am ready.' }));
+    await expect(confirmTefAdImageForQuestioning('base64data', 'image/jpeg')).rejects.toThrow();
   });
 
   it('throws when the API returns a response with a non-string summary (number)', async () => {
-    b4MockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify({ summary: 42, roleSummary: 'I am ready.' }),
-    });
-
-    await expect(
-      confirmTefAdImageForQuestioning('base64data', 'image/jpeg')
-    ).rejects.toThrow();
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ summary: 42, roleSummary: 'I am ready.' }));
+    await expect(confirmTefAdImageForQuestioning('base64data', 'image/jpeg')).rejects.toThrow();
   });
 
   it('throws when the API returns a response with an empty-string summary', async () => {
-    b4MockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify({ summary: '', roleSummary: 'I am ready.' }),
-    });
-
-    await expect(
-      confirmTefAdImageForQuestioning('base64data', 'image/jpeg')
-    ).rejects.toThrow();
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ summary: '', roleSummary: 'I am ready.' }));
+    await expect(confirmTefAdImageForQuestioning('base64data', 'image/jpeg')).rejects.toThrow();
   });
 
   it('throws when the API returns a response with roleSummary missing entirely', async () => {
-    b4MockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify({ summary: 'A car ad.' }),
-    });
-
-    await expect(
-      confirmTefAdImageForQuestioning('base64data', 'image/jpeg')
-    ).rejects.toThrow();
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({ summary: 'A car ad.' }));
+    await expect(confirmTefAdImageForQuestioning('base64data', 'image/jpeg')).rejects.toThrow();
   });
 
   it('returns normally when both summary and roleSummary are valid non-empty strings', async () => {
-    b4MockGenerateContent = vi.fn().mockResolvedValue({
-      text: JSON.stringify({
-        summary: 'A car advertisement.',
-        roleSummary: 'I understand the ad.',
-      }),
-    });
-
+    vi.mocked(fetch).mockResolvedValue(jsonResponse({
+      summary: 'A car advertisement.',
+      roleSummary: 'I understand the ad.',
+    }));
     const result = await confirmTefAdImageForQuestioning('base64data', 'image/jpeg');
     expect(result.summary).toBe('A car advertisement.');
     expect(result.roleSummary).toBe('I understand the ad.');

@@ -16,51 +16,11 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-
-// ---------------------------------------------------------------------------
-// Group 1: Schema — TefQuestioningSchema includes conceptLabels
-// ---------------------------------------------------------------------------
-
-vi.mock('@google/genai', async (importActual) => {
-  const actual = await importActual<typeof import('@google/genai')>();
-  return {
-    ...actual,
-    GoogleGenAI: vi.fn(),
-  };
-});
-
-import { GoogleGenAI } from '@google/genai';
-
-function buildMockAiCapturingChatCreate() {
-  const mockSendMessage = vi.fn().mockResolvedValue({ text: '{}' });
-  const mockChatSession = { sendMessage: mockSendMessage };
-  const createSpy = vi.fn().mockReturnValue(mockChatSession);
-  const mockGenerateContent = vi.fn().mockResolvedValue({ text: 'transcribed text' });
-  const mockAi = {
-    models: { generateContent: mockGenerateContent },
-    chats: { create: createSpy },
-  };
-  vi.mocked(GoogleGenAI).mockReturnValue(mockAi as unknown as GoogleGenAI);
-  return { createSpy };
-}
-
-beforeEach(() => {
-  localStorage.setItem('parle_api_key_gemini', 'test-key-schema');
-});
-
-afterEach(() => {
-  localStorage.clear();
-  vi.restoreAllMocks();
-  vi.resetModules();
-});
+import { selectGeminiResponseSchema } from '../shared/chatSchemas';
 
 describe('TefQuestioningSchema · includes conceptLabels when isTefQuestioning=true', () => {
-  it('passes a schema containing "conceptLabels" to chats.create', async () => {
-    const { createSpy } = buildMockAiCapturingChatCreate();
-
-    const { initializeSession, setScenario } = await import('../services/geminiService');
-
-    const questioningScenario = {
+  it('uses a schema containing "conceptLabels"', () => {
+    const schema = selectGeminiResponseSchema({
       id: 'qs-1',
       name: 'TEF Questioning',
       description: 'Customer service call',
@@ -68,46 +28,22 @@ describe('TefQuestioningSchema · includes conceptLabels when isTefQuestioning=t
       isActive: true,
       isTefQuestioning: true,
       characters: [{ id: 'agent', name: 'Agent', role: 'agent', voiceName: 'puck' }],
-    };
-
-    setScenario(questioningScenario as Parameters<typeof setScenario>[0]);
-    await initializeSession();
-
-    expect(createSpy).toHaveBeenCalled();
-    const callArg = createSpy.mock.calls[createSpy.mock.calls.length - 1][0];
-    const schema = callArg?.config?.responseSchema;
-
-    expect(schema).toBeDefined();
-    const schemaStr = JSON.stringify(schema);
-    expect(schemaStr).toMatch(/conceptLabels/i);
+    });
+    expect(JSON.stringify(schema)).toMatch(/conceptLabels/i);
   });
 });
 
 describe('TefQuestioningSchema · standard scenario does NOT include conceptLabels', () => {
-  it('does not include "conceptLabels" in the standard schema', async () => {
-    const { createSpy } = buildMockAiCapturingChatCreate();
-
-    const { initializeSession, setScenario } = await import('../services/geminiService');
-
-    const regularScenario = {
+  it('does not include "conceptLabels" in the standard schema', () => {
+    const schema = selectGeminiResponseSchema({
       id: 'reg-1',
       name: 'Role Play',
       description: 'Regular role-play scenario',
       createdAt: Date.now(),
       isActive: true,
       characters: [{ id: 'char1', name: 'Baker', role: 'baker', voiceName: 'aoede' }],
-    };
-
-    setScenario(regularScenario as Parameters<typeof setScenario>[0]);
-    await initializeSession();
-
-    expect(createSpy).toHaveBeenCalled();
-    const callArg = createSpy.mock.calls[createSpy.mock.calls.length - 1][0];
-    const schema = callArg?.config?.responseSchema;
-
-    expect(schema).toBeDefined();
-    const schemaStr = JSON.stringify(schema);
-    expect(schemaStr).not.toMatch(/conceptLabels/i);
+    });
+    expect(JSON.stringify(schema)).not.toMatch(/conceptLabels/i);
   });
 });
 

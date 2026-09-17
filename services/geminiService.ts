@@ -1,320 +1,37 @@
-import { GoogleGenAI, Chat, Modality, Type } from "@google/genai";
-import { z } from "zod";
-import { base64ToBytes, pcmToWav } from "./audioUtils";
-import { VoiceResponse, Scenario, Message } from "../types";
-import { getConversationHistory, addToHistory } from "./conversationHistory";
-import { generateScenarioSystemInstruction, generateScenarioSummaryPrompt, parseHintFromResponse, parseMultiCharacterResponse } from "./scenarioService";
-import { getApiKeyOrEnv } from "./apiKeyService";
-import { fetchAudioAsInlineData } from "../utils/fetchAudioAsInlineData";
+import { pcmToWav, base64ToBytes } from './audioUtils';
+import { VoiceResponse, Scenario, Message } from '../types';
+import { addToHistory, getConversationHistory } from './conversationHistory';
+import {
+  FreeConversationSchema,
+  ImageAnalysisSchema,
+  RoadmapSingleCharacterSchema,
+  TefQuestioningSchema,
+  SingleCharacterSchema,
+  createMultiCharacterSchema,
+} from '../shared/chatSchemas';
+import { fetchAudioAsInlineData } from '../utils/fetchAudioAsInlineData';
+import { isAbortLikeError } from '../utils/isAbortLikeError';
+import { bffFetch } from './bffClient';
 
-// Gemini TTS output format constants
-const DEFAULT_PCM_SAMPLE_RATE = 24000; // 24kHz sample rate
-const DEFAULT_PCM_CHANNELS = 1; // Mono audio
+const DEFAULT_PCM_SAMPLE_RATE = 24000;
+const DEFAULT_PCM_CHANNELS = 1;
 
 /** Wall-clock maximum (ms) for transcribe + chat + TTS in `sendVoiceMessage`. */
 export const PIPELINE_MAX_MS = 90_000;
 
-// Define the system instruction to enforce the language constraint
-const SYSTEM_INSTRUCTION = `
-You are a friendly and patient French language tutor.
-Your goal is to help the user practice speaking French.
-
-RESPONSE FORMAT (CRITICAL):
-You MUST respond with structured JSON in this exact format:
-{
-  "french": "Your complete French response here",
-  "english": "The English translation here"
-}
-
-Example:
-User says: "Bonjour, je suis fatigue." (User means "I am tired" but made a mistake)
-You respond with JSON:
-{
-  "french": "Bonjour! Oh, tu es fatigué ? Pourquoi es-tu fatigué aujourd'hui ?",
-  "english": "Hello! Oh, you are tired? Why are you tired today?"
-}
-
-GUIDELINES:
-1. Understand what the user says, but don't repeat it verbatim. Briefly acknowledge understanding when needed, but focus on responding naturally.
-2. If the user makes a mistake, gently correct them in your French response, but keep the conversation flowing naturally.
-3. Put your COMPLETE French response in the "french" field
-4. Put the COMPLETE ENGLISH translation in the "english" field
-5. Keep French and English SEPARATE - do NOT combine them in one field
-`;
-
-let ai: GoogleGenAI | null = null;
-let chatSession: Chat | null = null;
-// Track how many messages from shared history have been synced to the session
-let syncedMessageCount = 0;
-// (debug instrumentation removed)
-// Track the active scenario for scenario-aware prompting
 let activeScenario: Scenario | null = null;
-// Store pending scenario and history when ai is not yet initialized
 let pendingScenario: Scenario | null = null;
 let pendingHistory: Array<{ role: string; content: string }> | null = null;
+let storedPriorMessages: Message[] = [];
+let syncedMessageCount = 0;
 
-/**
- * Max number of characters supported in multi-character scenarios
- */
-const MAX_CHARACTERS = 5;
+const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 
-/**
- * Zod schema for single-character response.
- * Separates French and English for TTS control.
- */
-const SingleCharacterSchema = z.object({
-  french: z.string().describe("The complete response in French only"),
-  english: z.string().describe("The English translation of the French response"),
-  hint: z.string().describe("Hint for what the user should say or ask next - brief description in English")
-});
-
-/**
- * Zod schema for TEF Questioning mode response.
- * Adds optional isRepeat field to flag repeated questions.
- */
-const TefQuestioningSchema = z.object({
-  french: z.string().describe("The complete response in French only"),
-  english: z.string().describe("The English translation of the French response"),
-  hint: z.string().describe("Suggestion of a question the user could ask next - brief description in English"),
-  isRepeat: z.boolean().optional().describe("true if the user asked a question that was already answered"),
-  conceptLabels: z.array(z.string()).describe("Array of 2-4 word topic labels in English for the question asked (e.g. ['pricing', 'opening hours']). Always include this field — use an empty array if no topic applies."),
-});
-
-/**
- * Zod schema for single-character scenarios that carry roadmap steps.
- * Adds a required "currentStepIndex" field so the client can auto-advance the
- * scenario roadmap sidebar. Mirrors the isTefQuestioning conditional-schema
- * precedent: this field must ONLY be present when the scenario has a non-empty
- * `steps` array, so it is a separate schema branch rather than an
- * always-present optional field (see AGENTS.md "TEF Ad Questioning Mode:
- * Schema Selection").
- */
-const RoadmapSingleCharacterSchema = SingleCharacterSchema.extend({
-  currentStepIndex: z.number().int().min(0).describe(
-    "0-based index into the scenario roadmap steps list (given in the system instruction) of the step the conversation currently reflects."
-  ),
-});
-
-/**
- * Zod schema for free conversation mode response.
- * Separates French and English for TTS control, with optional hint.
- */
-const FreeConversationSchema = z.object({
-  french: z.string().describe("The complete response in French only"),
-  english: z.string().describe("The English translation of the French response")
-});
-
-/**
- * Zod schema for image analysis responses (confirmTefAdImage / confirmTefAdImageForQuestioning).
- */
-const ImageAnalysisSchema = z.object({
-  summary: z.string().min(1),
-  roleSummary: z.string().min(1),
-});
-
-/**
- * Create Zod schema for multi-character response.
- * Uses fixed labels ("Character 1", "Character 2", etc.) instead of actual names
- * because LLMs don't reliably use exact character names in structured output.
- * The processing code maps these labels back to actual characters by index.
- *
- * When the scenario also carries roadmap steps, this extends the base shape
- * with a required "currentStepIndex" field — the same conditional-schema
- * precedent used by `RoadmapSingleCharacterSchema` (see AGENTS.md "Scenario
- * Roadmap: Schema Selection..."). Multi-character scenarios (e.g. a bakery
- * visit with a Baker + Cashier) are common for role-play, so the roadmap
- * field must be available here too, not just on the single-character branch.
- */
-const createMultiCharacterSchema = (scenario: Scenario) => {
-  const count = Math.min(scenario.characters!.length, MAX_CHARACTERS);
-  const labels = Array.from({ length: count }, (_, i) => `Character ${i + 1}`);
-
-  // Allow hint at top level OR inside each character response (LLMs place it inconsistently)
-  const base = z.object({
-    characterResponses: z.array(
-      z.object({
-        characterName: z.string().describe(`Must be one of: ${labels.join(', ')}`),
-        french: z.string().describe("The character's complete response in French only"),
-        english: z.string().describe("The English translation of the French response"),
-        hint: z.string().optional().describe("Optional per-character hint")
-      })
-    ),
-    hint: z.string().optional().describe("Hint for what the user should say or ask next - brief description in English")
-  });
-
-  const hasRoadmapSteps = !!scenario.steps && scenario.steps.length > 0;
-  return hasRoadmapSteps
-    ? base.extend({
-        currentStepIndex: z.number().int().min(0).describe(
-          "0-based index into the scenario roadmap steps list (given in the system instruction) of the step the conversation currently reflects."
-        ),
-      })
-    : base;
-};
-
-/**
- * Convert a standard JSON Schema object (as produced by z.toJSONSchema) to the
- * uppercase-typed format required by the Gemini SDK's responseSchema field.
- * Gemini expects "OBJECT", "STRING", "ARRAY" etc.; z.toJSONSchema produces lowercase.
- * Only passes through fields that the Gemini Schema type supports.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function toGeminiSchema(jsonSchema: Record<string, any>): Record<string, any> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result: Record<string, any> = {};
-  if (jsonSchema.type) result.type = (jsonSchema.type as string).toUpperCase();
-  if (jsonSchema.description) result.description = jsonSchema.description;
-  if (jsonSchema.properties) {
-    result.properties = Object.fromEntries(
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      Object.entries(jsonSchema.properties as Record<string, Record<string, any>>).map(
-        ([k, v]) => [k, toGeminiSchema(v)]
-      )
-    );
-  }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if (jsonSchema.items) result.items = toGeminiSchema(jsonSchema.items as Record<string, any>);
-  if (jsonSchema.required) result.required = jsonSchema.required;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  if (jsonSchema.anyOf) result.anyOf = (jsonSchema.anyOf as Record<string, any>[]).map(toGeminiSchema);
-  if (jsonSchema.enum) result.enum = jsonSchema.enum;
-  if (jsonSchema.nullable !== undefined) result.nullable = jsonSchema.nullable;
-  return result;
+function unsupportedImageError(mimeType: string): Error {
+  const typeLabels = SUPPORTED_IMAGE_TYPES.map((t) => t.replace('image/', '').toUpperCase()).join(', ');
+  return new Error(`Unsupported image type "${mimeType}". Please use ${typeLabels}.`);
 }
 
-/**
- * Gemini-format response schemas derived from the Zod schemas above.
- * These are passed as responseSchema to the chat session config, which prevents
- * the model from returning an unexpected JSON shape (e.g. an array of turns).
- * Derived via toGeminiSchema so the shape stays in sync with the Zod definitions.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const SINGLE_CHARACTER_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(SingleCharacterSchema) as Record<string, any>);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const FREE_CONVERSATION_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(FreeConversationSchema) as Record<string, any>);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const TEF_QUESTIONING_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(TefQuestioningSchema) as Record<string, any>);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const ROADMAP_RESPONSE_SCHEMA = toGeminiSchema(z.toJSONSchema(RoadmapSingleCharacterSchema) as Record<string, any>);
-const createGeminiMultiCharacterSchema = (scenario: Scenario) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  toGeminiSchema(z.toJSONSchema(createMultiCharacterSchema(scenario)) as Record<string, any>);
-
-/**
- * Picks the response schema for a given active scenario (or free conversation
- * when null). Shared by createChatSession() (session-level config) and
- * sendVoiceMessage() (per-request config) — both need the exact same
- * branching, so this is the single place that order lives: multi-character,
- * no scenario, TEF questioning, roadmap, then single-character fallback.
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function selectResponseSchema(scenario: Scenario | null): Record<string, any> {
-  if (scenario && scenario.characters && scenario.characters.length > 1) {
-    return createGeminiMultiCharacterSchema(scenario);
-  }
-  if (!scenario) {
-    return FREE_CONVERSATION_RESPONSE_SCHEMA;
-  }
-  if (scenario.isTefQuestioning) {
-    return TEF_QUESTIONING_RESPONSE_SCHEMA;
-  }
-  if (scenario.steps && scenario.steps.length > 0) {
-    return ROADMAP_RESPONSE_SCHEMA;
-  }
-  return SINGLE_CHARACTER_RESPONSE_SCHEMA;
-}
-
-/**
- * Helper function to create the chat session with current state.
- * Only call when ai is initialized.
- */
-function createChatSession(): void {
-  if (!ai) {
-    return;
-  }
-
-  const systemInstruction = activeScenario
-    ? generateScenarioSystemInstruction(activeScenario)
-    : SYSTEM_INSTRUCTION;
-
-  // Convert history to SDK format if provided
-  const historyMessages = pendingHistory ? pendingHistory.map(msg => ({
-    role: msg.role === 'user' ? 'user' : 'model',
-    parts: [{ text: msg.content }]
-  })) : undefined;
-
-  // Pick the response schema that matches the scenario type.
-  // This enforces the JSON shape at the API level, preventing the model from
-  // returning an array of turns instead of a single response object.
-  // isTefQuestioning is a sub-case of having a single-character activeScenario,
-  // so it is only evaluated once we know activeScenario is non-null.
-  const responseSchema = selectResponseSchema(activeScenario);
-
-  chatSession = ai.chats.create({
-    model: 'gemini-2.5-flash-lite',
-    config: {
-      systemInstruction: systemInstruction,
-      // Always use JSON response format for structured French/English separation
-      responseMimeType: 'application/json',
-      responseSchema,
-    },
-    ...(historyMessages && { history: historyMessages }),
-  });
-
-  // Update sync counter if history was provided
-  if (pendingHistory) {
-    syncedMessageCount = pendingHistory.length;
-  } else {
-    syncedMessageCount = 0;
-  }
-
-  // Clear pending history after successful session creation
-  pendingHistory = null;
-}
-
-/**
- * Resets the Gemini session and sync counter.
- * Should be called when clearing conversation history.
- * Optionally can set a new scenario for scenario-aware prompting.
- * Can optionally pass history to initialize the session with existing messages.
- * 
- * Always persists the scenario and history in state, even if ai is not yet initialized.
- * When ai is initialized later, call this again or initializeSession to create the actual session.
- */
-export const resetSession = (scenario?: Scenario | null, history?: Array<{ role: string; content: string }>) => {
-  // Always update the module-level state, regardless of ai initialization
-  activeScenario = scenario || null;
-  pendingScenario = scenario || null;
-  
-  if (history) {
-    pendingHistory = history;
-  } else {
-    // Only reset sync counter if no history is provided (clearing state)
-    syncedMessageCount = 0;
-    pendingHistory = null;
-  }
-
-  // Only create the actual chat session if ai is initialized
-  if (ai) {
-    createChatSession();
-  }
-};
-
-/**
- * Sets the active scenario and resets the session with new instructions.
- */
-export const setScenario = (scenario: Scenario | null) => {
-  resetSession(scenario);
-};
-
-type ChatHistoryPart =
-  | { text: string }
-  | { inlineData: { data: string; mimeType: string } };
-
-/**
- * Collapse consecutive model bubbles (multi-character turns) into one model
- * entry so Gemini chat history stays strictly alternating user/model.
- */
 function collapseMessagesForChatHistory(messages: Message[]): Message[] {
   const collapsed: Message[] = [];
   for (const message of messages) {
@@ -332,42 +49,22 @@ function collapseMessagesForChatHistory(messages: Message[]): Message[] {
   return collapsed;
 }
 
-/**
- * Rebuild the Gemini chat from UI messages using each user's recorded audio
- * (same audio-first approach as TEF/scenario review). `messages` must be the
- * complete prior turns only (ending on a model message) — the last user audio
- * is sent separately via sendVoiceMessage.
- *
- * Sets syncedMessageCount to the current shared text-history length so a later
- * sendVoiceMessage will not overwrite this audio-backed session with text sync.
- */
-export const resetSessionWithUserAudioHistory = async (
-  scenario: Scenario | null,
-  messages: Message[],
-  signal?: AbortSignal
-): Promise<void> => {
-  ensureAiInitialized();
-  if (!ai) {
-    throw new Error('Chat session not initialized.');
-  }
+type ChatHistoryTurn = {
+  role: 'user' | 'model';
+  text?: string;
+  frenchText?: string;
+  audioBase64?: string;
+  mimeType?: string;
+};
 
-  activeScenario = scenario || null;
-  pendingScenario = scenario || null;
-  pendingHistory = null;
-
-  const systemInstruction = activeScenario
-    ? generateScenarioSystemInstruction(activeScenario)
-    : SYSTEM_INSTRUCTION;
-  const responseSchema = selectResponseSchema(activeScenario);
-
+async function historyTurnsFromMessages(messages: Message[], signal?: AbortSignal): Promise<ChatHistoryTurn[]> {
   const collapsed = collapseMessagesForChatHistory(messages);
-  const historyMessages: Array<{ role: string; parts: ChatHistoryPart[] }> = [];
+  const history: ChatHistoryTurn[] = [];
 
   for (const message of collapsed) {
     if (signal?.aborted) {
       throw new DOMException('Request aborted', 'AbortError');
     }
-
     if (message.role === 'user') {
       const audioUrl = typeof message.audioUrl === 'string' ? message.audioUrl : undefined;
       if (audioUrl) {
@@ -376,600 +73,275 @@ export const resetSessionWithUserAudioHistory = async (
           throw new DOMException('Request aborted', 'AbortError');
         }
         if (audioData) {
-          historyMessages.push({
+          history.push({
             role: 'user',
-            parts: [{ inlineData: { data: audioData.base64, mimeType: audioData.mimeType } }],
+            audioBase64: audioData.base64,
+            mimeType: audioData.mimeType,
           });
           continue;
         }
       }
-      // Last-resort fallback only when the blob is missing/unreadable
-      historyMessages.push({ role: 'user', parts: [{ text: message.text }] });
+      history.push({ role: 'user', text: message.text });
       continue;
     }
-
-    const modelText = message.frenchText || message.text;
-    historyMessages.push({ role: 'model', parts: [{ text: modelText }] });
+    history.push({
+      role: 'model',
+      frenchText: message.frenchText,
+      text: message.text,
+    });
   }
+  return history;
+}
 
+function textHistoryFallback(): ChatHistoryTurn[] {
+  if (!pendingHistory?.length) return [];
+  return pendingHistory.map((msg) => ({
+    role: msg.role === 'user' ? 'user' : 'model',
+    text: msg.content,
+  }));
+}
+
+export const resetSession = (scenario?: Scenario | null, history?: Array<{ role: string; content: string }>) => {
+  activeScenario = scenario || null;
+  pendingScenario = scenario || null;
+  storedPriorMessages = [];
+
+  if (history) {
+    pendingHistory = history;
+  } else {
+    syncedMessageCount = 0;
+    pendingHistory = null;
+  }
+};
+
+export const setScenario = (scenario: Scenario | null) => {
+  resetSession(scenario);
+};
+
+export const resetSessionWithUserAudioHistory = async (
+  scenario: Scenario | null,
+  messages: Message[],
+  signal?: AbortSignal
+): Promise<void> => {
   if (signal?.aborted) {
     throw new DOMException('Request aborted', 'AbortError');
   }
-
-  chatSession = ai.chats.create({
-    model: 'gemini-2.5-flash-lite',
-    config: {
-      systemInstruction,
-      responseMimeType: 'application/json',
-      responseSchema,
-    },
-    ...(historyMessages.length > 0 ? { history: historyMessages } : {}),
-  });
-
-  // Keep sync counter aligned with shared text history so sendVoiceMessage does
-  // not replace this audio-backed session via text-only lazy sync.
+  activeScenario = scenario || null;
+  pendingScenario = scenario || null;
+  pendingHistory = null;
+  storedPriorMessages = messages;
   syncedMessageCount = getConversationHistory().length;
 };
 
-/**
- * Ensures the Gemini AI instance is initialized
- */
-function ensureAiInitialized(): void {
-  if (!ai) {
-    const apiKey = getApiKeyOrEnv('gemini');
-    if (!apiKey) {
-      throw new Error("Missing Gemini API Key");
-    }
-    try {
-      ai = new GoogleGenAI({ apiKey });
-    } catch {
-      // Fallback for test environments where GoogleGenAI is mocked as a plain function
-      // (e.g. vi.fn().mockReturnValue() produces an arrow function that cannot be constructed)
-      ai = (GoogleGenAI as unknown as (opts: { apiKey: string }) => GoogleGenAI)({ apiKey });
-    }
+export const initializeSession = async () => {
+  if (pendingScenario) {
+    activeScenario = pendingScenario;
   }
-}
+};
 
-/**
- * Analyzes an advertisement image and returns a summary and role confirmation.
- * One-shot call (not a chat session) with inline image data.
- */
 export const confirmTefAdImage = async (
   imageBase64: string,
   mimeType: string
 ): Promise<{ summary: string; roleSummary: string }> => {
-  const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
   if (!SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
-    const typeLabels = SUPPORTED_IMAGE_TYPES.map(t => t.replace('image/', '').toUpperCase()).join(', ');
-    throw new Error(`Unsupported image type "${mimeType}". Please use ${typeLabels}.`);
+    throw unsupportedImageError(mimeType);
   }
-
-  ensureAiInitialized();
-
-  const response = await ai!.models.generateContent({
-    model: 'gemini-2.5-flash-lite',
-    contents: [{
-      parts: [
-        {
-          text: `Look at this advertisement image. Please respond with a JSON object containing:
-1. "summary": A concise 2-3 sentence description of what the advertisement is for, what product or service it promotes, and its key selling points or tagline if visible.
-2. "roleSummary": A brief confirmation (1-2 sentences) that you understand the ad and are ready to play the role of a skeptical French-speaking friend that the user must persuade about this product/service.
-
-Respond ONLY with valid JSON in this format:
-{
-  "summary": "...",
-  "roleSummary": "..."
-}`
-        },
-        {
-          inlineData: {
-            data: imageBase64,
-            mimeType: mimeType,
-          },
-        },
-      ],
-    }],
-    config: {
-      responseMimeType: 'application/json',
-    },
+  const result = await bffFetch<{ summary: string; roleSummary: string }>('/api/tef-ad-confirm', {
+    method: 'POST',
+    body: JSON.stringify({ imageBase64, mimeType, mode: 'persuasion' }),
   });
-
-  const text = response.text || '';
-  if (!text.trim()) {
-    throw new Error('No response received from image analysis');
-  }
-
-  let parsedRaw: unknown;
-  try {
-    parsedRaw = JSON.parse(text);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to parse image analysis response: ${errorMessage}. Raw: ${text}`);
-  }
-
-  const validation = ImageAnalysisSchema.safeParse(parsedRaw);
+  const validation = ImageAnalysisSchema.safeParse(result);
   if (!validation.success) {
     throw new Error(`Image analysis response validation failed: ${validation.error.message}`);
   }
-
-  return {
-    summary: validation.data.summary,
-    roleSummary: validation.data.roleSummary,
-  };
+  return validation.data;
 };
 
-/**
- * Analyzes an advertisement image and returns a summary and role confirmation for questioning mode.
- * One-shot call (not a chat session) with inline image data.
- * Describes a customer service agent role (not skeptical friend).
- */
 export const confirmTefAdImageForQuestioning = async (
   imageBase64: string,
   mimeType: string
 ): Promise<{ summary: string; roleSummary: string }> => {
-  const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
   if (!SUPPORTED_IMAGE_TYPES.includes(mimeType)) {
-    const typeLabels = SUPPORTED_IMAGE_TYPES.map(t => t.replace('image/', '').toUpperCase()).join(', ');
-    throw new Error(`Unsupported image type "${mimeType}". Please use ${typeLabels}.`);
+    throw unsupportedImageError(mimeType);
   }
-
-  ensureAiInitialized();
-
-  const response = await ai!.models.generateContent({
-    model: 'gemini-2.5-flash-lite',
-    contents: [{
-      parts: [
-        {
-          text: `Look at this advertisement image. Please respond with a JSON object containing:
-1. "summary": A concise 2-3 sentence description of what the advertisement is for, what product or service it promotes, and its key selling points or tagline if visible.
-2. "roleSummary": A brief confirmation (1-2 sentences) that you understand the ad and are ready to play the role of a customer service agent for the company in this ad — answering caller questions briefly and accurately without volunteering extra information.
-
-Respond ONLY with valid JSON in this format:
-{
-  "summary": "...",
-  "roleSummary": "..."
-}`
-        },
-        {
-          inlineData: {
-            data: imageBase64,
-            mimeType: mimeType,
-          },
-        },
-      ],
-    }],
-    config: {
-      responseMimeType: 'application/json',
-    },
+  const result = await bffFetch<{ summary: string; roleSummary: string }>('/api/tef-ad-confirm', {
+    method: 'POST',
+    body: JSON.stringify({ imageBase64, mimeType, mode: 'questioning' }),
   });
-
-  const text = response.text || '';
-  if (!text.trim()) {
-    throw new Error('No response received from image analysis');
-  }
-
-  let parsedRaw: unknown;
-  try {
-    parsedRaw = JSON.parse(text);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to parse image analysis response: ${errorMessage}. Raw: ${text}`);
-  }
-
-  const validation = ImageAnalysisSchema.safeParse(parsedRaw);
+  const validation = ImageAnalysisSchema.safeParse(result);
   if (!validation.success) {
     throw new Error(`Image analysis response validation failed: ${validation.error.message}`);
   }
-
-  return {
-    summary: validation.data.summary,
-    roleSummary: validation.data.roleSummary,
-  };
+  return validation.data;
 };
 
-/**
- * Gets AI's understanding/summary of a scenario description.
- */
-export const processScenarioDescription = async (description: string): Promise<string> => {
-  ensureAiInitialized();
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-lite',
-    contents: [{
-      parts: [{ text: generateScenarioSummaryPrompt(description) }],
-    }],
+export const transcribeAudio = async (
+  audioBase64: string,
+  mimeType: string,
+  signal?: AbortSignal
+): Promise<string> => {
+  const result = await bffFetch<{ text: string }>('/api/transcribe', {
+    method: 'POST',
+    body: JSON.stringify({ audioBase64, mimeType, cleanup: false }),
+    signal,
   });
-
-  return response.text || "I understand the scenario. Ready to begin when you are!";
-};
-
-/**
- * Transcribes audio to text using Gemini.
- */
-export const transcribeAudio = async (audioBase64: string, mimeType: string): Promise<string> => {
-  ensureAiInitialized();
-
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-lite',
-    contents: [{
-      parts: [
-        { text: "Transcribe this audio exactly as spoken. Only output the transcription, nothing else." },
-        {
-          inlineData: {
-            data: audioBase64,
-            mimeType: mimeType,
-          },
-        },
-      ],
-    }],
-  });
-
-  const text = response.text || "";
-  if (!text.trim()) {
-    throw new Error("Transcription returned empty text");
+  if (!result.text?.trim()) {
+    throw new Error('Transcription returned empty text');
   }
-  return text;
+  return result.text;
 };
 
-/**
- * Transcribes audio and produces both a raw transcript and a cleaned-up version
- * in a single LLM call using structured output.
- */
 export const transcribeAndCleanupAudio = async (
   audioBase64: string,
   mimeType: string,
   signal?: AbortSignal
 ): Promise<{ rawTranscript: string; cleanedTranscript: string }> => {
-  ensureAiInitialized();
-
-  const response = await ai!.models.generateContent({
-    model: 'gemini-2.5-flash-lite',
-    contents: [{
-      parts: [
-        {
-          text: `Listen to this audio and produce two versions of the transcript:
-
-1. "rawTranscript": Transcribe the audio exactly as spoken, including all filler words, false starts, repetitions, self-corrections, and hesitations.
-
-2. "cleanedTranscript": A cleaned-up version of the same transcript with the following removed:
-   - Filler words (um, uh, like, you know, so, etc.)
-   - False starts and repetitions
-   - Self-corrections and clarifications (e.g., "I mean", "actually", "wait no")
-   - Verbal pauses and hesitations
-   The cleaned version should preserve the core meaning and intent, reading smoothly while staying natural.`
-        },
-        {
-          inlineData: {
-            data: audioBase64,
-            mimeType: mimeType,
-          },
-        },
-      ],
-    }],
-    config: {
-      responseMimeType: 'application/json',
-      abortSignal: signal,
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          rawTranscript: {
-            type: Type.STRING,
-            description: 'Exact transcription of the audio as spoken, including all filler words and hesitations',
-          },
-          cleanedTranscript: {
-            type: Type.STRING,
-            description: 'Cleaned-up version with fillers, false starts, and self-corrections removed',
-          },
-        },
-        required: ['rawTranscript', 'cleanedTranscript'],
-      },
-    },
+  const result = await bffFetch<{ rawTranscript: string; cleanedTranscript: string }>('/api/transcribe', {
+    method: 'POST',
+    body: JSON.stringify({ audioBase64, mimeType, cleanup: true }),
+    signal,
   });
-
-  const text = response.text || "";
-  if (!text.trim()) {
-    throw new Error("Transcription returned empty response");
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    throw new Error(`Failed to parse Gemini transcription response: ${errorMessage}. Raw response: ${text}`);
-  }
-
   return {
-    rawTranscript: parsed.rawTranscript || "",
-    cleanedTranscript: parsed.cleanedTranscript || "",
+    rawTranscript: result.rawTranscript || '',
+    cleanedTranscript: result.cleanedTranscript || '',
   };
 };
 
-/**
- * Initializes the Gemini Chat session.
- * Must be called with a valid API Key.
- * Creates a fresh session and uses any pending scenario/history that was set before ai was initialized.
- */
-export const initializeSession = async () => {
-  ensureAiInitialized();
-  // We use gemini-2.5-flash-lite for the logic/conversation as it handles audio input well,
-  // but we will ask for TEXT output to maintain REST compatibility, then TTS it.
-
-  // If there was a pending scenario set before ai was initialized, use it
-  if (pendingScenario) {
-    activeScenario = pendingScenario;
-  }
-
-  // Create session with any pending state (scenario, history)
-  createChatSession();
-};
-
-/**
- * Generate speech audio for a specific character using Gemini TTS
- * @param text The text to convert to speech
- * @param voiceName The Gemini voice name to use
- * @returns Blob URL for the generated audio
- */
 export const generateCharacterSpeech = async (
   text: string,
   voiceName: string,
   signal?: AbortSignal
 ): Promise<string> => {
-  if (!ai) {
-    ensureAiInitialized();
-  }
-
-  // Sanitize text to prevent breaking the delimiter
-  const sanitizedText = text.replace(/<\/text>/g, '<\\/text>');
-
-  const systemPrompt = `You are to read out the following text in a friendly, encouraging tone. When speaking French, use a natural French accent. You MUST output ONLY AUDIO, not TEXT. Again, ONLY AUDIO, not TEXT. Here's the text enclosed in <text> tags: <text>${sanitizedText}</text>`;
-
-  const ttsResponse = await ai!.models.generateContent({
-    model: 'gemini-2.5-flash-preview-tts',
-    contents: [{ parts: [{ text: systemPrompt }] }],
-    config: {
-      abortSignal: signal,
-      responseModalities: [Modality.AUDIO],
-      speechConfig: {
-        voiceConfig: {
-          prebuiltVoiceConfig: {
-            voiceName: voiceName
-          }
-        }
-      }
-    }
+  const result = await bffFetch<{ audioBase64: string; mimeType?: string }>('/api/tts', {
+    method: 'POST',
+    body: JSON.stringify({ text, voiceName }),
+    signal,
   });
-
-  // Extract audio from TTS response
-  const candidate = ttsResponse.candidates?.[0];
-  const parts = candidate?.content?.parts;
-
-  if (!parts || parts.length === 0) {
-    throw new Error(`No content received from TTS model for character with voice ${voiceName}.`);
-  }
-
-  // Find the inline data part which contains the audio
-  const audioPart = parts.find(p => p.inlineData);
-
-  if (!audioPart || !audioPart.inlineData) {
+  if (!result.audioBase64) {
     throw new Error(`No audio data received from TTS model for character with voice ${voiceName}.`);
   }
-
-  // Convert base64 to blob and create URL
-  const audioBytes = base64ToBytes(audioPart.inlineData.data);
-  // Gemini TTS returns raw PCM, convert it to WAV format
+  const audioBytes = base64ToBytes(result.audioBase64);
   const audioBlob = pcmToWav(audioBytes, DEFAULT_PCM_SAMPLE_RATE, DEFAULT_PCM_CHANNELS);
-  const audioUrl = URL.createObjectURL(audioBlob);
-
-  return audioUrl;
+  return URL.createObjectURL(audioBlob);
 };
 
-/**
- * Sends a user audio blob to the model and returns the response with audio and text.
- * Optionally accepts a contextText string to inject per-turn context (e.g., objection direction/round).
- */
 export const sendVoiceMessage = async (
   audioBase64: string,
   mimeType: string,
   signal?: AbortSignal,
-  contextText?: string
+  contextText?: string,
+  priorMessages?: Message[]
 ): Promise<VoiceResponse> => {
-  if (!chatSession || !ai) {
-    if (activeScenario) {
-      await resetSession(activeScenario);
-    } else {
-      await initializeSession();
-    }
-    if (!chatSession || !ai) {
-      throw new Error("Chat session not initialized.");
-    }
+  if (pendingScenario && !activeScenario) {
+    activeScenario = pendingScenario;
   }
-
   if (signal?.aborted) {
     throw new DOMException('Request aborted', 'AbortError');
   }
 
   try {
-    // Step 1: Transcribe user audio
-    const transcribeResponse = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-lite',
-      contents: [{
-        parts: [
-          { text: "Transcribe this audio exactly as spoken. Only output the transcription, nothing else." },
-          {
-            inlineData: {
-              data: audioBase64,
-              mimeType: mimeType,
-            },
-          },
-        ],
-      }],
-      config: {
-        abortSignal: signal,
-      },
+    const transcribeResult = await bffFetch<{ text: string }>('/api/transcribe', {
+      method: 'POST',
+      body: JSON.stringify({ audioBase64, mimeType, cleanup: false }),
+      signal,
     });
-
-    const userText = transcribeResponse.text || "";
-
-    // Validate transcription - don't proceed with empty text
-    if (!userText || userText.trim().length === 0) {
-      throw new Error("Transcription failed or returned empty text. Please try speaking again.");
+    const userText = transcribeResult.text || '';
+    if (!userText.trim()) {
+      throw new Error('Transcription failed or returned empty text. Please try speaking again.');
     }
 
-    // Sync session with shared history if needed (lazy sync when actually sending a message)
-    // This happens when switching back to Gemini from another provider
     const sharedHistory = getConversationHistory();
-    
-    // If there are unsynced messages, recreate the session with full history
-    // This avoids redundant API calls from replaying messages one by one
-    if (sharedHistory.length > syncedMessageCount) {
-      // Recreate session with all history passed directly to the SDK
-      resetSession(activeScenario, sharedHistory);
-      // Ensure session was created successfully
-      if (!chatSession) {
-        throw new Error("Failed to sync session with history");
-      }
+    if (sharedHistory.length > syncedMessageCount && !priorMessages?.length && !storedPriorMessages.length) {
+      pendingHistory = sharedHistory;
     }
-    
-    // Step 2: Send User Audio to Chat Model to get Text Response
-    // Build message parts: optionally prepend a context text part before the audio
-    const messageParts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [];
-    if (contextText) {
-      messageParts.push({ text: contextText });
-    }
-    messageParts.push({ inlineData: { data: audioBase64, mimeType: mimeType } });
 
-    // NOTE: Passing per-request config does NOT inherit chat-level config.
-    // When we pass abortSignal here, we must also include responseMimeType/responseSchema
-    // or the SDK may return plain text (which would break JSON parsing below).
-    const systemInstructionForThisRequest = activeScenario
-      ? generateScenarioSystemInstruction(activeScenario)
-      : SYSTEM_INSTRUCTION;
+    const messagesForHistory = priorMessages ?? storedPriorMessages;
+    const history = messagesForHistory.length
+      ? await historyTurnsFromMessages(messagesForHistory, signal)
+      : textHistoryFallback();
 
-    const responseSchemaForThisRequest = selectResponseSchema(activeScenario);
-
-    const chatResponse = await chatSession.sendMessage({
-      message: messageParts,
-      config: {
-        abortSignal: signal,
-        systemInstruction: systemInstructionForThisRequest,
-        responseMimeType: 'application/json',
-        responseSchema: responseSchemaForThisRequest,
-      },
+    const chatResult = await bffFetch<{ modelJson: unknown }>('/api/chat', {
+      method: 'POST',
+      body: JSON.stringify({
+        audioBase64,
+        mimeType,
+        scenario: activeScenario,
+        history,
+        ...(contextText ? { contextText } : {}),
+      }),
+      signal,
     });
 
-    const rawModelText = chatResponse.text; // Access text property directly
-
-    if (!rawModelText) {
-      throw new Error("No text response received from chat model.");
+    const modelJson = chatResult.modelJson;
+    if (!modelJson || typeof modelJson !== 'object') {
+      throw new Error('No text response received from chat model.');
     }
 
-    // Check if this is a multi-character scenario
     if (activeScenario && activeScenario.characters && activeScenario.characters.length > 1) {
-      // Parse and validate JSON response with Zod
       const MultiCharacterSchema = createMultiCharacterSchema(activeScenario);
-
-      let jsonResponse;
-      try {
-        jsonResponse = JSON.parse(rawModelText);
-      } catch (parseError) {
-        const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-        throw new Error(`Failed to parse multi-character response as JSON: ${errorMessage}. Raw response: ${rawModelText}`);
-      }
-
-      // Use safeParse for better error handling
-      const validationResult = MultiCharacterSchema.safeParse(jsonResponse);
+      const validationResult = MultiCharacterSchema.safeParse(modelJson);
       if (!validationResult.success) {
-        throw new Error(`Failed to validate multi-character response: ${validationResult.error.message}. Raw response: ${rawModelText}`);
+        throw new Error(`Failed to validate multi-character response: ${validationResult.error.message}.`);
       }
-
       const validated = validationResult.data;
-
-      // Roadmap auto-advance: only present when the schema included it (see
-      // createMultiCharacterSchema's hasRoadmapSteps branch above). Mirrors
-      // the extraction pattern used for the single-character roadmap schema.
       const hasRoadmapSteps = !!activeScenario.steps && activeScenario.steps.length > 0;
       const currentStepIndex = hasRoadmapSteps && 'currentStepIndex' in validated
         ? (validated as { currentStepIndex?: number }).currentStepIndex
         : undefined;
 
-      // Map fixed character labels ("Character 1", etc.) back to actual characters by index
-      const characterResponses = validated.characterResponses.map(resp => {
+      const characterResponses = validated.characterResponses.map((resp) => {
         const label = resp.characterName.trim();
-
-        // Extract the number from "Character N" label
         const match = label.match(/^character\s+(\d+)$/i);
         if (!match) {
-          throw new Error(`Unexpected character label "${label}" — expected format "Character N". Raw response: ${rawModelText}`);
+          throw new Error(`Unexpected character label "${label}" — expected format "Character N".`);
         }
-
-        const index = parseInt(match[1], 10) - 1; // Convert 1-based to 0-based
+        const index = parseInt(match[1], 10) - 1;
         if (index < 0 || index >= activeScenario.characters!.length) {
-          throw new Error(`Character index ${index + 1} out of range (scenario has ${activeScenario.characters!.length} characters). Raw response: ${rawModelText}`);
+          throw new Error(`Character index ${index + 1} out of range (scenario has ${activeScenario.characters!.length} characters).`);
         }
-
         const character = activeScenario.characters![index];
         return {
           characterId: character.id,
           characterName: character.name,
           french: resp.french.trim(),
-          english: resp.english.trim()
+          english: resp.english.trim(),
         };
       });
 
-      // Merge successive messages from the same character to reduce TTS requests
       const mergedCharacterResponses = characterResponses.reduce<Array<{
         characterId: string;
         characterName: string;
         french: string;
         english: string;
       }>>((acc, current) => {
-        if (acc.length === 0) {
-          return [current];
-        }
-
+        if (acc.length === 0) return [current];
         const lastResponse = acc[acc.length - 1];
         if (lastResponse.characterId === current.characterId) {
-          // Same character speaking again - merge the messages
           lastResponse.french = `${lastResponse.french} ${current.french}`;
           lastResponse.english = `${lastResponse.english} ${current.english}`;
           return acc;
         }
-
-        // Different character - add as new response
         return [...acc, current];
       }, []);
 
-      // Extract hint: prefer top-level, fall back to last character response's hint
       const hint = validated.hint
         || validated.characterResponses[validated.characterResponses.length - 1]?.hint
-        || "Continue the conversation";
+        || 'Continue the conversation';
 
-      const parsed = {
-        characterResponses: mergedCharacterResponses,
-        hint
-      };
-
-      // Check if operation was cancelled before updating history
       if (signal?.aborted) {
         throw new DOMException('Request aborted', 'AbortError');
       }
 
-      // Generate audio for each character IN PARALLEL (wrapped with abort support)
-      // Only use French text for TTS
-      const audioPromises = parsed.characterResponses.map(async (charResp) => {
-        const character = activeScenario.characters.find(c => c.id === charResp.characterId);
-
+      const audioPromises = mergedCharacterResponses.map(async (charResp) => {
+        const character = activeScenario!.characters!.find((c) => c.id === charResp.characterId);
         if (!character) {
           throw new Error(`Character not found: ${charResp.characterName} (ID: ${charResp.characterId})`);
         }
-
         const audioUrl = await generateCharacterSpeech(charResp.french, character.voiceName, signal);
         return { ...charResp, audioUrl, voiceName: character.voiceName };
       });
 
       const results = await Promise.allSettled(audioPromises);
-
       if (signal?.aborted) {
         for (const result of results) {
           if (result.status === 'fulfilled' && result.value.audioUrl) {
@@ -979,227 +351,158 @@ export const sendVoiceMessage = async (
         throw new DOMException('Request aborted', 'AbortError');
       }
 
-      // Process results: extract successes and mark failures
       const characterAudios = results.map((result, idx) => {
         if (result.status === 'rejected') {
-          console.error(`TTS failed for character ${parsed.characterResponses[idx].characterName}:`, result.reason);
-          // Return character data without audio, flagged as failed
-          const character = activeScenario.characters.find(c => c.id === parsed.characterResponses[idx].characterId);
+          console.error(`TTS failed for character ${mergedCharacterResponses[idx].characterName}:`, result.reason);
+          const character = activeScenario!.characters!.find((c) => c.id === mergedCharacterResponses[idx].characterId);
           return {
-            ...parsed.characterResponses[idx],
-            audioUrl: '', // Use empty string instead of undefined to satisfy type
+            ...mergedCharacterResponses[idx],
+            audioUrl: '',
             audioGenerationFailed: true,
-            voiceName: character?.voiceName || ''
+            voiceName: character?.voiceName || '',
           };
         }
         return { ...result.value, audioGenerationFailed: false };
       });
 
-      // Construct combined text for conversation history (French followed by English)
-      const combinedModelText = parsed.characterResponses.map(cr => `${cr.french} ${cr.english}`).join(' ');
-
-      // Check again after audio generation (user may have aborted during TTS)
+      const combinedModelText = mergedCharacterResponses.map((cr) => `${cr.french} ${cr.english}`).join(' ');
       if (signal?.aborted) {
-        // Revoke any successfully generated audio URLs
-        characterAudios.forEach(ca => {
+        characterAudios.forEach((ca) => {
           if (ca.audioUrl) URL.revokeObjectURL(ca.audioUrl);
         });
         throw new DOMException('Request aborted', 'AbortError');
       }
 
-      // Sync to shared conversation history
-      addToHistory("user", userText);
-      addToHistory("assistant", combinedModelText);
+      addToHistory('user', userText);
+      addToHistory('assistant', combinedModelText);
       syncedMessageCount += 2;
 
-      // Return multi-character response
-      // Combine French and English for display
       return {
-        audioUrl: characterAudios.map(ca => ca.audioUrl),
-        modelText: characterAudios.map(ca => `${ca.french} ${ca.english}`),
+        audioUrl: characterAudios.map((ca) => ca.audioUrl),
+        modelText: characterAudios.map((ca) => `${ca.french} ${ca.english}`),
         userText,
-        hint: parsed.hint, // Required field, always present
-        characters: characterAudios.map(ca => ({
+        hint,
+        characters: characterAudios.map((ca) => ({
           characterId: ca.characterId,
           characterName: ca.characterName,
           voiceName: ca.voiceName,
           audioGenerationFailed: ca.audioGenerationFailed,
-          frenchText: ca.french // Include French text for TTS retry
+          frenchText: ca.french,
         })),
         ...(currentStepIndex !== undefined ? { currentStepIndex } : {}),
       };
-    } else {
-      // Single-character scenario with JSON response
-      if (activeScenario) {
-        // Parse and validate JSON response
-        let jsonResponse;
-        try {
-          jsonResponse = JSON.parse(rawModelText);
-        } catch (parseError) {
-          const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-          throw new Error(`Failed to parse single-character response as JSON: ${errorMessage}. Raw response: ${rawModelText}`);
-        }
-
-        // Choose schema: TEF Questioning adds isRepeat/conceptLabels; a scenario
-        // with roadmap steps adds currentStepIndex. These are separate schema
-        // branches (see AGENTS.md "TEF Ad Questioning Mode: Schema Selection")
-        // so each field is only ever present/required for its own scenario type.
-        const hasRoadmapSteps = !!activeScenario.steps && activeScenario.steps.length > 0;
-        const schemaToUse = activeScenario.isTefQuestioning
-          ? TefQuestioningSchema
-          : hasRoadmapSteps
-            ? RoadmapSingleCharacterSchema
-            : SingleCharacterSchema;
-
-        // Use safeParse for better error handling
-        const validationResult = schemaToUse.safeParse(jsonResponse);
-        if (!validationResult.success) {
-          throw new Error(`Failed to validate single-character response: ${validationResult.error.message}. Raw response: ${rawModelText}`);
-        }
-
-        const validated = validationResult.data;
-        const isRepeat = activeScenario.isTefQuestioning && 'isRepeat' in validated ? (validated as { isRepeat?: boolean }).isRepeat : undefined;
-        const conceptLabels = activeScenario.isTefQuestioning && 'conceptLabels' in validated
-          ? (validated as { conceptLabels?: string[] }).conceptLabels
-          : undefined;
-        const currentStepIndex = hasRoadmapSteps && 'currentStepIndex' in validated
-          ? (validated as { currentStepIndex?: number }).currentStepIndex
-          : undefined;
-
-        // Check if operation was cancelled before generating audio
-        if (signal?.aborted) {
-          throw new DOMException('Request aborted', 'AbortError');
-        }
-
-        // Combine French and English for display and history
-        const modelText = `${validated.french} ${validated.english}`;
-
-        // Step 3: Send Text Response to TTS Model to get Audio (use ONLY French text)
-        // Use character voice if available, otherwise default (wrapped with abort support)
-        const voiceName = activeScenario?.characters?.[0]?.voiceName || "aoede";
-
-        let audioUrl = '';
-        try {
-          audioUrl = await generateCharacterSpeech(validated.french, voiceName, signal);
-        } catch (ttsError) {
-          // Re-throw aborts - user cancelled the operation
-          if (ttsError instanceof DOMException && ttsError.name === 'AbortError') {
-            throw ttsError;
-          }
-          // Log TTS failures but continue with empty audioUrl
-          console.error('TTS generation failed for single-character response:', ttsError);
-          // Will return empty audioUrl - UI shows "Audio unavailable" with retry
-        }
-
-        // Check if aborted after TTS (in case signal was set during generation)
-        if (signal?.aborted) {
-          // Revoke audio URL if it was generated
-          if (audioUrl) URL.revokeObjectURL(audioUrl);
-          throw new DOMException('Request aborted', 'AbortError');
-        }
-
-        // Update history after TTS (success or non-abort failure)
-        // This ensures aborted operations don't pollute history,
-        // but TTS failures still show text with retry button
-        addToHistory("user", userText);
-        addToHistory("assistant", modelText);
-        syncedMessageCount += 2;
-
-        return {
-          audioUrl,
-          userText,
-          modelText,
-          hint: validated.hint,
-          voiceName,
-          audioGenerationFailed: !audioUrl, // Empty audioUrl means TTS failed
-          ...(isRepeat !== undefined ? { isRepeat } : {}),
-          ...(conceptLabels !== undefined ? { conceptLabels } : {}),
-          ...(currentStepIndex !== undefined ? { currentStepIndex } : {}),
-          characters: [{
-            characterId: activeScenario?.characters?.[0]?.id || '',
-            characterName: activeScenario?.characters?.[0]?.name || '',
-            voiceName,
-            audioGenerationFailed: !audioUrl,
-            frenchText: validated.french // Include French text for TTS retry
-          }]
-        };
-      } else {
-        // No scenario - free conversation mode with JSON response
-        // Parse and validate JSON response with Zod
-        let jsonResponse;
-        try {
-          jsonResponse = JSON.parse(rawModelText);
-        } catch (parseError) {
-          const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
-          throw new Error(`Failed to parse free conversation response as JSON: ${errorMessage}. Raw response: ${rawModelText}`);
-        }
-
-        // Use safeParse for better error handling
-        const validationResult = FreeConversationSchema.safeParse(jsonResponse);
-        if (!validationResult.success) {
-          throw new Error(`Failed to validate free conversation response: ${validationResult.error.message}. Raw response: ${rawModelText}`);
-        }
-
-        const validated = validationResult.data;
-
-        // Check if operation was cancelled before generating audio
-        if (signal?.aborted) {
-          throw new DOMException('Request aborted', 'AbortError');
-        }
-
-        // Combine French and English for display and history
-        const modelText = `${validated.french} ${validated.english}`;
-
-        // Step 3: Send ONLY French text to TTS (not the English translation)
-        const voiceName = "aoede";
-
-        let audioUrl = '';
-        try {
-          audioUrl = await generateCharacterSpeech(validated.french, voiceName, signal);
-        } catch (ttsError) {
-          // Re-throw aborts - user cancelled the operation
-          if (ttsError instanceof DOMException && ttsError.name === 'AbortError') {
-            throw ttsError;
-          }
-          // Log TTS failures but continue with empty audioUrl
-          console.error('TTS generation failed for free-conversation response:', ttsError);
-          // Will return empty audioUrl - UI shows "Audio unavailable" with retry
-        }
-
-        // Check if aborted after TTS (in case signal was set during generation)
-        if (signal?.aborted) {
-          // Revoke audio URL if it was generated
-          if (audioUrl) URL.revokeObjectURL(audioUrl);
-          throw new DOMException('Request aborted', 'AbortError');
-        }
-
-        // Update history after TTS (success or non-abort failure)
-        // This ensures aborted operations don't pollute history,
-        // but TTS failures still show text with retry button
-        addToHistory("user", userText);
-        addToHistory("assistant", modelText);
-        syncedMessageCount += 2;
-
-        return {
-          audioUrl,
-          userText,
-          modelText,
-          hint: undefined, // No hints in free conversation mode
-          voiceName,
-          audioGenerationFailed: !audioUrl, // Empty audioUrl means TTS failed
-          characters: [{
-            characterId: '',
-            characterName: '',
-            voiceName,
-            audioGenerationFailed: !audioUrl,
-            frenchText: validated.french // Include French text for TTS retry
-          }]
-        };
-      }
     }
 
+    if (activeScenario) {
+      const hasRoadmapSteps = !!activeScenario.steps && activeScenario.steps.length > 0;
+      const schemaToUse = activeScenario.isTefQuestioning
+        ? TefQuestioningSchema
+        : hasRoadmapSteps
+          ? RoadmapSingleCharacterSchema
+          : SingleCharacterSchema;
+      const validationResult = schemaToUse.safeParse(modelJson);
+      if (!validationResult.success) {
+        throw new Error(`Failed to validate single-character response: ${validationResult.error.message}.`);
+      }
+      const validated = validationResult.data;
+      const isRepeat = activeScenario.isTefQuestioning && 'isRepeat' in validated
+        ? (validated as { isRepeat?: boolean }).isRepeat
+        : undefined;
+      const conceptLabels = activeScenario.isTefQuestioning && 'conceptLabels' in validated
+        ? (validated as { conceptLabels?: string[] }).conceptLabels
+        : undefined;
+      const currentStepIndex = hasRoadmapSteps && 'currentStepIndex' in validated
+        ? (validated as { currentStepIndex?: number }).currentStepIndex
+        : undefined;
+
+      if (signal?.aborted) {
+        throw new DOMException('Request aborted', 'AbortError');
+      }
+
+      const modelText = `${validated.french} ${validated.english}`;
+      const voiceName = activeScenario?.characters?.[0]?.voiceName || 'aoede';
+      addToHistory('user', userText);
+      addToHistory('assistant', modelText);
+      syncedMessageCount += 2;
+
+      let audioUrl = '';
+      try {
+        audioUrl = await generateCharacterSpeech(validated.french, voiceName, signal);
+      } catch (ttsError) {
+        if (isAbortLikeError(ttsError)) throw ttsError;
+        console.error('TTS generation failed for single-character response:', ttsError);
+      }
+
+      if (signal?.aborted) {
+        if (audioUrl) URL.revokeObjectURL(audioUrl);
+        throw new DOMException('Request aborted', 'AbortError');
+      }
+
+      return {
+        audioUrl,
+        userText,
+        modelText,
+        hint: validated.hint,
+        voiceName,
+        audioGenerationFailed: !audioUrl,
+        ...(isRepeat !== undefined ? { isRepeat } : {}),
+        ...(conceptLabels !== undefined ? { conceptLabels } : {}),
+        ...(currentStepIndex !== undefined ? { currentStepIndex } : {}),
+        characters: [{
+          characterId: activeScenario?.characters?.[0]?.id || '',
+          characterName: activeScenario?.characters?.[0]?.name || '',
+          voiceName,
+          audioGenerationFailed: !audioUrl,
+          frenchText: validated.french,
+        }],
+      };
+    }
+
+    const validationResult = FreeConversationSchema.safeParse(modelJson);
+    if (!validationResult.success) {
+      throw new Error(`Failed to validate free conversation response: ${validationResult.error.message}.`);
+    }
+    const validated = validationResult.data;
+    if (signal?.aborted) {
+      throw new DOMException('Request aborted', 'AbortError');
+    }
+
+    const modelText = `${validated.french} ${validated.english}`;
+    const voiceName = 'aoede';
+    addToHistory('user', userText);
+    addToHistory('assistant', modelText);
+    syncedMessageCount += 2;
+
+    let audioUrl = '';
+    try {
+      audioUrl = await generateCharacterSpeech(validated.french, voiceName, signal);
+    } catch (ttsError) {
+      if (isAbortLikeError(ttsError)) throw ttsError;
+      console.error('TTS generation failed for free-conversation response:', ttsError);
+    }
+
+    if (signal?.aborted) {
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      throw new DOMException('Request aborted', 'AbortError');
+    }
+
+    return {
+      audioUrl,
+      userText,
+      modelText,
+      hint: undefined,
+      voiceName,
+      audioGenerationFailed: !audioUrl,
+      characters: [{
+        characterId: '',
+        characterName: '',
+        voiceName,
+        audioGenerationFailed: !audioUrl,
+        frenchText: validated.french,
+      }],
+    };
   } catch (error) {
-    console.error("Error communicating with Gemini:", error);
+    console.error('Error communicating with Gemini:', error);
     throw error;
   }
 };

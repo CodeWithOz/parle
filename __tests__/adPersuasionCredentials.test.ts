@@ -60,14 +60,15 @@ function selectFile(file: File) {
 // ---------------------------------------------------------------------------
 
 describe('apiKeyService · hasApiKeyOrEnv', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     localStorage.clear();
+    const { hydrateSessionStatus } = await import('../services/apiKeyService');
+    hydrateSessionStatus({ hasGemini: false, hasOpenai: false, hasApiKey: false });
   });
 
   afterEach(() => {
     localStorage.clear();
     vi.restoreAllMocks();
-    delete process.env.GEMINI_API_KEY;
   });
 
   it('is importable from the apiKeyService module', async () => {
@@ -75,37 +76,34 @@ describe('apiKeyService · hasApiKeyOrEnv', () => {
     expect(typeof mod.hasApiKeyOrEnv).toBe('function');
   });
 
-  it('returns false for "gemini" when localStorage is empty and env var is absent', async () => {
+  it('returns false for "gemini" when no BFF session is cached', async () => {
     const { hasApiKeyOrEnv } = await import('../services/apiKeyService');
-    delete process.env.GEMINI_API_KEY;
     expect(hasApiKeyOrEnv('gemini')).toBe(false);
   });
 
-  it('returns true for "gemini" when a key is stored in localStorage', async () => {
+  it('returns true for "gemini" after the session cache is hydrated', async () => {
     const { hasApiKeyOrEnv, setApiKey } = await import('../services/apiKeyService');
     setApiKey('gemini', 'test-gemini-key-123');
     expect(hasApiKeyOrEnv('gemini')).toBe(true);
   });
 
-  it('returns true for "gemini" when GEMINI_API_KEY env var is set', async () => {
-    const { hasApiKeyOrEnv } = await import('../services/apiKeyService');
+  it('does not treat a Vite/env GEMINI_API_KEY as a client-readable key', async () => {
+    const { hasApiKeyOrEnv, getApiKeyOrEnv } = await import('../services/apiKeyService');
     process.env.GEMINI_API_KEY = 'env-gemini-key';
-    expect(hasApiKeyOrEnv('gemini')).toBe(true);
+    expect(hasApiKeyOrEnv('gemini')).toBe(false);
+    expect(getApiKeyOrEnv('gemini')).toBeNull();
     delete process.env.GEMINI_API_KEY;
   });
 
-  it('localStorage key takes precedence over env variable', async () => {
+  it('never returns the raw key to JavaScript', async () => {
     const { hasApiKeyOrEnv, setApiKey, getApiKeyOrEnv } = await import('../services/apiKeyService');
-    process.env.GEMINI_API_KEY = 'env-key';
     setApiKey('gemini', 'stored-key');
-    expect(getApiKeyOrEnv('gemini')).toBe('stored-key');
+    expect(getApiKeyOrEnv('gemini')).toBeNull();
     expect(hasApiKeyOrEnv('gemini')).toBe(true);
-    delete process.env.GEMINI_API_KEY;
   });
 
-  it('removing key from localStorage causes hasApiKeyOrEnv to return false (when no env var)', async () => {
+  it('clearing the cached Gemini flag makes hasApiKeyOrEnv return false', async () => {
     const { hasApiKeyOrEnv, setApiKey } = await import('../services/apiKeyService');
-    delete process.env.GEMINI_API_KEY;
     setApiKey('gemini', 'temp-key');
     expect(hasApiKeyOrEnv('gemini')).toBe(true);
     setApiKey('gemini', '');

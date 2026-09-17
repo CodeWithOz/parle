@@ -5,8 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:worker": "wrangler dev --port 8787",
+    "dev:full": "npx --yes concurrently -k \"npm run dev\" \"npm run dev:worker\"",
     "build": "vite build",
     "preview": "vite preview",
+    "deploy": "npm run build && wrangler deploy",
+    "types": "wrangler types --include-runtime false",
     "test": "vitest run",
     "test:e2e": "PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers playwright test",
     "test:e2e:install": "PLAYWRIGHT_BROWSERS_PATH=./.playwright-browsers playwright install"
@@ -24,6 +28,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260911.1",
     "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4.1.18",
     "@testing-library/jest-dom": "^6.9.1",
@@ -35,6 +40,7 @@
     "postcss": "^8.5.6",
     "typescript": "~5.8.2",
     "vite": "^7.3.1",
-    "vitest": "^4.0.18"
+    "vitest": "^4.0.18",
+    "wrangler": "^4.131.1"
   }
 }
