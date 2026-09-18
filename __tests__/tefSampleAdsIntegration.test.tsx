@@ -145,6 +145,36 @@ for (const { label, type, Component, serviceFn } of fixtures) {
       expect(spy).toHaveBeenCalledTimes(1);
     });
 
+    it('a file chosen via the input during the FileReader gap is ignored (read guard, independent of gallery disabling)', async () => {
+      vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
+      const spy = vi.spyOn(geminiService, serviceFn).mockResolvedValue(confirmation);
+      stubFetchOk();
+
+      const readers: any[] = [];
+      class DeferredFileReader {
+        onload: ((e: any) => void) | null = null;
+        onerror: (() => void) | null = null;
+        readAsDataURL(file: File) {
+          readers.push({ reader: this, file });
+        }
+      }
+      vi.stubGlobal('FileReader', DeferredFileReader);
+      const { container } = renderSetup(Component);
+
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(ads[0].label) }));
+      await waitFor(() => expect(readers).toHaveLength(1));
+
+      const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+      const file = new File(['other'], 'other.png', { type: 'image/png' });
+      fireEvent.change(input, { target: { files: [file] } });
+      await new Promise((r) => setTimeout(r, 30));
+      expect(readers).toHaveLength(1);
+
+      readers[0].reader.onload({ target: { result: `data:image/png;base64,${btoa(BYTES)}` } });
+      await waitFor(() => expect(screen.getByText('Start Conversation')).toBeInTheDocument());
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
     it('the gallery is not shown once an image is being confirmed', async () => {
       vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
       vi.spyOn(geminiService, serviceFn).mockResolvedValue(confirmation);

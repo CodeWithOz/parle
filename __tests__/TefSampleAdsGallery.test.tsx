@@ -3,7 +3,7 @@
  * ad as a File and hand it to onSelect.
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import * as React from 'react';
 import * as GalleryModule from '../components/TefSampleAdsGallery';
 import { TEF_SAMPLE_ADS } from '../services/tefSampleAds';
@@ -33,15 +33,16 @@ afterEach(() => {
 
 for (const type of EXERCISES) {
   describe(`TefSampleAdsGallery (${type})`, () => {
-    it('renders 4 buttons, each with an img with alt and an aria-label containing the ad label', () => {
+    it('renders 4 buttons, each with an aria-label containing the ad label and a decorative (alt="") thumbnail img', () => {
       render(<Gallery exerciseType={type} onSelect={vi.fn()} />);
       const buttons = screen.getAllByRole('button');
       expect(buttons).toHaveLength(4);
       TEF_SAMPLE_ADS[type].forEach((ad, i) => {
         expect(buttons[i].getAttribute('aria-label')).toContain(ad.label);
-        const img = within(buttons[i]).getByRole('img');
-        expect(img.getAttribute('alt')).toBeTruthy();
-        expect(img.getAttribute('src')).toContain(ad.url);
+        const img = buttons[i].querySelector('img');
+        expect(img).not.toBeNull();
+        expect(img!.getAttribute('alt')).toBe('');
+        expect(img!.getAttribute('src')).toContain(ad.url);
       });
     });
 
@@ -163,5 +164,43 @@ describe('TefSampleAdsGallery behaviours', () => {
 
     resolveFetch({ ok: true, status: 200, blob: async () => new Blob(['x'], { type: 'image/png' }) });
     await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(1));
+  });
+
+  it('unmounting during a pending fetch aborts it and never calls onSelect or onError', async () => {
+    let resolveFetch!: (v: unknown) => void;
+    let rejectFetch!: (e: unknown) => void;
+    const fetchMock = vi.fn().mockReturnValue(new Promise((res, rej) => { resolveFetch = res; rejectFetch = rej; }));
+    vi.stubGlobal('fetch', fetchMock);
+    const onSelect = vi.fn();
+    const onError = vi.fn();
+    const { unmount } = render(<Gallery exerciseType="questioning" onSelect={onSelect} onError={onError} />);
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(ad.label) }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const signal = fetchMock.mock.calls[0][1]?.signal as AbortSignal;
+    expect(signal).toBeInstanceOf(AbortSignal);
+    expect(signal.aborted).toBe(false);
+
+    unmount();
+    expect(signal.aborted).toBe(true);
+
+    // Whether the fetch settles as an abort rejection or (worst case) succeeds, nothing is reported.
+    rejectFetch(new DOMException('Aborted', 'AbortError'));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it('unmounting during a pending fetch that later resolves still does not call onSelect', async () => {
+    let resolveFetch!: (v: unknown) => void;
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise((res) => { resolveFetch = res; })));
+    const onSelect = vi.fn();
+    const onError = vi.fn();
+    const { unmount } = render(<Gallery exerciseType="questioning" onSelect={onSelect} onError={onError} />);
+    fireEvent.click(screen.getByRole('button', { name: new RegExp(ad.label) }));
+    unmount();
+    resolveFetch({ ok: true, status: 200, blob: async () => new Blob(['x'], { type: 'image/png' }) });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onError).not.toHaveBeenCalled();
   });
 });
