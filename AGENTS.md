@@ -610,6 +610,30 @@ Do **not** remove the `SIMULATION CONTEXT` block or replace the default strategy
 
 ---
 
+## TEF Sample Ads: Static Files Routed Through the Upload Flow
+
+**Location:** `public/tef-samples/`, `services/tefSampleAds.ts`, `components/TefSampleAdsGallery.tsx`, `components/AdQuestioningSetup.tsx`, `components/AdPersuasionSetup.tsx`
+
+### Pattern
+
+Both TEF setup screens show a thumbnail gallery of official TEF sample ads next to the upload dropzone. The images (`questioning-1..4.png`, `persuasion-1..4.png`) are plain static assets under `public/tef-samples/`, listed in `TEF_SAMPLE_ADS` and resolved against `import.meta.env.BASE_URL`. Clicking a thumbnail calls `fetchSampleAdAsFile()`, which fetches the bytes and wraps them as a PNG `File`, then hands that file to the same `processFile` path as a manual upload (Gemini key gate, `/api/tef-ad-confirm` analysis, confirmation step).
+
+To add or replace a sample, drop the PNG in `public/tef-samples/` and edit `TEF_SAMPLE_ADS`.
+
+### Why This Is Intentional
+
+- **No `savedAds` seeding.** Samples are not pre-inserted into IndexedDB, so there is no schema change and no effect on `.parle` backup/export. A sample only enters `savedAds` after the user starts a session, exactly like an uploaded ad.
+- **The URL is not passed to Gemini.** External `fileData.fileUri` URLs are rejected (403) by Gemini 3.1+ models, and `localhost` is unreachable from Google. The browser also needs the bytes for the thumbnail preview and IndexedDB storage, so fetching once and using the normal inline-image upload flow is the correct path. Do not "optimize" this by sending the sample URL to the model.
+- **A `busy` flag in each setup component** ignores a second selection while the `FileReader` read is in progress, so two quick clicks cannot race two analyses.
+
+### Related Files
+
+- `services/tefSampleAds.ts` — catalog and `fetchSampleAdAsFile`
+- `components/TefSampleAdsGallery.tsx` — gallery UI
+- `components/AdQuestioningSetup.tsx`, `components/AdPersuasionSetup.tsx` — integration and `busy` guard
+
+---
+
 ## Scenario Roadmap: Schema Selection and Never-Regress Auto-Advance
 
 **Location:** `services/geminiService.ts` - `RoadmapSingleCharacterSchema`, `createChatSession()`, `sendVoiceMessage()`; `services/scenarioService.ts`; `utils/roadmapStepStatus.ts`; `types.ts`; `components/ScenarioRoadmap.tsx`, `components/ScenarioSetup.tsx`
@@ -879,4 +903,5 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - 2026-08-26: Removed the "More Standard French" section from TEF exercise reviews (role-play still has it); TEF reviews no longer generate `standardizationItems`
 - 2026-08-28: Documented Stage 5 browser `.parle` export/import (`fflate@0.8.3`, format v1, Settings → Backup)
 - 2026-08-29: Recorded Stage 5 merge/deployment (PR #54); numbered data-portability program ends at Stage 5 (no Stage 6)
+- 2026-09-18: Documented TEF sample ad gallery (static `public/tef-samples/` files routed through `processFile`; sample URLs deliberately not sent to Gemini)
 - See git history for detailed implementation timeline
