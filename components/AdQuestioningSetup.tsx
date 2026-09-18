@@ -4,6 +4,7 @@ import { hasApiKeyOrEnv } from '../services/apiKeyService';
 import { useAnalyzeAdImageWithRetry } from '../hooks/useAnalyzeAdImageWithRetry';
 import type { TefSavedAd } from '../types';
 import { TefRecentAdsCarousel } from './TefRecentAdsCarousel';
+import { TefSampleAdsGallery } from './TefSampleAdsGallery';
 
 interface AdQuestioningSetupProps {
   onStartConversation: (
@@ -230,6 +231,12 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
               >
                 Select Image
               </button>
+
+              <TefSampleAdsGallery
+                exerciseType="questioning"
+                onSelect={processFile}
+                onError={setError}
+              />
 
               <TefRecentAdsCarousel
                 exerciseType="questioning"
