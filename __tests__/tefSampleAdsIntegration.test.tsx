@@ -115,6 +115,36 @@ for (const { label, type, Component, serviceFn } of fixtures) {
       expect(screen.getByRole('button', { name: /upload advertisement image/i })).toBeInTheDocument();
     });
 
+    it('a second thumbnail click during the FileReader gap does not start a second analysis', async () => {
+      vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
+      const spy = vi.spyOn(geminiService, serviceFn).mockResolvedValue(confirmation);
+      const fetchMock = stubFetchOk();
+
+      const readers: any[] = [];
+      class DeferredFileReader {
+        onload: ((e: any) => void) | null = null;
+        onerror: (() => void) | null = null;
+        readAsDataURL(file: File) {
+          readers.push({ reader: this, file });
+        }
+      }
+      vi.stubGlobal('FileReader', DeferredFileReader);
+      renderSetup(Component);
+
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(ads[0].label) }));
+      await waitFor(() => expect(readers).toHaveLength(1));
+
+      // Reader has not finished yet: the parent is still on the upload step.
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(ads[1].label) }));
+      await new Promise((r) => setTimeout(r, 30));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(readers).toHaveLength(1);
+
+      readers[0].reader.onload({ target: { result: `data:image/png;base64,${btoa(BYTES)}` } });
+      await waitFor(() => expect(screen.getByText('Start Conversation')).toBeInTheDocument());
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
     it('the gallery is not shown once an image is being confirmed', async () => {
       vi.spyOn(apiKeyService, 'hasApiKeyOrEnv').mockReturnValue(true);
       vi.spyOn(geminiService, serviceFn).mockResolvedValue(confirmation);

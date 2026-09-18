@@ -6,9 +6,10 @@ export interface TefSampleAd {
   label: string;
 }
 
-const BASE = import.meta.env.BASE_URL;
+const RAW_BASE = import.meta.env.BASE_URL;
+const BASE = RAW_BASE.endsWith('/') ? RAW_BASE : `${RAW_BASE}/`;
 
-const sampleUrl = (id: string) => `${BASE}tef-samples/${id}.png`.replace(/\/{2,}/g, '/');
+const sampleUrl = (id: string) => `${BASE}tef-samples/${id}.png`;
 
 const makeAd = (id: string, label: string): TefSampleAd => ({ id, url: sampleUrl(id), label });
 
@@ -29,8 +30,8 @@ export const TEF_SAMPLE_ADS: Record<TefExerciseType, TefSampleAd[]> = {
 };
 
 /** Fetch a sample ad image and wrap it as a PNG File for the normal upload flow. */
-export async function fetchSampleAdAsFile(ad: TefSampleAd): Promise<File> {
-  const response = await fetch(ad.url);
+export async function fetchSampleAdAsFile(ad: TefSampleAd, signal?: AbortSignal): Promise<File> {
+  const response = await fetch(ad.url, signal ? { signal } : undefined);
   if (!response.ok) {
     throw new Error(`Failed to load sample ad (HTTP ${response.status}).`);
   }

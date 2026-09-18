@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import type { TefExerciseType } from '../types';
 import { TEF_SAMPLE_ADS, fetchSampleAdAsFile } from '../services/tefSampleAds';
 import type { TefSampleAd } from '../services/tefSampleAds';
@@ -19,18 +19,30 @@ export const TefSampleAdsGallery: React.FC<TefSampleAdsGalleryProps> = ({
   // Shared across all thumbnails: only one sample fetch may be in flight at a time.
   const inFlightRef = useRef(false);
 
+  const abortRef = useRef<AbortController>(new AbortController());
+
+  useEffect(() => {
+    // StrictMode re-runs effects: recreate the controller if the previous one was aborted.
+    if (abortRef.current.signal.aborted) abortRef.current = new AbortController();
+    const controller = abortRef.current;
+    return () => controller.abort();
+  }, []);
+
   const handleClick = async (ad: TefSampleAd) => {
     if (disabled || inFlightRef.current) return;
     inFlightRef.current = true;
+    const { signal } = abortRef.current;
     let file: File;
     try {
-      file = await fetchSampleAdAsFile(ad);
+      file = await fetchSampleAdAsFile(ad, signal);
     } catch {
       inFlightRef.current = false;
+      if (signal.aborted) return;
       onError?.('Failed to load the sample ad. Please try again.');
       return;
     }
     inFlightRef.current = false;
+    if (signal.aborted) return;
     onSelect(file);
   };
 
@@ -54,7 +66,7 @@ export const TefSampleAdsGallery: React.FC<TefSampleAdsGalleryProps> = ({
           >
             <img
               src={ad.url}
-              alt={ad.label}
+              alt=""
               loading="lazy"
               className="h-24 w-full object-cover object-bottom"
             />
