@@ -4,6 +4,7 @@ import { hasApiKeyOrEnv } from '../services/apiKeyService';
 import { useAnalyzeAdImageWithRetry } from '../hooks/useAnalyzeAdImageWithRetry';
 import type { TefSavedAd } from '../types';
 import { TefRecentAdsCarousel } from './TefRecentAdsCarousel';
+import { TefSampleAdsGallery } from './TefSampleAdsGallery';
 
 interface AdQuestioningSetupProps {
   onStartConversation: (
@@ -36,6 +37,13 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
   const [imageBase64, setImageBase64] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Set synchronously in processFile so a second selection during the FileReader gap is ignored.
+  const readingRef = useRef(false);
+  const [isReadingFile, setIsReadingFile] = useState(false);
+  const setReading = (value: boolean) => {
+    readingRef.current = value;
+    setIsReadingFile(value);
+  };
 
   const processFile = useCallback(async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -55,6 +63,8 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
       return;
     }
 
+    if (readingRef.current) return;
+    setReading(true);
     setError(null);
 
     // Convert file to base64
@@ -64,6 +74,7 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
       if (typeof dataUrl !== 'string') {
         setError('Failed to read the image file. Please try again.');
         setStep('upload');
+        setReading(false);
         return;
       }
       // Extract base64 from data URL (remove "data:image/xxx;base64," prefix)
@@ -74,12 +85,17 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
       setImageBase64(base64);
       setImageMimeType(mimeType);
 
-      await analyze(base64, mimeType);
+      try {
+        await analyze(base64, mimeType);
+      } finally {
+        setReading(false);
+      }
     };
 
     reader.onerror = () => {
       setError('Failed to read the image file. Please try again.');
       setStep('upload');
+      setReading(false);
     };
 
     reader.readAsDataURL(file);
@@ -230,6 +246,13 @@ export const AdQuestioningSetup: React.FC<AdQuestioningSetupProps> = ({
               >
                 Select Image
               </button>
+
+              <TefSampleAdsGallery
+                exerciseType="questioning"
+                onSelect={processFile}
+                disabled={isReadingFile}
+                onError={setError}
+              />
 
               <TefRecentAdsCarousel
                 exerciseType="questioning"
