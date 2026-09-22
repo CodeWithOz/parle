@@ -26,6 +26,7 @@ export function mockParleBff(options?: {
           english: 'Hello!',
           hint: 'Continue',
         },
+        interactionId: 'int_test_1',
       });
     }
     if (url.includes('/api/tts')) {
