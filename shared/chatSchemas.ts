@@ -92,7 +92,7 @@ export const createMultiCharacterSchema = (scenario: Scenario) => {
 
 export function toGeminiSchema(jsonSchema: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
-  if (jsonSchema.type) result.type = (jsonSchema.type as string).toUpperCase();
+  if (jsonSchema.type) result.type = jsonSchema.type;
   if (jsonSchema.description) result.description = jsonSchema.description;
   if (jsonSchema.properties) {
     result.properties = Object.fromEntries(

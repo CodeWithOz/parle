@@ -8,7 +8,8 @@ export type BffErrorCode =
   | 'NOT_FOUND'
   | 'METHOD_NOT_ALLOWED'
   | 'VALIDATION_ERROR'
-  | 'MISSING_PROVIDER_KEY';
+  | 'MISSING_PROVIDER_KEY'
+  | 'INTERACTION_NOT_FOUND';
 
 export function json(
   body: unknown,

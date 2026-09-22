@@ -1,4 +1,3 @@
-import { Type } from '@google/genai';
 import type { TefReview } from '../../types';
 
 export type ReviewTurn = {
@@ -46,24 +45,24 @@ WHAT EXAMINERS LOOK FOR (tips from the test creators):
 
 export function tefReviewResponseSchema(exerciseType: 'questioning' | 'persuasion') {
   return {
-    type: Type.OBJECT,
+    type: 'object',
     properties: {
-      cefrLevel: { type: Type.STRING },
-      cefrJustification: { type: Type.STRING },
-      wentWell: { type: Type.ARRAY, items: { type: Type.STRING } },
+      cefrLevel: { type: 'string' },
+      cefrJustification: { type: 'string' },
+      wentWell: { type: 'array', items: { type: 'string' } },
       topicSuggestions: {
-        type: Type.ARRAY,
+        type: 'array',
         items: {
-          type: Type.OBJECT,
+          type: 'object',
           properties: {
-            topic: { type: Type.STRING },
+            topic: { type: 'string' },
             examples: {
-              type: Type.ARRAY,
+              type: 'array',
               items: {
-                type: Type.OBJECT,
+                type: 'object',
                 properties: {
-                  french: { type: Type.STRING },
-                  english: { type: Type.STRING },
+                  french: { type: 'string' },
+                  english: { type: 'string' },
                 },
                 required: ['french', 'english'],
               },
@@ -75,13 +74,13 @@ export function tefReviewResponseSchema(exerciseType: 'questioning' | 'persuasio
       ...(exerciseType === 'persuasion'
         ? {
             criteriaEvaluation: {
-              type: Type.ARRAY,
+              type: 'array',
               items: {
-                type: Type.OBJECT,
+                type: 'object',
                 properties: {
-                  criterion: { type: Type.STRING },
-                  met: { type: Type.BOOLEAN },
-                  evidence: { type: Type.STRING },
+                  criterion: { type: 'string' },
+                  met: { type: 'boolean' },
+                  evidence: { type: 'string' },
                 },
                 required: ['criterion', 'met', 'evidence'],
               },
