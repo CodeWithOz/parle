@@ -10,7 +10,8 @@ export type BffErrorCode =
   | 'NOT_FOUND'
   | 'METHOD_NOT_ALLOWED'
   | 'VALIDATION_ERROR'
-  | 'MISSING_PROVIDER_KEY';
+  | 'MISSING_PROVIDER_KEY'
+  | 'INTERACTION_NOT_FOUND';
 
 export class BffError extends Error {
   readonly code: BffErrorCode;
@@ -35,6 +36,7 @@ const ERROR_CODES: ReadonlySet<string> = new Set([
   'METHOD_NOT_ALLOWED',
   'VALIDATION_ERROR',
   'MISSING_PROVIDER_KEY',
+  'INTERACTION_NOT_FOUND',
 ]);
 
 function isBffErrorCode(value: string): value is BffErrorCode {

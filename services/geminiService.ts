@@ -11,7 +11,7 @@ import {
 } from '../shared/chatSchemas';
 import { fetchAudioAsInlineData } from '../utils/fetchAudioAsInlineData';
 import { isAbortLikeError } from '../utils/isAbortLikeError';
-import { bffFetch } from './bffClient';
+import { bffFetch, BffError } from './bffClient';
 
 const DEFAULT_PCM_SAMPLE_RATE = 24000;
 const DEFAULT_PCM_CHANNELS = 1;
@@ -24,6 +24,8 @@ let pendingScenario: Scenario | null = null;
 let pendingHistory: Array<{ role: string; content: string }> | null = null;
 let storedPriorMessages: Message[] = [];
 let syncedMessageCount = 0;
+let nextTurnInteractionId: string | undefined;
+let regenerateFromInteractionId: string | undefined;
 
 const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 
@@ -105,6 +107,8 @@ export const resetSession = (scenario?: Scenario | null, history?: Array<{ role:
   activeScenario = scenario || null;
   pendingScenario = scenario || null;
   storedPriorMessages = [];
+  nextTurnInteractionId = undefined;
+  regenerateFromInteractionId = undefined;
 
   if (history) {
     pendingHistory = history;
@@ -230,7 +234,8 @@ export const sendVoiceMessage = async (
   mimeType: string,
   signal?: AbortSignal,
   contextText?: string,
-  priorMessages?: Message[]
+  priorMessages?: Message[],
+  options?: { regenerate?: boolean }
 ): Promise<VoiceResponse> => {
   if (pendingScenario && !activeScenario) {
     activeScenario = pendingScenario;
@@ -256,21 +261,57 @@ export const sendVoiceMessage = async (
     }
 
     const messagesForHistory = priorMessages ?? storedPriorMessages;
-    const history = messagesForHistory.length
-      ? await historyTurnsFromMessages(messagesForHistory, signal)
-      : textHistoryFallback();
+    const previousInteractionId = options?.regenerate
+      ? regenerateFromInteractionId
+      : nextTurnInteractionId;
 
-    const chatResult = await bffFetch<{ modelJson: unknown }>('/api/chat', {
+    const chatBodyBase = {
+      audioBase64,
+      mimeType,
+      scenario: activeScenario,
+      ...(contextText ? { contextText } : {}),
+    };
+
+    const postChat = (body: Record<string, unknown>) => bffFetch<{ modelJson: unknown; interactionId?: string }>('/api/chat', {
       method: 'POST',
-      body: JSON.stringify({
-        audioBase64,
-        mimeType,
-        scenario: activeScenario,
-        history,
-        ...(contextText ? { contextText } : {}),
-      }),
+      body: JSON.stringify(body),
       signal,
     });
+
+    let usedPreviousId = Boolean(previousInteractionId);
+    let chatResult: { modelJson: unknown; interactionId?: string };
+    try {
+      if (previousInteractionId) {
+        chatResult = await postChat({ ...chatBodyBase, previousInteractionId });
+      } else {
+        const history = messagesForHistory.length
+          ? await historyTurnsFromMessages(messagesForHistory, signal)
+          : textHistoryFallback();
+        chatResult = await postChat({ ...chatBodyBase, history });
+      }
+    } catch (err) {
+      if (err instanceof BffError && err.code === 'INTERACTION_NOT_FOUND' && previousInteractionId) {
+        usedPreviousId = false;
+        const history = messagesForHistory.length
+          ? await historyTurnsFromMessages(messagesForHistory, signal)
+          : textHistoryFallback();
+        chatResult = await postChat({ ...chatBodyBase, history });
+      } else {
+        throw err;
+      }
+    }
+
+    if (typeof chatResult.interactionId === 'string' && chatResult.interactionId.trim()) {
+      if (usedPreviousId && options?.regenerate) {
+        nextTurnInteractionId = chatResult.interactionId;
+      } else if (usedPreviousId) {
+        regenerateFromInteractionId = nextTurnInteractionId;
+        nextTurnInteractionId = chatResult.interactionId;
+      } else {
+        regenerateFromInteractionId = undefined;
+        nextTurnInteractionId = chatResult.interactionId;
+      }
+    }
 
     const modelJson = chatResult.modelJson;
     if (!modelJson || typeof modelJson !== 'object') {
