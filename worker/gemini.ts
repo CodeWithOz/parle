@@ -51,6 +51,21 @@ export function jsonResponseFormat(schema?: object): JsonResponseFormat {
 
 export const audioResponseFormat: AudioResponseFormat = { type: 'audio' };
 
+/** Interactions structured JSON is an array; a single object is not enforced by 2.5-flash-lite. */
+export function toInteractionsCreateParams(params: GeminiInteractionParams) {
+  return {
+    model: params.model,
+    input: params.input,
+    system_instruction: params.systemInstruction,
+    response_format: params.responseFormat?.type === 'text' ? [params.responseFormat] : params.responseFormat,
+    generation_config: params.speechVoice
+      ? { speech_config: [{ voice: params.speechVoice }] }
+      : undefined,
+    store: params.store ?? false,
+    previous_interaction_id: params.previousInteractionId,
+  };
+}
+
 export function generateContentPartsToInput(parts: GenerateContentPart[]): InteractionContent[] {
   return parts.map((part) => {
     if ('text' in part) {
@@ -58,6 +73,12 @@ export function generateContentPartsToInput(parts: GenerateContentPart[]): Inter
     }
     return { type: 'audio', data: part.inlineData.data, mime_type: part.inlineData.mimeType };
   });
+}
+
+export function parseJsonFromModelText(raw: string): unknown {
+  const trimmed = raw.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return JSON.parse(fenced ? fenced[1] : trimmed);
 }
 
 export function isMissingInteractionError(err: unknown): boolean {
@@ -119,17 +140,7 @@ export async function geminiCreateInteraction(
 ): Promise<GeminiInteractionResult> {
   const ai = createGeminiClient(apiKey);
   const interaction = await ai.interactions.create(
-    {
-      model: params.model,
-      input: params.input,
-      system_instruction: params.systemInstruction,
-      response_format: params.responseFormat,
-      generation_config: params.speechVoice
-        ? { speech_config: [{ voice: params.speechVoice }] }
-        : undefined,
-      store: params.store ?? false,
-      previous_interaction_id: params.previousInteractionId,
-    },
+    toInteractionsCreateParams(params),
     signal ? { signal } : undefined
   );
 

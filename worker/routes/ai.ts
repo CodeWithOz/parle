@@ -12,6 +12,7 @@ import {
   generateContentPartsToInput,
   isMissingInteractionError,
   jsonResponseFormat,
+  parseJsonFromModelText,
   type InteractionContent,
   type InteractionHistoryStep,
   type InteractionInput,
@@ -217,7 +218,7 @@ export async function handleTranscribe(request: Request, env: Env): Promise<Resp
     if (cleanup) {
       let parsed: unknown;
       try {
-        parsed = JSON.parse(text);
+        parsed = parseJsonFromModelText(text);
       } catch {
         return errorJson('UPSTREAM_ERROR', 502, 'Failed to parse transcription JSON');
       }
@@ -309,7 +310,7 @@ export async function handleChat(request: Request, env: Env): Promise<Response> 
     }
     let parsed: unknown;
     try {
-      parsed = JSON.parse(raw);
+      parsed = parseJsonFromModelText(raw);
     } catch {
       return errorJson('VALIDATION_ERROR', 502, 'Model response was not valid JSON');
     }
@@ -401,7 +402,7 @@ export async function handleTefAdConfirm(request: Request, env: Env): Promise<Re
     }
     let parsed: unknown;
     try {
-      parsed = JSON.parse(text);
+      parsed = parseJsonFromModelText(text);
     } catch {
       return errorJson('VALIDATION_ERROR', 502, 'Image analysis response was not valid JSON');
     }
@@ -456,7 +457,7 @@ export async function handleTefReview(request: Request, env: Env): Promise<Respo
     }
     let parsed: unknown;
     try {
-      parsed = JSON.parse(text);
+      parsed = parseJsonFromModelText(text);
     } catch {
       return errorJson('VALIDATION_ERROR', 502, 'Review response was not valid JSON');
     }
@@ -509,7 +510,7 @@ export async function handleScenarioReview(request: Request, env: Env): Promise<
     }
     let parsed: unknown;
     try {
-      parsed = JSON.parse(text);
+      parsed = parseJsonFromModelText(text);
     } catch {
       return errorJson('VALIDATION_ERROR', 502, 'Role-play review response was not valid JSON');
     }

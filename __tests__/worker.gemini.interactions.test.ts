@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  audioResponseFormat,
   generateContentPartsToInput,
   isMissingInteractionError,
+  jsonResponseFormat,
+  parseJsonFromModelText,
+  toInteractionsCreateParams,
 } from '../worker/gemini';
 import { selectGeminiResponseSchema } from '../shared/chatSchemas';
 
@@ -36,5 +40,40 @@ describe('selectGeminiResponseSchema · Interactions JSON Schema', () => {
     const schema = selectGeminiResponseSchema(null);
     expect(JSON.stringify(schema)).toMatch(/"type":"object"/);
     expect(JSON.stringify(schema)).not.toMatch(/"type":"OBJECT"/);
+  });
+});
+
+describe('parseJsonFromModelText', () => {
+  it('parses plain JSON', () => {
+    expect(parseJsonFromModelText('{"french":"Bonjour"}')).toEqual({ french: 'Bonjour' });
+  });
+
+  it('unwraps markdown-fenced JSON', () => {
+    const raw = '```json\n{\n  "french": "Bonjour !",\n  "english": "Hello!"\n}\n```';
+    expect(parseJsonFromModelText(raw)).toEqual({ french: 'Bonjour !', english: 'Hello!' });
+  });
+});
+
+describe('toInteractionsCreateParams', () => {
+  it('sends JSON structured output as a response_format array', () => {
+    const schema = { type: 'object', properties: { french: { type: 'string' } } };
+    const body = toInteractionsCreateParams({
+      model: 'gemini-2.5-flash-lite',
+      input: [{ type: 'text', text: 'hi' }],
+      responseFormat: jsonResponseFormat(schema),
+    });
+    expect(body.response_format).toEqual([
+      { type: 'text', mime_type: 'application/json', schema },
+    ]);
+  });
+
+  it('leaves TTS audio response_format as a single object', () => {
+    const body = toInteractionsCreateParams({
+      model: 'gemini-2.5-flash-preview-tts',
+      input: [{ type: 'text', text: 'Bonjour' }],
+      responseFormat: audioResponseFormat,
+      speechVoice: 'kore',
+    });
+    expect(body.response_format).toEqual({ type: 'audio' });
   });
 });

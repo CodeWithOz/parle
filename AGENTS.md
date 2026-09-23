@@ -199,7 +199,8 @@ This section is a developer-facing rule to prevent that entire class of bug.
    - Track a request token (e.g. `requestIdRef.current` captured into `currentRequestId`) and check it before any state updates.
    - If a newer request started (token changed) or the relevant UI is no longer open, return early and do not mutate UI state.
 4. Preserve JSON enforcement on the same Interactions request:
-   - Keep `response_format: { type: 'text', mime_type: 'application/json', schema }` on `interactions.create`.
+   - Keep `response_format: [{ type: 'text', mime_type: 'application/json', schema }]` on `interactions.create` (array form from the Interactions migrate docs, not a single object).
+   - This is the Interactions equivalent of `generateContent`'s `responseMimeType` + `responseSchema`. A single object is accepted by the SDK types but is not enforced by `gemini-2.5-flash-lite`, which then wraps JSON in markdown fences.
    - This avoids the SDK returning plain text (which breaks downstream JSON parsing/validation).
 5. Handle `AbortError` according to *why* the request was aborted:
    - **`processingAbortedRef` (exercise exit, TEF timer, leaving summary):** suppress ERROR UI — treat as intentional and return silently from `processAudioMessage` / related flows.
