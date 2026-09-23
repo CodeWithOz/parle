@@ -900,14 +900,15 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - TEF in-session practice guide: per-topic accordions; on start/restart auto-attach the latest topic archive for the current ad (`latest_auto`).
 - In LLM system prompts, prefer short behavioral rules over hardcoded lists of French verbs or phrases that may be appropriate in other conversational contexts.
 - When rebuilding conversation context for the LLM (including regenerating an AI reply and BFF `POST /api/chat`), send every user turn as the original audio recording, not transcript text—transcripts are often inaccurate. Existing text-history reconstruction may remain for text-only paths; do not add new transcript-only substitutes for audio-history flows (chat, reviews).
+- For live Gemini browser verification, open Settings so the user can enter keys in the app; do not ask them to paste keys in chat or inject keys from `.env.local`.
 
 ## Learned Workspace Facts
 
 - Continual-learning indexes can live in the main checkout (`01-projects/parle/.cursor/hooks/state/continual-learning-index.json`) or a worktree (`.cursor/hooks/state/continual-learning-index.json`); `AGENTS.md` may be edited from either, so hook state and memory paths are not always the same directory.
 - Approved UI reference mockups for Parle may be extracted under `.mockup-ref/` (e.g. `TopicHistoryV2Demo.tsx`); treat as implementation reference only, not production dependencies.
-- API keys are stored in an HttpOnly cookie sealed by a Cloudflare Worker BFF (`worker/`); `/api/*` runs Worker-first. Instantiate `@google/genai` per request in the Worker; do not bundle LangChain there—OpenAI planning uses fetch plus shared Zod.
+- API keys are stored in an HttpOnly cookie sealed by a Cloudflare Worker BFF (`worker/`); `/api/*` runs Worker-first. The cookie is per-browser, so the agent's Simple Browser and a user-opened tab do not share a session. Instantiate `@google/genai` per request in the Worker; do not bundle LangChain there—OpenAI planning uses fetch plus shared Zod.
 - Stateless chat and related AI routes validate model JSON fail-closed on the Worker with the shared Zod schemas in `shared/chatSchemas.ts`, even if the client omits the schema.
-- Worker Gemini calls use `@google/genai` `interactions.create` (not `generateContent`). Chat is `store: true` plus `previous_interaction_id`; one-shot routes (transcribe, TTS, image, reviews) use `store: false`.
+- Worker Gemini calls use `@google/genai` `interactions.create` (not `generateContent`). Chat is `store: true` plus `previous_interaction_id`; one-shot routes (transcribe, TTS, image, reviews) use `store: false`. Send JSON `response_format` as an array; keep `parseJsonFromModelText` in `worker/gemini.ts` as a fallback because `gemini-2.5-flash-lite` still wraps Structured Outputs in markdown fences even with that array form.
 - `.wrangler/` is gitignored Miniflare local state; keep `wrangler.jsonc`, `worker/`, and `worker-configuration.d.ts` in git. Local full-stack is `npm run dev:full` (Vite :3000 + wrangler :8787).
 
 ---
