@@ -131,6 +131,46 @@ describe('sendVoiceMessage · previousInteractionId chain', () => {
     const history = chatBodies[2]?.history as Array<Record<string, unknown>>;
     expect(history[0]?.audioBase64).toBeTruthy();
   });
+
+  it('does not advance interaction cursors when chat JSON validation fails', async () => {
+    const chatBodies: Array<Record<string, unknown>> = [];
+    let chatCount = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/transcribe')) {
+        return jsonResponse({ text: 'Bonjour.' });
+      }
+      if (url.includes('/api/chat')) {
+        chatCount += 1;
+        chatBodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+        if (chatCount === 2) {
+          return jsonResponse({
+            modelJson: { not: 'a valid voice response' },
+            interactionId: 'int_2',
+          });
+        }
+        return jsonResponse({
+          modelJson: { french: 'Bonjour!', english: 'Hello!', hint: 'Continue' },
+          interactionId: `int_${chatCount}`,
+        });
+      }
+      if (url.includes('/api/tts')) {
+        return jsonResponse({ audioBase64: 'ZmFrZQ==', mimeType: 'audio/pcm' });
+      }
+      return jsonResponse({ error: 'NOT_FOUND' }, 404);
+    }));
+
+    const { sendVoiceMessage, initializeSession, resetSession } = await import('../services/geminiService');
+    resetSession(null);
+    await initializeSession();
+    await sendVoiceMessage('Zmlyc3Q=', 'audio/webm');
+    await expect(sendVoiceMessage('c2Vjb25k', 'audio/webm')).rejects.toThrow(/Failed to validate/);
+    await sendVoiceMessage('dGhpcmQ=', 'audio/webm');
+
+    expect(chatBodies[1]?.previousInteractionId).toBe('int_1');
+    expect(chatBodies[2]?.previousInteractionId).toBe('int_1');
+    expect(chatBodies[2]?.history).toBeUndefined();
+  });
 });
 
 describe('sendVoiceMessage · regenerate option source', () => {

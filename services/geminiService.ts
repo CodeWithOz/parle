@@ -27,6 +27,33 @@ let syncedMessageCount = 0;
 let nextTurnInteractionId: string | undefined;
 let regenerateFromInteractionId: string | undefined;
 
+type InteractionCursors = {
+  nextTurn: string | undefined;
+  regenerateFrom: string | undefined;
+};
+
+function pendingInteractionCursors(
+  interactionId: string | undefined,
+  usedPreviousId: boolean,
+  regenerate?: boolean
+): InteractionCursors {
+  if (typeof interactionId !== 'string' || !interactionId.trim()) {
+    return { nextTurn: nextTurnInteractionId, regenerateFrom: regenerateFromInteractionId };
+  }
+  if (usedPreviousId && regenerate) {
+    return { nextTurn: interactionId, regenerateFrom: regenerateFromInteractionId };
+  }
+  if (usedPreviousId) {
+    return { nextTurn: interactionId, regenerateFrom: nextTurnInteractionId };
+  }
+  return { nextTurn: interactionId, regenerateFrom: undefined };
+}
+
+function commitInteractionCursors(pending: InteractionCursors): void {
+  nextTurnInteractionId = pending.nextTurn;
+  regenerateFromInteractionId = pending.regenerateFrom;
+}
+
 const SUPPORTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
 
 function unsupportedImageError(mimeType: string): Error {
@@ -301,17 +328,11 @@ export const sendVoiceMessage = async (
       }
     }
 
-    if (typeof chatResult.interactionId === 'string' && chatResult.interactionId.trim()) {
-      if (usedPreviousId && options?.regenerate) {
-        nextTurnInteractionId = chatResult.interactionId;
-      } else if (usedPreviousId) {
-        regenerateFromInteractionId = nextTurnInteractionId;
-        nextTurnInteractionId = chatResult.interactionId;
-      } else {
-        regenerateFromInteractionId = undefined;
-        nextTurnInteractionId = chatResult.interactionId;
-      }
-    }
+    const pendingCursors = pendingInteractionCursors(
+      chatResult.interactionId,
+      usedPreviousId,
+      options?.regenerate
+    );
 
     const modelJson = chatResult.modelJson;
     if (!modelJson || typeof modelJson !== 'object') {
@@ -417,6 +438,7 @@ export const sendVoiceMessage = async (
       addToHistory('user', userText);
       addToHistory('assistant', combinedModelText);
       syncedMessageCount += 2;
+      commitInteractionCursors(pendingCursors);
 
       return {
         audioUrl: characterAudios.map((ca) => ca.audioUrl),
@@ -479,6 +501,7 @@ export const sendVoiceMessage = async (
         throw new DOMException('Request aborted', 'AbortError');
       }
 
+      commitInteractionCursors(pendingCursors);
       return {
         audioUrl,
         userText,
@@ -527,6 +550,7 @@ export const sendVoiceMessage = async (
       throw new DOMException('Request aborted', 'AbortError');
     }
 
+    commitInteractionCursors(pendingCursors);
     return {
       audioUrl,
       userText,
