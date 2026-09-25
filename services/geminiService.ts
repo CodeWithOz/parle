@@ -32,14 +32,18 @@ type InteractionCursors = {
   regenerateFrom: string | undefined;
 };
 
+function requireInteractionId(interactionId: unknown): string {
+  if (typeof interactionId !== 'string' || !interactionId.trim()) {
+    throw new Error('No interaction id received from chat model.');
+  }
+  return interactionId.trim();
+}
+
 function pendingInteractionCursors(
-  interactionId: string | undefined,
+  interactionId: string,
   usedPreviousId: boolean,
   regenerate?: boolean
 ): InteractionCursors {
-  if (typeof interactionId !== 'string' || !interactionId.trim()) {
-    return { nextTurn: nextTurnInteractionId, regenerateFrom: regenerateFromInteractionId };
-  }
   if (usedPreviousId && regenerate) {
     return { nextTurn: interactionId, regenerateFrom: regenerateFromInteractionId };
   }
@@ -329,7 +333,7 @@ export const sendVoiceMessage = async (
     }
 
     const pendingCursors = pendingInteractionCursors(
-      chatResult.interactionId,
+      requireInteractionId(chatResult.interactionId),
       usedPreviousId,
       options?.regenerate
     );
