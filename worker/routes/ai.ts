@@ -27,7 +27,7 @@ import {
   ttsSystemPrompt,
 } from '../../shared/prompts';
 import { isAbortLikeError } from '../../utils/isAbortLikeError';
-import { GEMINI_CHAT_MODEL, GEMINI_TTS_MODEL, UPSTREAM_TIMEOUT_MS } from '../constants';
+import { GEMINI_CHAT_MODEL, GEMINI_TEF_REVIEW_MODEL, GEMINI_TTS_MODEL, UPSTREAM_TIMEOUT_MS } from '../constants';
 import { isAllowedOrigin } from '../csrf';
 import { errorJson, isJsonContentType, json } from '../http';
 import { requireGeminiSession, requireOpenaiSession, slidingSessionCookie } from '../session';
@@ -444,7 +444,7 @@ export async function handleTefReview(request: Request, env: Env): Promise<Respo
     const interaction = await geminiCreateInteraction(
       session.geminiKey,
       {
-        model: GEMINI_CHAT_MODEL,
+        model: GEMINI_TEF_REVIEW_MODEL,
         input: generateContentPartsToInput(parts),
         store: false,
         responseFormat: jsonResponseFormat(responseSchema),

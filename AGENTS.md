@@ -901,6 +901,7 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - In LLM system prompts, prefer short behavioral rules over hardcoded lists of French verbs or phrases that may be appropriate in other conversational contexts.
 - When rebuilding conversation context for the LLM (including regenerating an AI reply and BFF `POST /api/chat`), send every user turn as the original audio recording, not transcript text—transcripts are often inaccurate. Existing text-history reconstruction may remain for text-only paths; do not add new transcript-only substitutes for audio-history flows (chat, reviews).
 - For live Gemini browser verification, open Settings so the user can enter keys in the app; do not ask them to paste keys in chat or inject keys from `.env.local`.
+- Do not paper over Gemini structured-output drift with TEF review field-alias maps; use a model that honors the schema (`gemini-3.1-flash-lite` for reviews) rather than expanding snake_case/wrapper aliases as they appear.
 
 ## Learned Workspace Facts
 
@@ -908,7 +909,7 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - Approved UI reference mockups for Parle may be extracted under `.mockup-ref/` (e.g. `TopicHistoryV2Demo.tsx`); treat as implementation reference only, not production dependencies.
 - API keys are stored in an HttpOnly cookie sealed by a Cloudflare Worker BFF (`worker/`); `/api/*` runs Worker-first. The cookie is per-browser, so the agent's Simple Browser and a user-opened tab do not share a session. Instantiate `@google/genai` per request in the Worker; do not bundle LangChain there—OpenAI planning uses fetch plus shared Zod.
 - Stateless chat and related AI routes validate model JSON fail-closed on the Worker with the shared Zod schemas in `shared/chatSchemas.ts`, even if the client omits the schema.
-- Worker Gemini calls use `@google/genai` `interactions.create` (not `generateContent`). Chat is `store: true` plus `previous_interaction_id`; one-shot routes (transcribe, TTS, image, reviews) use `store: false`. Send JSON `response_format` as an array; keep `parseJsonFromModelText` in `worker/gemini.ts` as a fallback because `gemini-2.5-flash-lite` still wraps Structured Outputs in markdown fences even with that array form.
+- Worker Gemini calls use `@google/genai` `interactions.create` (not `generateContent`). Chat is `store: true` plus `previous_interaction_id`; one-shot routes (transcribe, TTS, image, reviews) use `store: false`. Chat/TTS stay on `gemini-2.5-flash-lite`; TEF post-exercise reviews (`handleTefReview`) use `GEMINI_TEF_REVIEW_MODEL` (`gemini-3.1-flash-lite`) in `worker/constants.ts` because 2.5-flash-lite ignores Interactions structured outputs for the review schema (markdown fences, wrapped/snake_case JSON). Send JSON `response_format` as an array; keep `parseJsonFromModelText` in `worker/gemini.ts` as a fallback for 2.5-flash-lite chat. 3.1 Flash-Lite returns unfenced root-schema JSON (`cefrLevel`, `wentWell`, etc.).
 - `.wrangler/` is gitignored Miniflare local state; keep `wrangler.jsonc`, `worker/`, and `worker-configuration.d.ts` in git. Local full-stack is `npm run dev:full` (Vite :3000 + wrangler :8787).
 
 ---
@@ -933,4 +934,5 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - 2026-08-29: Recorded Stage 5 merge/deployment (PR #54); numbered data-portability program ends at Stage 5 (no Stage 6)
 - 2026-09-18: Documented TEF sample ad gallery (static `public/tef-samples/` files routed through `processFile`; sample URLs deliberately not sent to Gemini)
 - 2026-09-22: Migrated Worker Gemini calls from `generateContent` / `chats.create` to the Interactions API (`interactions.create`); chat uses `previous_interaction_id` with audio-history fallback
+- 2026-09-28: TEF post-exercise reviews use `gemini-3.1-flash-lite` (`GEMINI_TEF_REVIEW_MODEL`); chat remains `gemini-2.5-flash-lite` because 2.5 lite ignores Interactions structured outputs for the review schema
 - See git history for detailed implementation timeline
