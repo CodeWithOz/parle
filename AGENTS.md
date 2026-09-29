@@ -193,13 +193,14 @@ This section is a developer-facing rule to prevent that entire class of bug.
 
 ### Required strategy (use for every future audio request)
 1. Create a new `AbortController` per 'turn/request' and store it in a ref that cancellation/timeout handlers can reach.
-2. Pass the per-request `signal` into the Gemini SDK via `config.abortSignal` on *every* relevant SDK call (`ai.models.generateContent(...)` and `chatSession.sendMessage(...)`).
+2. Pass the per-request `signal` into the Gemini SDK on *every* relevant SDK call. Worker Gemini calls use `ai.interactions.create(params, { signal })` (second-argument `RequestOptions`, not a body field). The browser passes the same signal through `bffFetch` / `fetch`.
    - Do not rely on `Promise.race` / wrapper rejection alone. The Gemini SDK must receive the signal so it can stop internally and reject with `AbortError`.
 3. Invalidate/discard stale responses:
    - Track a request token (e.g. `requestIdRef.current` captured into `currentRequestId`) and check it before any state updates.
    - If a newer request started (token changed) or the relevant UI is no longer open, return early and do not mutate UI state.
-4. Preserve JSON enforcement when passing per-request config with `abortSignal`:
-   - Keep `responseMimeType: 'application/json'` and `responseSchema: ...` set in the same request config.
+4. Preserve JSON enforcement on the same Interactions request:
+   - Keep `response_format: [{ type: 'text', mime_type: 'application/json', schema }]` on `interactions.create` (array form from the Interactions migrate docs, not a single object).
+   - This is the Interactions equivalent of `generateContent`'s `responseMimeType` + `responseSchema`. A single object is accepted by the SDK types but is not enforced by `gemini-2.5-flash-lite`, which then wraps JSON in markdown fences.
    - This avoids the SDK returning plain text (which breaks downstream JSON parsing/validation).
 5. Handle `AbortError` according to *why* the request was aborted:
    - **`processingAbortedRef` (exercise exit, TEF timer, leaving summary):** suppress ERROR UI — treat as intentional and return silently from `processAudioMessage` / related flows.
@@ -208,7 +209,7 @@ This section is a developer-facing rule to prevent that entire class of bug.
 
 ### Main mic pipeline (`sendVoiceMessage`)
 - One composite `AbortSignal` covers the whole turn: user cancel **or** `PIPELINE_MAX_MS` (exported from `services/geminiService.ts`).
-- `sendVoiceMessage` uses `config.abortSignal` on transcribe, `sendMessage`, and TTS; no parallel `Promise.race` wrappers around those SDK calls.
+- `sendVoiceMessage` forwards that signal on `/api/transcribe`, `/api/chat`, and `/api/tts`; the Worker passes it into `geminiCreateInteraction` → `interactions.create(..., { signal })`. No parallel `Promise.race` wrappers around those SDK calls.
 - In `App.tsx`, **`isAbortLikeError`** classifies aborted requests: the SDK may throw `APIUserAbortError`, plain `Error` with `name === 'AbortError'`, or **`Error` with default `name` and a message containing `signal is aborted`** (from the GenAI client). Do not rely on `instanceof DOMException` alone. Timeout user copy is **“Connection timed out”** (no seconds in the string).
 - If the model returns an invalid **multi-character** shape (missing `characters` / `modelText`, or array length mismatch), `App.tsx` sets ERROR and **`canRetryChatAudio(true)`** so the user can Retry with the same `lastChatAudio` (same as network/cancel failures).
 
@@ -226,9 +227,33 @@ This is the same overall strategy used for the main mic audio flow: per-turn `Ab
 - `App.tsx` (main mic + scenario description cancellation/discard logic)
 - `utils/combineAbortSignals.ts` (composite signal for user + deadline)
 - `utils/isAbortLikeError.ts` (abort detection for `processAudioMessage` catch)
-- `services/geminiService.ts` (`transcribeAndCleanupAudio`, `sendVoiceMessage` per-request `config.abortSignal`, `PIPELINE_MAX_MS`, and JSON enforcement config)
-- `services/tefReviewService.ts` (`generateTefReview` — passes `signal` to `fetch` and to `ai.models.generateContent`; returns `null` on `AbortError`)
+- `services/geminiService.ts` (`transcribeAndCleanupAudio`, `sendVoiceMessage` per-request `fetch` signal, `PIPELINE_MAX_MS`, and JSON enforcement via Worker `response_format`)
+- `worker/gemini.ts` (`geminiCreateInteraction` — `interactions.create(params, { signal })`)
+- `services/tefReviewService.ts` (`generateTefReview` — passes `signal` to `fetch`; returns `null` on `AbortError`)
 - `__tests__/scenarioDescriptionRecordingAbortDiscard.test.tsx` / `__tests__/transcribeAndCleanupAudioAbortSignal.test.ts` (abort + discard + config preservation)
+
+---
+
+## Chat multi-turn: `previous_interaction_id` with audio-history fallback
+
+**Location:** `worker/routes/ai.ts` `handleChat`; `services/geminiService.ts` `sendVoiceMessage`
+
+### Pattern
+Chat uses the Interactions API with `store: true`. After a successful turn the Worker returns `interactionId`. The client keeps two in-memory cursors:
+
+- `nextTurnInteractionId` — last successful interaction; sent as `previousInteractionId` on a new user turn
+- `regenerateFromInteractionId` — the id **before** the last user+model pair; sent when regenerating the last assistant reply (do not chain on `nextTurnInteractionId`, which already contains the reply to replace)
+
+Happy-path follow-up turns send **only the current user audio** plus `previousInteractionId`. Google already has prior recordings. Browser `blob:` URLs stay on `Message.audioUrl` for playback, TEF/scenario reviews, and fallback — they are not re-uploaded while the id is valid.
+
+If the id is missing, expired, or Gemini returns `INTERACTION_NOT_FOUND`, the client rebuilds history with original user audio (`historyTurnsFromMessages`) and retries without `previousInteractionId`. Transcribe, TTS, image confirm, and reviews stay `store: false` (one-shot).
+
+`resetSession` / `setScenario` clear both cursors. `resetSessionWithUserAudioHistory` does **not** (regenerate restore must keep `regenerateFromInteractionId`).
+
+### Related Files
+- `worker/routes/ai.ts` — `handleChat` (`store: true`, `previous_interaction_id`, history steps fallback)
+- `services/geminiService.ts` — cursors, happy-path skip of blob re-fetch, `INTERACTION_NOT_FOUND` retry
+- `App.tsx` — `sendVoiceMessage(..., { regenerate: true })`
 
 ---
 
@@ -763,6 +788,7 @@ When reviewing this codebase:
 16. **Don't simplify `advanceRoadmapStep` to trust the AI's `currentStepIndex` directly** - `Math.max(prevIndex, clampedAiIndex)` is intentional; it prevents a single bad model turn from making the roadmap sidebar jump backward
 17. **Don't remove `seedRoadmapStepsFromSummary` as dead code** - the AI-generated `steps` field from `processScenarioDescriptionOpenAI` is the primary source of roadmap steps, but this sentence-split heuristic is still the load-bearing fallback for a non-JSON legacy response or an empty/missing `steps` field - see "Roadmap Steps Are AI-Generated, With a Heuristic as a Defensive Fallback Only"
 18. **Don't restore Mistakes, Vocabulary Suggestions, or "More Standard French" on TEF reviews** — TEF summaries show CEFR, What Went Well, topic suggestions, and (for persuasion) `criteriaEvaluation` only. Per-utterance rewrite lists belong to role-play (`ScenarioStandardizationReviewPanel`).
+19. **Don't flag follow-up `/api/chat` turns that omit `history` as missing audio context** — with a valid `previousInteractionId`, Gemini already has prior user recordings (`store: true`). Rebuild `history` from blob URLs only on first turn, regenerate without a parent id, or `INTERACTION_NOT_FOUND` fallback (see "Chat multi-turn: `previous_interaction_id`").
 
 If you believe you've found a genuine bug in one of these areas, please:
 - Reference this document in your review
@@ -874,13 +900,16 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - TEF in-session practice guide: per-topic accordions; on start/restart auto-attach the latest topic archive for the current ad (`latest_auto`).
 - In LLM system prompts, prefer short behavioral rules over hardcoded lists of French verbs or phrases that may be appropriate in other conversational contexts.
 - When rebuilding conversation context for the LLM (including regenerating an AI reply and BFF `POST /api/chat`), send every user turn as the original audio recording, not transcript text—transcripts are often inaccurate. Existing text-history reconstruction may remain for text-only paths; do not add new transcript-only substitutes for audio-history flows (chat, reviews).
+- For live Gemini browser verification, open Settings so the user can enter keys in the app; do not ask them to paste keys in chat or inject keys from `.env.local`.
+- Do not paper over Gemini structured-output drift with TEF review field-alias maps; use a model that honors the schema (`gemini-3.1-flash-lite` for reviews) rather than expanding snake_case/wrapper aliases as they appear.
 
 ## Learned Workspace Facts
 
 - Continual-learning indexes can live in the main checkout (`01-projects/parle/.cursor/hooks/state/continual-learning-index.json`) or a worktree (`.cursor/hooks/state/continual-learning-index.json`); `AGENTS.md` may be edited from either, so hook state and memory paths are not always the same directory.
 - Approved UI reference mockups for Parle may be extracted under `.mockup-ref/` (e.g. `TopicHistoryV2Demo.tsx`); treat as implementation reference only, not production dependencies.
-- API keys are stored in an HttpOnly cookie sealed by a Cloudflare Worker BFF (`worker/`); `/api/*` runs Worker-first. Instantiate `@google/genai` per request in the Worker; do not bundle LangChain there—OpenAI planning uses fetch plus shared Zod.
+- API keys are stored in an HttpOnly cookie sealed by a Cloudflare Worker BFF (`worker/`); `/api/*` runs Worker-first. The cookie is per-browser, so the agent's Simple Browser and a user-opened tab do not share a session. Instantiate `@google/genai` per request in the Worker; do not bundle LangChain there—OpenAI planning uses fetch plus shared Zod.
 - Stateless chat and related AI routes validate model JSON fail-closed on the Worker with the shared Zod schemas in `shared/chatSchemas.ts`, even if the client omits the schema.
+- Worker Gemini calls use `@google/genai` `interactions.create` (not `generateContent`). Chat is `store: true` plus `previous_interaction_id`; one-shot routes (transcribe, TTS, image, reviews) use `store: false`. Chat/TTS stay on `gemini-2.5-flash-lite`; TEF post-exercise reviews (`handleTefReview`) use `GEMINI_TEF_REVIEW_MODEL` (`gemini-3.1-flash-lite`) in `worker/constants.ts` because 2.5-flash-lite ignores Interactions structured outputs for the review schema (markdown fences, wrapped/snake_case JSON). Send JSON `response_format` as an array; keep `parseJsonFromModelText` in `worker/gemini.ts` as a fallback for 2.5-flash-lite chat. 3.1 Flash-Lite returns unfenced root-schema JSON (`cefrLevel`, `wentWell`, etc.).
 - `.wrangler/` is gitignored Miniflare local state; keep `wrangler.jsonc`, `worker/`, and `worker-configuration.d.ts` in git. Local full-stack is `npm run dev:full` (Vite :3000 + wrangler :8787).
 
 ---
@@ -904,4 +933,6 @@ Close the session when done: `pw close` (optionally `pw delete-data`).
 - 2026-08-28: Documented Stage 5 browser `.parle` export/import (`fflate@0.8.3`, format v1, Settings → Backup)
 - 2026-08-29: Recorded Stage 5 merge/deployment (PR #54); numbered data-portability program ends at Stage 5 (no Stage 6)
 - 2026-09-18: Documented TEF sample ad gallery (static `public/tef-samples/` files routed through `processFile`; sample URLs deliberately not sent to Gemini)
+- 2026-09-22: Migrated Worker Gemini calls from `generateContent` / `chats.create` to the Interactions API (`interactions.create`); chat uses `previous_interaction_id` with audio-history fallback
+- 2026-09-28: TEF post-exercise reviews use `gemini-3.1-flash-lite` (`GEMINI_TEF_REVIEW_MODEL`); chat remains `gemini-2.5-flash-lite` because 2.5 lite ignores Interactions structured outputs for the review schema
 - See git history for detailed implementation timeline

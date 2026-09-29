@@ -3,6 +3,7 @@ export const COOKIE_MAX_AGE_SECONDS = 34_560_000; // 400 days
 export const COOKIE_PATH = '/';
 
 export const GEMINI_CHAT_MODEL = 'gemini-2.5-flash-lite';
+export const GEMINI_TEF_REVIEW_MODEL = 'gemini-3.1-flash-lite';
 export const GEMINI_TTS_MODEL = 'gemini-2.5-flash-preview-tts';
 export const OPENAI_PLAN_MODEL = 'gpt-5-nano';
 

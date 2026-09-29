@@ -928,7 +928,8 @@ const App: React.FC = () => {
         mimeType,
         pipelineSignal,
         phaseContextText,
-        priorMessages
+        priorMessages,
+        { regenerate: isRegenerate }
       );
 
       // Check if user aborted or a newer request has started (stale response)
