@@ -3,3 +3,11 @@
 API_KEY_COOKIE_SECRET=
 # Optional, for secret rotation:
 # API_KEY_COOKIE_SECRET_PREVIOUS=
+
+# LangSmith tracing for the Worker. Both agent variables are required together.
+# LANGSMITH_AGENT_ENVIRONMENT is one of: local, development, staging, production.
+LANGSMITH_TRACING=true
+LANGSMITH_ENDPOINT=https://api.smith.langchain.com
+LANGSMITH_API_KEY=
+LANGSMITH_AGENT_ID=parle
+LANGSMITH_AGENT_ENVIRONMENT=local

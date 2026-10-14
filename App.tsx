@@ -109,6 +109,7 @@ const App: React.FC = () => {
   // this EXISTING saved scenario (id/createdAt preserved on save) rather than
   // creating a brand new one — see handleRegenerateRoadmapForScenario.
   const [regeneratingScenario, setRegeneratingScenario] = useState<Scenario | null>(null);
+  const [draftScenarioId, setDraftScenarioId] = useState<string | null>(null);
   const [showRoadmapDrawer, setShowRoadmapDrawer] = useState(false);
   const [showScenarioSummary, setShowScenarioSummary] = useState(false);
   const [scenarioReviews, setScenarioReviews] = useState<ScenarioStandardizationReview[]>([]);
@@ -267,6 +268,7 @@ const App: React.FC = () => {
       messages: snapshot,
       scenarioName: scenario?.name,
       scenarioDescription: scenario?.aiSummary || scenario?.description,
+      threadId: scenario?.id,
       signal: abortController.signal,
     })
       .then((review) => {
@@ -307,6 +309,7 @@ const App: React.FC = () => {
       messages: snapshot,
       scenarioName: scenario?.name,
       scenarioDescription: scenario?.aiSummary || scenario?.description,
+      threadId: scenario?.id,
       signal: abortController.signal,
     })
       .then((review) => {
@@ -1450,6 +1453,7 @@ const App: React.FC = () => {
     setAiSummary(null);
     setRoadmapSteps([]);
     setRegeneratingScenario(null);
+    setDraftScenarioId(null);
     setScenarioCharacters([]); // Clear characters
     setIsRecordingDescription(false);
     setIsTranscribingDescription(false);
@@ -1654,7 +1658,11 @@ const App: React.FC = () => {
   // still in flight and bumps a request token; both the success and error
   // paths check that token before touching state, so a stale
   // (superseded-but-not-yet-settled) response can never win.
-  const processScenarioDescriptionAndPopulate = async (description: string, fallbackCharacters: Character[] = []) => {
+  const processScenarioDescriptionAndPopulate = async (
+    description: string,
+    fallbackCharacters: Character[] = [],
+    threadId?: string
+  ) => {
     cancelScenarioPlanningRequest();
     const abortController = new AbortController();
     scenarioPlanningAbortControllerRef.current = abortController;
@@ -1664,7 +1672,7 @@ const App: React.FC = () => {
 
     try {
       // Use OpenAI for scenario planning (returns JSON with summary, characters, and roadmap steps)
-      const result = await processScenarioDescriptionOpenAI(description, abortController.signal);
+      const result = await processScenarioDescriptionOpenAI(description, abortController.signal, threadId);
 
       // A newer request has started since this one began — discard this result.
       if (requestId !== scenarioPlanningRequestIdRef.current) return;
@@ -1722,7 +1730,9 @@ const App: React.FC = () => {
       openApiKeyModal();
       return;
     }
-    await processScenarioDescriptionAndPopulate(description);
+    const threadId = generateId();
+    setDraftScenarioId(threadId);
+    await processScenarioDescriptionAndPopulate(description, [], threadId);
   };
 
   // Quick-starting a saved scenario that has no roadmap steps yet (e.g. every
@@ -1737,9 +1747,10 @@ const App: React.FC = () => {
       return;
     }
     setRegeneratingScenario(scenario);
+    setDraftScenarioId(scenario.id);
     setScenarioName(scenario.name);
     setScenarioDescription(scenario.description);
-    await processScenarioDescriptionAndPopulate(scenario.description, scenario.characters ?? []);
+    await processScenarioDescriptionAndPopulate(scenario.description, scenario.characters ?? [], scenario.id);
   };
 
   const handleEditScenario = () => {
@@ -1799,6 +1810,7 @@ const App: React.FC = () => {
     setAiSummary(null);
     setRoadmapSteps([]);
     setRegeneratingScenario(null);
+    setDraftScenarioId(null);
   };
 
   const handleExitScenario = async () => {
@@ -2976,6 +2988,7 @@ const App: React.FC = () => {
           onRoadmapStepsChange={setRoadmapSteps}
           onRegenerateRoadmap={handleRegenerateRoadmapForScenario}
           regeneratingScenario={regeneratingScenario}
+          draftScenarioId={draftScenarioId}
         />
       )}
 

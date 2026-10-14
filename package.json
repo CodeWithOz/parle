@@ -22,6 +22,7 @@
     "@langchain/openai": "^1.2.7",
     "fflate": "^0.8.3",
     "langchain": "^1.2.24",
+    "langsmith": "^0.10.13",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "vaul": "^1.1.2",

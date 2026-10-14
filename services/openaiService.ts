@@ -12,11 +12,15 @@ export const setScenarioOpenAI = (scenario: Scenario | null) => {
 
 export const processScenarioDescriptionOpenAI = async (
   description: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  threadId?: string
 ): Promise<string> => {
   const payload = await bffFetch<{ result: string }>('/api/scenario-plan', {
     method: 'POST',
-    body: JSON.stringify({ description }),
+    body: JSON.stringify({
+      description,
+      ...(threadId ? { threadId } : {}),
+    }),
     signal,
   });
   return payload.result;

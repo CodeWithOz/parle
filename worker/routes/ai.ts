@@ -27,14 +27,22 @@ import {
   ttsSystemPrompt,
 } from '../../shared/prompts';
 import { isAbortLikeError } from '../../utils/isAbortLikeError';
-import { GEMINI_CHAT_MODEL, GEMINI_TEF_REVIEW_MODEL, GEMINI_TTS_MODEL, UPSTREAM_TIMEOUT_MS } from '../constants';
+import { GEMINI_CHAT_MODEL, GEMINI_TEF_REVIEW_MODEL, GEMINI_TTS_MODEL, OPENAI_PLAN_MODEL, UPSTREAM_TIMEOUT_MS } from '../constants';
 import { isAllowedOrigin } from '../csrf';
-import { errorJson, isJsonContentType, json } from '../http';
+import { errorJson, isJsonContentType, json, type BffErrorCode } from '../http';
+import {
+  isRolePlayScenario,
+  passthroughSpan,
+  readThreadId,
+  withRolePlayTrace,
+  type RolePlaySpan,
+} from '../langsmith';
 import { requireGeminiSession, requireOpenaiSession, slidingSessionCookie } from '../session';
 import { classifyProviderError } from '../upstream';
 import { planScenarioWithOpenAI } from '../openai';
 import { buildScenarioReviewParts } from '../prompts/scenarioReview';
 import { buildTefReviewParts, validateTefReview } from '../prompts/tefReview';
+import { generateScenarioSummaryPrompt } from '../../shared/prompts';
 
 type ChatHistoryTurn = {
   role: 'user' | 'model';
@@ -114,6 +122,11 @@ function parseTurnsField(value: unknown, fieldName: string): ChatHistoryTurn[] |
 
 function originDenied(): Response {
   return errorJson('FORBIDDEN', 403);
+}
+
+function audioByteLength(base64: string): number {
+  const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
 }
 
 function abortSignal(request: Request): AbortSignal {
@@ -278,48 +291,134 @@ export async function handleChat(request: Request, env: Env): Promise<Response> 
     abortSignal(request)
   );
 
-  try {
-    let interaction;
-    try {
-      if (previousInteractionId) {
-        interaction = await runChat(currentContent, previousInteractionId);
-      } else {
-        const historySteps = historyToSteps(history);
-        const input: InteractionInput = historySteps.length > 0
-          ? [...historySteps, { type: 'user_input', content: currentContent }]
-          : currentContent;
-        interaction = await runChat(input);
-      }
-    } catch (err) {
-      if (previousInteractionId && isMissingInteractionError(err)) {
-        if (history.length > 0) {
-          interaction = await runChat(
-            [...historyToSteps(history), { type: 'user_input', content: currentContent }]
-          );
-        } else {
-          return errorJson('INTERACTION_NOT_FOUND', 404, 'Previous interaction was not found');
+  type TurnResult =
+    | { ok: true; modelJson: unknown; interactionId: string }
+    | { ok: false; code: BffErrorCode; status: number; message: string };
+
+  const produceTurn = async (span: RolePlaySpan): Promise<TurnResult> => {
+    const invoked = await span(
+      {
+        name: 'invokeGemini',
+        runType: 'llm',
+        metadata: {
+          ls_provider: 'google',
+          ls_model_name: GEMINI_CHAT_MODEL,
+        },
+      },
+      {
+        model: GEMINI_CHAT_MODEL,
+        scenarioName: scenario?.name ?? null,
+        previousInteractionId: previousInteractionId ?? null,
+        audioMimeType: mimeType,
+        audioBytes: audioByteLength(audioBase64),
+        contextText: contextText ?? null,
+      },
+      async () => {
+        const invoke = async (previousId?: string) => {
+          if (previousId) return runChat(currentContent, previousId);
+          const historySteps = historyToSteps(history);
+          const input: InteractionInput = historySteps.length > 0
+            ? [...historySteps, { type: 'user_input', content: currentContent }]
+            : currentContent;
+          return runChat(input);
+        };
+
+        try {
+          const created = await invoke(previousInteractionId);
+          return { status: 'ok' as const, id: created.id, outputText: created.outputText };
+        } catch (err) {
+          if (previousInteractionId && isMissingInteractionError(err) && history.length > 0) {
+            const created = await invoke();
+            return { status: 'ok' as const, id: created.id, outputText: created.outputText };
+          }
+          if (previousInteractionId && isMissingInteractionError(err)) {
+            return { status: 'interaction_not_found' as const };
+          }
+          throw err;
         }
-      } else {
-        throw err;
       }
+    );
+
+    if (invoked.status === 'interaction_not_found') {
+      return {
+        ok: false,
+        code: 'INTERACTION_NOT_FOUND',
+        status: 404,
+        message: 'Previous interaction was not found',
+      };
+    }
+    if (!invoked.outputText) {
+      return {
+        ok: false,
+        code: 'UPSTREAM_ERROR',
+        status: 502,
+        message: 'No text response received from chat model.',
+      };
     }
 
-    const raw = interaction.outputText;
-    if (!raw) {
-      return errorJson('UPSTREAM_ERROR', 502, 'No text response received from chat model.');
-    }
-    let parsed: unknown;
     try {
-      parsed = parseJsonFromModelText(raw);
-    } catch {
-      return errorJson('VALIDATION_ERROR', 502, 'Model response was not valid JSON');
+      const modelJson = await span(
+        { name: 'parseOutput', runType: 'parser' },
+        { outputText: invoked.outputText },
+        async (input) => {
+          let parsed: unknown;
+          try {
+            parsed = parseJsonFromModelText(input.outputText);
+          } catch {
+            throw Object.assign(new Error('Model response was not valid JSON'), { kind: 'json' });
+          }
+          const validated = zodSchema.safeParse(parsed);
+          if (!validated.success) {
+            throw Object.assign(
+              new Error(`Model response failed schema validation: ${validated.error.message}`),
+              { kind: 'schema' }
+            );
+          }
+          return validated.data;
+        }
+      );
+      return { ok: true, modelJson, interactionId: invoked.id };
+    } catch (err) {
+      const kind = typeof err === 'object' && err !== null && 'kind' in err
+        ? (err as { kind?: unknown }).kind
+        : undefined;
+      if (kind === 'json' || kind === 'schema') {
+        return {
+          ok: false,
+          code: 'VALIDATION_ERROR',
+          status: 502,
+          message: err instanceof Error ? err.message : 'Model response failed validation',
+        };
+      }
+      throw err;
     }
-    const validated = zodSchema.safeParse(parsed);
-    if (!validated.success) {
-      return errorJson('VALIDATION_ERROR', 502, `Model response failed schema validation: ${validated.error.message}`);
-    }
+  };
+
+  try {
+    const result = isRolePlayScenario(scenario)
+      ? await withRolePlayTrace(env, {
+          name: 'rolePlayTurn',
+          threadId: scenario.id,
+          inputs: {
+            scenarioId: scenario.id,
+            scenarioName: scenario.name ?? null,
+            audioMimeType: mimeType,
+          },
+          metadata: {
+            stage: 'practice',
+            scenarioName: scenario.name ?? null,
+            ls_modality: 'audio',
+          },
+        }, produceTurn)
+      : await produceTurn(passthroughSpan);
+
+    if (result.ok === false) return errorJson(result.code, result.status, result.message);
     const setCookie = await slidingSessionCookie(session.payload, env, session.setCookie);
-    return json({ modelJson: validated.data, interactionId: interaction.id }, 200, cookieHeaders(setCookie));
+    return json(
+      { modelJson: result.modelJson, interactionId: result.interactionId },
+      200,
+      cookieHeaders(setCookie)
+    );
   } catch (err) {
     return mapCaught(err);
   }
@@ -488,38 +587,106 @@ export async function handleScenarioReview(request: Request, env: Env): Promise<
     return json({ items: [] }, 200, cookieHeaders(setCookie));
   }
 
+  const scenarioName = typeof bodyOrErr.scenarioName === 'string' ? bodyOrErr.scenarioName : undefined;
+  const scenarioDescription = typeof bodyOrErr.scenarioDescription === 'string' ? bodyOrErr.scenarioDescription : undefined;
+  const threadId = readThreadId(bodyOrErr.threadId);
+
   try {
-    const parts = buildScenarioReviewParts({
-      turns,
-      scenarioName: typeof bodyOrErr.scenarioName === 'string' ? bodyOrErr.scenarioName : undefined,
-      scenarioDescription: typeof bodyOrErr.scenarioDescription === 'string' ? bodyOrErr.scenarioDescription : undefined,
-    });
-    const interaction = await geminiCreateInteraction(
-      session.geminiKey,
-      {
-        model: GEMINI_CHAT_MODEL,
-        input: generateContentPartsToInput(parts),
-        store: false,
-        responseFormat: jsonResponseFormat(SCENARIO_REVIEW_SCHEMA),
+    const review = await withRolePlayTrace(env, {
+      name: 'rolePlayReview',
+      threadId,
+      inputs: {
+        scenarioName: scenarioName ?? null,
+        turnCount: turns.length,
       },
-      abortSignal(request)
-    );
-    const text = interaction.outputText || '';
-    if (!text.trim()) {
-      return errorJson('UPSTREAM_ERROR', 502, 'No response received from role-play review generation');
-    }
-    let parsed: unknown;
-    try {
-      parsed = parseJsonFromModelText(text);
-    } catch {
-      return errorJson('VALIDATION_ERROR', 502, 'Role-play review response was not valid JSON');
-    }
-    if (typeof parsed !== 'object' || parsed === null || !Array.isArray((parsed as { items?: unknown }).items)) {
-      return errorJson('VALIDATION_ERROR', 502, 'Role-play review response missing required field: "items"');
-    }
+      metadata: {
+        stage: 'review',
+        scenarioName: scenarioName ?? null,
+        ls_modality: 'audio',
+      },
+    }, async (span) => {
+      let parts: ReturnType<typeof buildScenarioReviewParts> = [];
+      await span(
+        { name: 'formatPrompt' },
+        {
+          scenarioName: scenarioName ?? null,
+          scenarioDescription: scenarioDescription ?? null,
+          turns: turns.map((turn) => ({
+            role: turn.role,
+            text: turn.text,
+            frenchText: turn.frenchText,
+            audioBytes: turn.audioBase64 ? audioByteLength(turn.audioBase64) : undefined,
+            audioMimeType: turn.audioBase64 ? turn.mimeType : undefined,
+          })),
+        },
+        async () => {
+          parts = buildScenarioReviewParts({ turns, scenarioName, scenarioDescription });
+          const preamble = parts[0] && 'text' in parts[0] ? parts[0].text : '';
+          return { preamble, partCount: parts.length };
+        }
+      );
+
+      const generated = await span(
+        {
+          name: 'invokeGemini',
+          runType: 'llm',
+          metadata: {
+            ls_provider: 'google',
+            ls_model_name: GEMINI_CHAT_MODEL,
+          },
+        },
+        { model: GEMINI_CHAT_MODEL, turnCount: turns.length },
+        async () => {
+          const interaction = await geminiCreateInteraction(
+            session.geminiKey,
+            {
+              model: GEMINI_CHAT_MODEL,
+              input: generateContentPartsToInput(parts),
+              store: false,
+              responseFormat: jsonResponseFormat(SCENARIO_REVIEW_SCHEMA),
+            },
+            abortSignal(request)
+          );
+          return { outputText: interaction.outputText || '' };
+        }
+      );
+
+      return span(
+        { name: 'parseOutput', runType: 'parser' },
+        { outputText: generated.outputText },
+        async (input) => {
+          if (!input.outputText.trim()) {
+            throw Object.assign(new Error('No response received from role-play review generation'), { kind: 'empty' });
+          }
+          let parsed: unknown;
+          try {
+            parsed = parseJsonFromModelText(input.outputText);
+          } catch {
+            throw Object.assign(new Error('Role-play review response was not valid JSON'), { kind: 'json' });
+          }
+          if (typeof parsed !== 'object' || parsed === null || !Array.isArray((parsed as { items?: unknown }).items)) {
+            throw Object.assign(new Error('Role-play review response missing required field: "items"'), { kind: 'schema' });
+          }
+          return parsed;
+        }
+      );
+    });
+
     const setCookie = await slidingSessionCookie(session.payload, env, session.setCookie);
-    return json(parsed, 200, cookieHeaders(setCookie));
+    return json(review, 200, cookieHeaders(setCookie));
   } catch (err) {
+    if (typeof err === 'object' && err !== null && 'kind' in err) {
+      const kind = (err as { kind?: unknown }).kind;
+      if (kind === 'empty') {
+        return errorJson('UPSTREAM_ERROR', 502, 'No response received from role-play review generation');
+      }
+      if (kind === 'json') {
+        return errorJson('VALIDATION_ERROR', 502, 'Role-play review response was not valid JSON');
+      }
+      if (kind === 'schema') {
+        return errorJson('VALIDATION_ERROR', 502, 'Role-play review response missing required field: "items"');
+      }
+    }
     return mapCaught(err);
   }
 }
@@ -534,8 +701,38 @@ export async function handleScenarioPlan(request: Request, env: Env): Promise<Re
   if (typeof description !== 'string' || !description.trim()) {
     return errorJson('VALIDATION_ERROR', 400, 'description is required');
   }
+  const threadId = readThreadId(bodyOrErr.threadId);
   try {
-    const result = await planScenarioWithOpenAI(session.openaiKey, description, abortSignal(request));
+    const result = await withRolePlayTrace(env, {
+      name: 'rolePlayPlan',
+      threadId,
+      inputs: { description },
+      metadata: { stage: 'plan' },
+    }, async (span) => {
+      await span(
+        { name: 'formatPrompt' },
+        { description },
+        async (input) => ({ prompt: generateScenarioSummaryPrompt(input.description) })
+      );
+      const raw = await span(
+        {
+          name: 'invokeOpenAI',
+          runType: 'llm',
+          metadata: {
+            ls_provider: 'openai',
+            ls_model_name: OPENAI_PLAN_MODEL,
+          },
+        },
+        { description, model: OPENAI_PLAN_MODEL },
+        async () => planScenarioWithOpenAI(session.openaiKey, description, abortSignal(request))
+      );
+      await span(
+        { name: 'parseOutput', runType: 'parser' },
+        { result: raw },
+        async (input) => JSON.parse(input.result) as unknown
+      );
+      return raw;
+    });
     const setCookie = await slidingSessionCookie(session.payload, env, session.setCookie);
     return json({ result }, 200, cookieHeaders(setCookie));
   } catch (err) {

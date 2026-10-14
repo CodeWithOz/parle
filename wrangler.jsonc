@@ -3,7 +3,9 @@
   "name": "parle",
   "main": "worker/index.ts",
   // Secrets live in `.dev.vars` locally and `wrangler secret put` in production:
-  // API_KEY_COOKIE_SECRET, optional API_KEY_COOKIE_SECRET_PREVIOUS
+  // API_KEY_COOKIE_SECRET, optional API_KEY_COOKIE_SECRET_PREVIOUS,
+  // LANGSMITH_API_KEY plus LANGSMITH_TRACING, LANGSMITH_ENDPOINT,
+  // LANGSMITH_AGENT_ID, and LANGSMITH_AGENT_ENVIRONMENT.
   "compatibility_date": "2026-09-13",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
