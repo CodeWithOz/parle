@@ -28,6 +28,7 @@ export async function planScenarioWithOpenAI(
     signal: combined,
     body: JSON.stringify({
       model: OPENAI_PLAN_MODEL,
+      reasoning_effort: 'minimal',
       messages: [{ role: 'user', content: generateScenarioSummaryPrompt(description) }],
       response_format: {
         type: 'json_schema',
@@ -40,6 +41,8 @@ export async function planScenarioWithOpenAI(
               summary: { type: 'string' },
               characters: {
                 type: 'array',
+                minItems: 1,
+                maxItems: 5,
                 items: {
                   type: 'object',
                   properties: {
@@ -52,6 +55,8 @@ export async function planScenarioWithOpenAI(
               },
               steps: {
                 type: 'array',
+                minItems: 2,
+                maxItems: 8,
                 items: { type: 'string' },
               },
             },
