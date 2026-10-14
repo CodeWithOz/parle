@@ -357,7 +357,7 @@ export const generateScenarioSummaryPrompt = (description: string): string => {
 "${description}"
 
 Please analyze this scenario and identify:
-1. ALL distinct characters/people the user will interact with in this scenario
+1. ALL distinct characters/people the user will interact with in this scenario, up to a maximum of 5. If more than 5 appear, keep the 5 the learner speaks with directly
 2. If only one character is mentioned or implied, return an array with just that one character
 3. Character names should be role-based (e.g., "Baker", "Cashier", "Waiter", "Manager")
 4. Keep role descriptions short and lowercase (e.g., "baker", "cashier")
