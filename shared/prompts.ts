@@ -357,13 +357,15 @@ export const generateScenarioSummaryPrompt = (description: string): string => {
 "${description}"
 
 Please analyze this scenario and identify:
-1. ALL distinct characters/people the user will interact with in this scenario
+1. ALL distinct characters/people the user will interact with in this scenario, up to a maximum of 5. If more than 5 appear, keep the 5 the learner speaks with directly
 2. If only one character is mentioned or implied, return an array with just that one character
 3. Character names should be role-based (e.g., "Baker", "Cashier", "Waiter", "Manager")
 4. Keep role descriptions short and lowercase (e.g., "baker", "cashier")
 5. Write a brief 2-3 sentence summary confirming understanding and readiness to begin
+6. Return 2 to 8 short, ordered steps: the conversational beats the learner will go through
 
 Example for "I went to a bakery and spoke to the baker about bread, then paid the cashier":
 - Summary: "I understand! You visited a bakery where you'll speak with the baker about bread options, and then complete your purchase with the cashier. I'll play both the baker and cashier roles. Ready to begin when you are!"
-- Characters: Baker (role: baker, friendly and knowledgeable), Cashier (role: cashier, efficient and helpful)`;
+- Characters: Baker (role: baker, friendly and knowledgeable), Cashier (role: cashier, efficient and helpful)
+- Steps: greet the baker, ask about the bread, choose a loaf, pay the cashier`;
 };
