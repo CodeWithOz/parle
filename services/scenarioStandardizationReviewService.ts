@@ -45,9 +45,10 @@ export async function generateScenarioStandardizationReview(params: {
   messages: Message[];
   scenarioName?: string;
   scenarioDescription?: string;
+  threadId?: string;
   signal?: AbortSignal;
 }): Promise<ScenarioStandardizationReview | null> {
-  const { messages, scenarioName, scenarioDescription, signal } = params;
+  const { messages, scenarioName, scenarioDescription, threadId, signal } = params;
   const userMessages = messages.filter((message) => message.role === 'user');
   if (userMessages.length === 0) {
     return { items: [] };
@@ -63,6 +64,7 @@ export async function generateScenarioStandardizationReview(params: {
         turns,
         scenarioName,
         scenarioDescription,
+        ...(threadId ? { threadId } : {}),
       }),
       signal,
     });

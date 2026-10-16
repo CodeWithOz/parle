@@ -43,6 +43,9 @@ interface ScenarioSetupProps {
    * new scenario — set while regenerating a roadmap for an existing saved
    * scenario, cleared for fresh scenario creation. */
   regeneratingScenario?: Scenario | null;
+  /** Id reserved when the description was planned, so practice uses the same
+   * id LangSmith already has as this role-play's thread. */
+  draftScenarioId?: string | null;
 }
 
 export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
@@ -76,6 +79,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   onRoadmapStepsChange,
   onRegenerateRoadmap,
   regeneratingScenario,
+  draftScenarioId,
 }) => {
   const [savedScenarios, setSavedScenarios] = useState<Scenario[]>([]);
   const [showSaved, setShowSaved] = useState(false);
@@ -268,7 +272,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     const scenario: Scenario = {
       // Reuse the existing scenario's identity when regenerating its roadmap,
       // so saveScenario updates it in place instead of creating a duplicate.
-      id: regeneratingScenario?.id ?? generateId(),
+      id: regeneratingScenario?.id ?? draftScenarioId ?? generateId(),
       name: currentName,
       description: currentDescription,
       aiSummary: aiSummary || undefined,

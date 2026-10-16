@@ -8,6 +8,8 @@ const env = {
   API_KEY_COOKIE_SECRET: SECRET,
 } as Env;
 
+const ctx = { waitUntil() {} };
+
 async function sessionCookie(): Promise<string> {
   const response = await handleCreateSession(
     new Request('http://localhost:8787/api/session', {
@@ -56,7 +58,8 @@ describe('Worker AI route auth', () => {
         },
         body: JSON.stringify({ audioBase64: 'Zg==', mimeType: 'audio/webm', history: [] }),
       }),
-      env
+      env,
+      ctx
     );
     expect(response.status).toBe(403);
   });
@@ -73,7 +76,8 @@ describe('Worker AI route auth', () => {
         },
         body: JSON.stringify({ history: [{ role: 'user', text: 'bonjour' }] }),
       }),
-      env
+      env,
+      ctx
     );
     expect(response.status).toBe(400);
     const body = await response.json() as { error: string };

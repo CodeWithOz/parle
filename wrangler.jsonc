@@ -3,7 +3,15 @@
   "name": "parle",
   "main": "worker/index.ts",
   // Secrets live in `.dev.vars` locally and `wrangler secret put` in production:
-  // API_KEY_COOKIE_SECRET, optional API_KEY_COOKIE_SECRET_PREVIOUS
+  // API_KEY_COOKIE_SECRET, optional API_KEY_COOKIE_SECRET_PREVIOUS, LANGSMITH_API_KEY.
+  // Non-secret LangSmith settings are plain vars so deploys keep them.
+  // LANGSMITH_AGENT_ENVIRONMENT must be local, development, staging, or production.
+  "vars": {
+    "LANGSMITH_AGENT_ENVIRONMENT": "production",
+    "LANGSMITH_AGENT_ID": "parle",
+    "LANGSMITH_ENDPOINT": "https://api.smith.langchain.com",
+    "LANGSMITH_TRACING": "true"
+  },
   "compatibility_date": "2026-09-13",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
