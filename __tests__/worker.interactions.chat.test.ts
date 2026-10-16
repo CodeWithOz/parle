@@ -16,6 +16,8 @@ const env = {
   API_KEY_COOKIE_SECRET: SECRET,
 } as Env;
 
+const ctx = { waitUntil() {} };
+
 async function sessionCookie(): Promise<string> {
   const { handleCreateSession } = await import('../worker/routes/session');
   const response = await handleCreateSession(
@@ -66,7 +68,8 @@ describe('Worker chat · Interactions API', () => {
         previousInteractionId: 'int_prev',
         history: [{ role: 'user', audioBase64: 'b2xk', mimeType: 'audio/webm' }],
       }),
-      env
+      env,
+      ctx
     );
     expect(response.status).toBe(200);
     const body = await response.json() as { interactionId: string };
@@ -96,7 +99,8 @@ describe('Worker chat · Interactions API', () => {
           { role: 'model', frenchText: 'Bonjour' },
         ],
       }),
-      env
+      env,
+      ctx
     );
     expect(response.status).toBe(200);
     const params = geminiCreateInteraction.mock.calls[0][1] as {
@@ -125,7 +129,8 @@ describe('Worker chat · Interactions API', () => {
         previousInteractionId: 'int_stale',
         history: [],
       }),
-      env
+      env,
+      ctx
     );
     expect(response.status).toBe(404);
     expect(await response.json()).toMatchObject({ error: 'INTERACTION_NOT_FOUND' });
@@ -150,7 +155,8 @@ describe('Worker chat · Interactions API', () => {
           { role: 'model', frenchText: 'Bonjour' },
         ],
       }),
-      env
+      env,
+      ctx
     );
     expect(response.status).toBe(200);
     expect(geminiCreateInteraction).toHaveBeenCalledTimes(2);

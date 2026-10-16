@@ -36,6 +36,7 @@ import {
   readThreadId,
   withRolePlayTrace,
   type RolePlaySpan,
+  type TraceExecutionContext,
 } from '../langsmith';
 import { requireGeminiSession, requireOpenaiSession, slidingSessionCookie } from '../session';
 import { classifyProviderError } from '../upstream';
@@ -247,7 +248,7 @@ export async function handleTranscribe(request: Request, env: Env): Promise<Resp
   }
 }
 
-export async function handleChat(request: Request, env: Env): Promise<Response> {
+export async function handleChat(request: Request, env: Env, ctx: TraceExecutionContext): Promise<Response> {
   if (request.method !== 'POST') return errorJson('METHOD_NOT_ALLOWED', 405);
   const bodyOrErr = await readJsonBody(request);
   if (bodyOrErr instanceof Response) return bodyOrErr;
@@ -396,7 +397,7 @@ export async function handleChat(request: Request, env: Env): Promise<Response> 
 
   try {
     const result = isRolePlayScenario(scenario)
-      ? await withRolePlayTrace(env, {
+      ? await withRolePlayTrace(env, ctx, {
           name: 'rolePlayTurn',
           threadId: scenario.id,
           inputs: {
@@ -571,7 +572,7 @@ export async function handleTefReview(request: Request, env: Env): Promise<Respo
   }
 }
 
-export async function handleScenarioReview(request: Request, env: Env): Promise<Response> {
+export async function handleScenarioReview(request: Request, env: Env, ctx: TraceExecutionContext): Promise<Response> {
   if (request.method !== 'POST') return errorJson('METHOD_NOT_ALLOWED', 405);
   const bodyOrErr = await readJsonBody(request);
   if (bodyOrErr instanceof Response) return bodyOrErr;
@@ -592,7 +593,7 @@ export async function handleScenarioReview(request: Request, env: Env): Promise<
   const threadId = readThreadId(bodyOrErr.threadId);
 
   try {
-    const review = await withRolePlayTrace(env, {
+    const review = await withRolePlayTrace(env, ctx, {
       name: 'rolePlayReview',
       threadId,
       inputs: {
@@ -691,7 +692,7 @@ export async function handleScenarioReview(request: Request, env: Env): Promise<
   }
 }
 
-export async function handleScenarioPlan(request: Request, env: Env): Promise<Response> {
+export async function handleScenarioPlan(request: Request, env: Env, ctx: TraceExecutionContext): Promise<Response> {
   if (request.method !== 'POST') return errorJson('METHOD_NOT_ALLOWED', 405);
   const bodyOrErr = await readJsonBody(request);
   if (bodyOrErr instanceof Response) return bodyOrErr;
@@ -703,7 +704,7 @@ export async function handleScenarioPlan(request: Request, env: Env): Promise<Re
   }
   const threadId = readThreadId(bodyOrErr.threadId);
   try {
-    const result = await withRolePlayTrace(env, {
+    const result = await withRolePlayTrace(env, ctx, {
       name: 'rolePlayPlan',
       threadId,
       inputs: { description },

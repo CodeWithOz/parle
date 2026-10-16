@@ -58,6 +58,18 @@ const plainEnv = { API_KEY_COOKIE_SECRET: SECRET } as unknown as Env;
 
 const AUDIO = 'Y3VycmVudA==';
 
+function recordingContext(): { ctx: { waitUntil(promise: Promise<unknown>): void }; pending: Promise<unknown>[] } {
+  const pending: Promise<unknown>[] = [];
+  return {
+    pending,
+    ctx: {
+      waitUntil(promise: Promise<unknown>) {
+        pending.push(promise);
+      },
+    },
+  };
+}
+
 async function sessionCookie(env: Env, keys: { geminiApiKey?: string; openaiApiKey?: string }): Promise<string> {
   const { handleCreateSession } = await import('../worker/routes/session');
   const response = await handleCreateSession(
@@ -100,7 +112,7 @@ const rolePlayScenario = {
 
 beforeEach(() => {
   traceCalls.length = 0;
-  flushMock.mockClear();
+  flushMock.mockReset();
   geminiCreateInteraction.mockReset();
   geminiCreateInteraction.mockResolvedValue({
     id: 'int_abc',
@@ -112,13 +124,15 @@ describe('role-play LangSmith traces', () => {
   it('nests a practice turn under one thread and omits the audio payload', async () => {
     const { handleChat } = await import('../worker/routes/ai');
     const cookie = await sessionCookie(tracingEnv, { geminiApiKey: 'AIza-test-key-123456' });
+    const { ctx, pending } = recordingContext();
     const response = await handleChat(
       jsonRequest('/api/chat', cookie, {
         audioBase64: AUDIO,
         mimeType: 'audio/webm',
         scenario: rolePlayScenario,
       }),
-      tracingEnv
+      tracingEnv,
+      ctx
     );
 
     expect(response.status).toBe(200);
@@ -132,16 +146,45 @@ describe('role-play LangSmith traces', () => {
     expect(traceCalls[1]?.metadata).toMatchObject({ thread_id: 'scenario-bakery', ls_provider: 'google' });
     expect(traceCalls[2]?.metadata).toMatchObject({ thread_id: 'scenario-bakery' });
     expect(JSON.stringify(traceCalls)).not.toContain(AUDIO);
+    expect(pending).toHaveLength(1);
+    await pending[0];
     expect(flushMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns the practice response before the trace flush finishes', async () => {
+    let releaseFlush: (() => void) | undefined;
+    flushMock.mockImplementation(() => new Promise<void>((resolve) => {
+      releaseFlush = resolve;
+    }));
+    const { handleChat } = await import('../worker/routes/ai');
+    const cookie = await sessionCookie(tracingEnv, { geminiApiKey: 'AIza-test-key-123456' });
+    const { ctx, pending } = recordingContext();
+    const response = await handleChat(
+      jsonRequest('/api/chat', cookie, {
+        audioBase64: AUDIO,
+        mimeType: 'audio/webm',
+        scenario: rolePlayScenario,
+      }),
+      tracingEnv,
+      ctx
+    );
+
+    expect(response.status).toBe(200);
+    expect(pending).toHaveLength(1);
+    expect(releaseFlush).toEqual(expect.any(Function));
+    releaseFlush?.();
+    await pending[0];
   });
 
   it('leaves free conversation and TEF sessions untraced', async () => {
     const { handleChat } = await import('../worker/routes/ai');
     const cookie = await sessionCookie(tracingEnv, { geminiApiKey: 'AIza-test-key-123456' });
+    const { ctx, pending } = recordingContext();
 
     const free = await handleChat(
       jsonRequest('/api/chat', cookie, { audioBase64: AUDIO, mimeType: 'audio/webm' }),
-      tracingEnv
+      tracingEnv,
+      ctx
     );
     expect(free.status).toBe(200);
     expect(traceCalls).toHaveLength(0);
@@ -152,7 +195,8 @@ describe('role-play LangSmith traces', () => {
         mimeType: 'audio/webm',
         scenario: { ...rolePlayScenario, id: 'tef-q', name: 'TEF Ad Questioning', isTefQuestioning: true },
       }),
-      tracingEnv
+      tracingEnv,
+      ctx
     );
     expect(tef.status).toBe(200);
     expect(traceCalls).toHaveLength(0);
@@ -163,23 +207,27 @@ describe('role-play LangSmith traces', () => {
         mimeType: 'audio/webm',
         scenario: { ...rolePlayScenario, id: 'tef-ad', name: 'TEF Ad Persuasion' },
       }),
-      tracingEnv
+      tracingEnv,
+      ctx
     );
     expect(persuasion.status).toBe(200);
     expect(traceCalls).toHaveLength(0);
+    expect(pending).toHaveLength(0);
     expect(flushMock).not.toHaveBeenCalled();
   });
 
   it('still completes a role-play turn when tracing credentials are absent', async () => {
     const { handleChat } = await import('../worker/routes/ai');
     const cookie = await sessionCookie(plainEnv, { geminiApiKey: 'AIza-test-key-123456' });
+    const { ctx } = recordingContext();
     const response = await handleChat(
       jsonRequest('/api/chat', cookie, {
         audioBase64: AUDIO,
         mimeType: 'audio/webm',
         scenario: rolePlayScenario,
       }),
-      plainEnv
+      plainEnv,
+      ctx
     );
     expect(response.status).toBe(200);
     expect(traceCalls).toHaveLength(0);
@@ -202,12 +250,14 @@ describe('role-play LangSmith traces', () => {
 
     const { handleScenarioPlan } = await import('../worker/routes/ai');
     const cookie = await sessionCookie(tracingEnv, { openaiApiKey: 'sk-test-openai-key-123456' });
+    const { ctx, pending } = recordingContext();
     const response = await handleScenarioPlan(
       jsonRequest('/api/scenario-plan', cookie, {
         description: 'acheter une baguette',
         threadId: 'scenario-bakery',
       }),
-      tracingEnv
+      tracingEnv,
+      ctx
     );
 
     expect(response.status).toBe(200);
@@ -220,6 +270,8 @@ describe('role-play LangSmith traces', () => {
     expect(traceCalls[0]?.metadata).toMatchObject({ thread_id: 'scenario-bakery', stage: 'plan' });
     expect(traceCalls[2]?.run_type).toBe('llm');
     expect(traceCalls[2]?.metadata).toMatchObject({ ls_provider: 'openai', ls_model_name: 'gpt-5-nano' });
+    expect(pending).toHaveLength(1);
+    await pending[0];
     expect(flushMock).toHaveBeenCalled();
     vi.unstubAllGlobals();
   });
@@ -233,6 +285,7 @@ describe('role-play LangSmith traces', () => {
     });
     const { handleScenarioReview } = await import('../worker/routes/ai');
     const cookie = await sessionCookie(tracingEnv, { geminiApiKey: 'AIza-test-key-123456' });
+    const { ctx, pending } = recordingContext();
     const response = await handleScenarioReview(
       jsonRequest('/api/scenario-review', cookie, {
         threadId: 'scenario-bakery',
@@ -243,7 +296,8 @@ describe('role-play LangSmith traces', () => {
           { role: 'model', frenchText: 'Bonjour' },
         ],
       }),
-      tracingEnv
+      tracingEnv,
+      ctx
     );
 
     expect(response.status).toBe(200);
@@ -255,6 +309,8 @@ describe('role-play LangSmith traces', () => {
     ]);
     expect(traceCalls.every((call) => call.metadata?.thread_id === 'scenario-bakery')).toBe(true);
     expect(JSON.stringify(traceCalls)).not.toContain(AUDIO);
+    expect(pending).toHaveLength(1);
+    await pending[0];
     expect(flushMock).toHaveBeenCalled();
   });
 });

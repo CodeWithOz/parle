@@ -8,6 +8,8 @@ const env = {
   API_KEY_COOKIE_SECRET: SECRET,
 } as Env;
 
+const ctx = { waitUntil() {} };
+
 async function sessionCookie(): Promise<string> {
   const response = await handleCreateSession(
     new Request('http://localhost:8787/api/session', {
@@ -47,7 +49,8 @@ describe('Worker request-boundary turn validation', () => {
         mimeType: 'audio/webm',
         history: [null],
       }),
-      env
+      env,
+      ctx
     );
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: 'VALIDATION_ERROR' });
@@ -61,7 +64,8 @@ describe('Worker request-boundary turn validation', () => {
         mimeType: 'audio/webm',
         history: [{ role: 'admin', text: 'bonjour' }],
       }),
-      env
+      env,
+      ctx
     );
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: 'VALIDATION_ERROR' });
@@ -86,7 +90,8 @@ describe('Worker request-boundary turn validation', () => {
       jsonRequest('/api/scenario-review', cookie, {
         turns: ['bonjour'],
       }),
-      env
+      env,
+      ctx
     );
     expect(response.status).toBe(400);
     expect(await response.json()).toMatchObject({ error: 'VALIDATION_ERROR' });

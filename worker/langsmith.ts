@@ -33,6 +33,11 @@ type RolePlayTraceConfig = RolePlaySpanConfig & {
   inputs?: Record<string, unknown>;
 };
 
+/** Worker `ExecutionContext` surface used to finish trace uploads after the response. */
+export interface TraceExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+}
+
 export function isRolePlayScenario(
   scenario: { name?: string; isTefQuestioning?: boolean } | null | undefined
 ): scenario is { name?: string; isTefQuestioning?: boolean; id: string } {
@@ -100,12 +105,13 @@ function createClient(bindings: LangSmithBindings): Client | null {
 
 /**
  * Groups a role-play pipeline as one LangSmith trace: the parent run and every
- * `span` call become nested child runs. Traces are flushed before returning so
- * the Worker can exit without dropping them. Missing or incomplete credentials
- * run the same function with no tracing.
+ * `span` call become nested child runs. Trace uploads are scheduled with
+ * `ctx.waitUntil` so they finish after the response. Missing or incomplete
+ * credentials run the same function with no tracing.
  */
 export async function withRolePlayTrace<T>(
   env: object,
+  ctx: TraceExecutionContext,
   config: RolePlayTraceConfig,
   fn: (span: RolePlaySpan) => Promise<T>
 ): Promise<T> {
@@ -169,10 +175,8 @@ export async function withRolePlayTrace<T>(
   try {
     return await parent(config.inputs ?? { name: config.name });
   } finally {
-    try {
-      await client.awaitPendingTraceBatches();
-    } catch (err) {
+    ctx.waitUntil(client.awaitPendingTraceBatches().catch((err: unknown) => {
       console.error('LangSmith flush failed', err instanceof Error ? err.name : 'Error');
-    }
+    }));
   }
 }

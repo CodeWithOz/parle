@@ -1,4 +1,5 @@
 import { errorJson, json } from './http';
+import type { TraceExecutionContext } from './langsmith';
 import {
   handleChat,
   handleScenarioPlan,
@@ -11,7 +12,7 @@ import {
 import { handleCreateSession, handleRevoke, handleSessionStatus } from './routes/session';
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: TraceExecutionContext): Promise<Response> {
     try {
       const url = new URL(request.url);
       const { pathname } = url;
@@ -29,7 +30,7 @@ export default {
         return handleTranscribe(request, env);
       }
       if (pathname === '/api/chat') {
-        return handleChat(request, env);
+        return handleChat(request, env, ctx);
       }
       if (pathname === '/api/tts') {
         return handleTts(request, env);
@@ -41,10 +42,10 @@ export default {
         return handleTefReview(request, env);
       }
       if (pathname === '/api/scenario-review') {
-        return handleScenarioReview(request, env);
+        return handleScenarioReview(request, env, ctx);
       }
       if (pathname === '/api/scenario-plan') {
-        return handleScenarioPlan(request, env);
+        return handleScenarioPlan(request, env, ctx);
       }
 
       if (pathname.startsWith('/api/')) {
