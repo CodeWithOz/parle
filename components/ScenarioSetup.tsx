@@ -3,6 +3,8 @@ import { Scenario, Character } from '../types';
 import { loadScenarios, saveScenario, deleteScenario, generateId } from '../services/scenarioService';
 import { hasApiKeyOrEnv } from '../services/apiKeyService';
 import { DURABLE_DATA_CHANGED_EVENT } from '../services/backupService';
+import { confirmDelete } from '../utils/confirmDelete';
+import { ScenarioDetailsSheet } from './ScenarioDetailsSheet';
 
 interface ScenarioSetupProps {
   onStartPractice: (scenario: Scenario) => void | Promise<void>;
@@ -86,6 +88,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   const [savedScenariosLoading, setSavedScenariosLoading] = useState(true);
   const [savedScenariosError, setSavedScenariosError] = useState<string | null>(null);
   const [isStartingPractice, setIsStartingPractice] = useState(false);
+  const [detailsScenarioId, setDetailsScenarioId] = useState<string | null>(null);
   const transcriptOptionsRef = useRef<HTMLDivElement>(null);
   const scenarioLoadTokenRef = useRef(0);
   const startingPracticeRef = useRef(false);
@@ -99,6 +102,8 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
         .then((scenarios) => {
           if (requestToken !== scenarioLoadTokenRef.current) return;
           setSavedScenarios(scenarios);
+          // Close the details modal if its scenario no longer exists.
+          setDetailsScenarioId((id) => (id && scenarios.some((sc) => sc.id === id) ? id : null));
         })
         .catch((error) => {
           if (requestToken !== scenarioLoadTokenRef.current) return;
@@ -147,14 +152,19 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     }
   };
 
-  const handleSelectSaved = (scenario: Scenario) => {
+  const detailsScenario = detailsScenarioId
+    ? savedScenarios.find((sc) => sc.id === detailsScenarioId) ?? null
+    : null;
+
+  const handleUseAsTemplate = (scenario: Scenario) => {
     onNameChange(scenario.name);
     onDescriptionChange(scenario.description);
     setShowSaved(false);
+    setDetailsScenarioId(null);
   };
 
-  const handleQuickStart = async (scenario: Scenario, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleQuickStart = async (scenario: Scenario, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if (geminiKeyMissing || !hasApiKeyOrEnv('gemini')) {
       onOpenApiKeyModal();
       return;
@@ -183,12 +193,13 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     }
   };
 
-  const handleDeleteSaved = async (scenario: Scenario, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (window.confirm(`Delete "${scenario.name}"? This cannot be undone.`)) {
+  const handleDeleteSaved = async (scenario: Scenario, e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    if (confirmDelete(`Delete "${scenario.name}"? This cannot be undone.`)) {
       try {
         const updated = await deleteScenario(scenario.id);
         setSavedScenarios(updated);
+        setDetailsScenarioId((id) => (id === scenario.id ? null : id));
       } catch (error) {
         console.error('Error deleting scenario:', error);
         alert(`Failed to delete scenario: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -299,7 +310,10 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 
   return (
     <div className="fixed inset-0 bg-parle-navy-900/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl border border-parle-navy-100 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+      <div
+        aria-hidden={detailsScenario !== null ? true : undefined}
+        className="bg-white rounded-2xl border border-parle-navy-100 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+      >
         {/* Header */}
         <div className="flex justify-between items-center p-6 border-b border-parle-navy-100">
           <h2 className="text-xl font-bold text-parle-navy-900">Practice Role Play</h2>
@@ -363,17 +377,17 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
 
               {showSaved && (
                 <div className="mt-3 space-y-2 max-h-48 overflow-y-auto">
-                  <p className="text-parle-navy-500 text-xs mb-2">Click "Start" to practice immediately, or click the row to edit first.</p>
+                  <p className="text-parle-navy-500 text-xs mb-2">Click "Start" to practice immediately, or click the row to see details.</p>
                   {savedScenarios.map((scenario) => (
                     <div
                       key={scenario.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => handleSelectSaved(scenario)}
+                      onClick={() => setDetailsScenarioId(scenario.id)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          handleSelectSaved(scenario);
+                          setDetailsScenarioId(scenario.id);
                         }
                       }}
                       className="flex justify-between items-center p-3 bg-parle-blue-50 rounded-lg cursor-pointer hover:bg-parle-blue-100 transition-colors focus:outline-none focus:ring-2 focus:ring-parle-blue-500"
@@ -715,6 +729,17 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
           )}
         </div>
       </div>
+      <ScenarioDetailsSheet
+        open={detailsScenario !== null}
+        scenario={detailsScenario}
+        onClose={() => setDetailsScenarioId(null)}
+        onStart={(sc) => {
+          setDetailsScenarioId(null);
+          void handleQuickStart(sc);
+        }}
+        onDelete={(sc) => void handleDeleteSaved(sc)}
+        onUseAsTemplate={handleUseAsTemplate}
+      />
     </div>
   );
 };
