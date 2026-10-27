@@ -89,6 +89,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   const [savedScenariosError, setSavedScenariosError] = useState<string | null>(null);
   const [isStartingPractice, setIsStartingPractice] = useState(false);
   const [detailsScenarioId, setDetailsScenarioId] = useState<string | null>(null);
+  const detailsOpenerRef = useRef<HTMLElement | null>(null);
   const transcriptOptionsRef = useRef<HTMLDivElement>(null);
   const scenarioLoadTokenRef = useRef(0);
   const startingPracticeRef = useRef(false);
@@ -107,6 +108,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
         })
         .catch((error) => {
           if (requestToken !== scenarioLoadTokenRef.current) return;
+          setDetailsScenarioId(null);
           setSavedScenariosError(
             error instanceof Error ? error.message : 'Unable to load saved scenarios'
           );
@@ -156,10 +158,24 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     ? savedScenarios.find((sc) => sc.id === detailsScenarioId) ?? null
     : null;
 
+  const openDetails = (scenario: Scenario, opener: HTMLElement) => {
+    detailsOpenerRef.current = opener;
+    setDetailsScenarioId(scenario.id);
+  };
+
+  const closeDetails = () => {
+    setDetailsScenarioId(null);
+    const opener = detailsOpenerRef.current;
+    detailsOpenerRef.current = null;
+    // Restore focus after the inert attribute is removed on re-render.
+    if (opener) setTimeout(() => opener.focus(), 0);
+  };
+
   const handleUseAsTemplate = (scenario: Scenario) => {
     onNameChange(scenario.name);
     onDescriptionChange(scenario.description);
     setShowSaved(false);
+    detailsOpenerRef.current = null;
     setDetailsScenarioId(null);
   };
 
@@ -193,17 +209,21 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     }
   };
 
-  const handleDeleteSaved = async (scenario: Scenario, e?: React.MouseEvent) => {
-    e?.stopPropagation();
+  const performDeleteSaved = async (scenario: Scenario) => {
+    try {
+      const updated = await deleteScenario(scenario.id);
+      setSavedScenarios(updated);
+      setDetailsScenarioId((id) => (id === scenario.id ? null : id));
+    } catch (error) {
+      console.error('Error deleting scenario:', error);
+      alert(`Failed to delete scenario: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  const handleDeleteSaved = async (scenario: Scenario, e: React.MouseEvent) => {
+    e.stopPropagation();
     if (confirmDelete(`Delete "${scenario.name}"? This cannot be undone.`)) {
-      try {
-        const updated = await deleteScenario(scenario.id);
-        setSavedScenarios(updated);
-        setDetailsScenarioId((id) => (id === scenario.id ? null : id));
-      } catch (error) {
-        console.error('Error deleting scenario:', error);
-        alert(`Failed to delete scenario: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      }
+      await performDeleteSaved(scenario);
     }
   };
 
@@ -311,6 +331,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   return (
     <div className="fixed inset-0 bg-parle-navy-900/40 z-50 flex items-center justify-center p-4">
       <div
+        inert={detailsScenario !== null}
         aria-hidden={detailsScenario !== null ? true : undefined}
         className="bg-white rounded-2xl border border-parle-navy-100 max-w-2xl w-full max-h-[90vh] overflow-y-auto"
       >
@@ -383,11 +404,11 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                       key={scenario.id}
                       role="button"
                       tabIndex={0}
-                      onClick={() => setDetailsScenarioId(scenario.id)}
+                      onClick={(e) => openDetails(scenario, e.currentTarget)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          setDetailsScenarioId(scenario.id);
+                          openDetails(scenario, e.currentTarget);
                         }
                       }}
                       className="flex justify-between items-center p-3 bg-parle-blue-50 rounded-lg cursor-pointer hover:bg-parle-blue-100 transition-colors focus:outline-none focus:ring-2 focus:ring-parle-blue-500"
@@ -732,12 +753,12 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
       <ScenarioDetailsSheet
         open={detailsScenario !== null}
         scenario={detailsScenario}
-        onClose={() => setDetailsScenarioId(null)}
+        onClose={closeDetails}
         onStart={(sc) => {
-          setDetailsScenarioId(null);
+          closeDetails();
           void handleQuickStart(sc);
         }}
-        onDelete={(sc) => void handleDeleteSaved(sc)}
+        onDelete={(sc) => void performDeleteSaved(sc)}
         onUseAsTemplate={handleUseAsTemplate}
       />
     </div>

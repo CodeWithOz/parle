@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import type { Scenario } from '../types';
 import { confirmDelete } from '../utils/confirmDelete';
 
@@ -19,6 +19,19 @@ export const ScenarioDetailsSheet: React.FC<ScenarioDetailsSheetProps> = ({
   onDelete,
   onUseAsTemplate,
 }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const visible = open && scenario !== null;
+
+  useEffect(() => {
+    if (!visible) return;
+    dialogRef.current?.focus();
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [visible, onClose]);
+
   if (!open || !scenario) return null;
 
   const characters = scenario.characters ?? [];
@@ -32,7 +45,9 @@ export const ScenarioDetailsSheet: React.FC<ScenarioDetailsSheetProps> = ({
   return (
     <div className="fixed inset-0 bg-parle-navy-900/40 z-[60] flex items-center justify-center p-4 overscroll-none">
       <div
-        className="bg-white border border-parle-navy-100 rounded-2xl max-w-2xl w-full max-h-[min(88dvh,100%)] flex flex-col min-h-0"
+        className="bg-white border border-parle-navy-100 rounded-2xl max-w-2xl w-full max-h-[min(88dvh,100%)] flex flex-col min-h-0 focus:outline-none"
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="scenario-details-title"
