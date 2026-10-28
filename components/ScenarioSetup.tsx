@@ -90,6 +90,8 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   const [isStartingPractice, setIsStartingPractice] = useState(false);
   const [detailsScenarioId, setDetailsScenarioId] = useState<string | null>(null);
   const detailsOpenerRef = useRef<HTMLElement | null>(null);
+  const savedToggleRef = useRef<HTMLButtonElement>(null);
+  const headerCloseRef = useRef<HTMLButtonElement>(null);
   const transcriptOptionsRef = useRef<HTMLDivElement>(null);
   const scenarioLoadTokenRef = useRef(0);
   const startingPracticeRef = useRef(false);
@@ -209,11 +211,17 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     }
   };
 
-  const performDeleteSaved = async (scenario: Scenario) => {
+  const performDeleteSaved = async (scenario: Scenario, fromDetails = false) => {
     try {
       const updated = await deleteScenario(scenario.id);
       setSavedScenarios(updated);
       setDetailsScenarioId((id) => (id === scenario.id ? null : id));
+      if (fromDetails) {
+        // The opener row is gone; move focus to a surviving control once the
+        // underlying card is no longer inert.
+        detailsOpenerRef.current = null;
+        setTimeout(() => (savedToggleRef.current ?? headerCloseRef.current)?.focus(), 0);
+      }
     } catch (error) {
       console.error('Error deleting scenario:', error);
       alert(`Failed to delete scenario: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -339,6 +347,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
         <div className="flex justify-between items-center p-6 border-b border-parle-navy-100">
           <h2 className="text-xl font-bold text-parle-navy-900">Practice Role Play</h2>
           <button
+            ref={headerCloseRef}
             onClick={onClose}
             aria-label="Close"
             className="p-2 hover:bg-parle-blue-50 rounded-lg transition-colors"
@@ -387,6 +396,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
           {savedScenarios.length > 0 && !aiSummary && (
             <div>
               <button
+                ref={savedToggleRef}
                 onClick={() => setShowSaved(!showSaved)}
                 className="text-sm text-parle-blue-600 hover:text-parle-blue-700 flex items-center gap-2"
               >
@@ -758,7 +768,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
           closeDetails();
           void handleQuickStart(sc);
         }}
-        onDelete={(sc) => void performDeleteSaved(sc)}
+        onDelete={(sc) => void performDeleteSaved(sc, true)}
         onUseAsTemplate={handleUseAsTemplate}
       />
     </div>

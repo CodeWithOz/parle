@@ -236,4 +236,31 @@ describe('ScenarioSetup · scenario details modal', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     await waitFor(() => expect(row).toHaveFocus());
   });
+
+  it('moves focus to the saved-scenarios toggle after a successful modal delete', async () => {
+    const other: Scenario = { ...scenario, id: 'sc-2', name: 'Hotel Check-in' };
+    vi.mocked(scenarioService.deleteScenario).mockResolvedValueOnce([other]);
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenario, other]);
+    renderSetup();
+    fireEvent.click(await screen.findByText(/show saved scenarios/i));
+    clickRow();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete Bakery Visit' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByText(/saved scenarios/i).closest('button'))
+    );
+  });
+
+  it('does not move focus when the modal delete fails', async () => {
+    vi.mocked(scenarioService.deleteScenario).mockRejectedValueOnce(new Error('boom'));
+    vi.spyOn(window, 'alert').mockImplementation(() => {});
+    await openList();
+    clickRow();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Delete Bakery Visit' }));
+    await waitFor(() => expect(window.alert).toHaveBeenCalled());
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(document.activeElement).not.toBe(screen.getByText(/saved scenarios/i).closest('button'));
+  });
 });

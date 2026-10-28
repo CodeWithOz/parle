@@ -227,3 +227,26 @@ describe('ScenarioDetailsSheet · actions', () => {
     expect(props.onDelete).not.toHaveBeenCalled();
   });
 });
+
+describe('ScenarioDetailsSheet · focus stability', () => {
+  it('keeps focus on a footer button when the parent rerenders with a new onClose', () => {
+    const props = {
+      open: true,
+      scenario: FULL,
+      onClose: vi.fn(),
+      onStart: vi.fn(),
+      onDelete: vi.fn(),
+      onUseAsTemplate: vi.fn(),
+    };
+    const { rerender } = render(<ScenarioDetailsSheet {...props} />);
+    const btn = screen.getByRole('button', { name: 'Use as template' });
+    btn.focus();
+    expect(btn).toHaveFocus();
+    const newOnClose = vi.fn();
+    rerender(<ScenarioDetailsSheet {...props} onClose={newOnClose} />);
+    expect(btn).toHaveFocus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(newOnClose).toHaveBeenCalledTimes(1);
+    expect(props.onClose).not.toHaveBeenCalled();
+  });
+});

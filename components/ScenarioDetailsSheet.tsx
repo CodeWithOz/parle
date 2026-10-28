@@ -22,15 +22,24 @@ export const ScenarioDetailsSheet: React.FC<ScenarioDetailsSheetProps> = ({
   const dialogRef = useRef<HTMLDivElement>(null);
   const visible = open && scenario !== null;
 
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  // Initial focus: only when the sheet opens, not on parent rerenders.
+  useEffect(() => {
+    if (visible) dialogRef.current?.focus();
+  }, [visible]);
+
   useEffect(() => {
     if (!visible) return;
-    dialogRef.current?.focus();
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') onCloseRef.current();
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [visible, onClose]);
+  }, [visible]);
 
   if (!open || !scenario) return null;
 
