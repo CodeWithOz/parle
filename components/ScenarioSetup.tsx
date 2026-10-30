@@ -90,6 +90,8 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
   const [isStartingPractice, setIsStartingPractice] = useState(false);
   const [detailsScenarioId, setDetailsScenarioId] = useState<string | null>(null);
   const detailsOpenerRef = useRef<HTMLElement | null>(null);
+  const activeDetailsIdRef = useRef<string | null>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null);
   const savedToggleRef = useRef<HTMLButtonElement>(null);
   const headerCloseRef = useRef<HTMLButtonElement>(null);
   const transcriptOptionsRef = useRef<HTMLDivElement>(null);
@@ -156,6 +158,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     }
   };
 
+  activeDetailsIdRef.current = detailsScenarioId;
   const detailsScenario = detailsScenarioId
     ? savedScenarios.find((sc) => sc.id === detailsScenarioId) ?? null
     : null;
@@ -179,6 +182,8 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     setShowSaved(false);
     detailsOpenerRef.current = null;
     setDetailsScenarioId(null);
+    // Let keyboard users continue in the form once the card is no longer inert.
+    setTimeout(() => nameInputRef.current?.focus(), 0);
   };
 
   const handleQuickStart = async (scenario: Scenario, e?: React.MouseEvent) => {
@@ -216,7 +221,8 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
       const updated = await deleteScenario(scenario.id);
       setSavedScenarios(updated);
       setDetailsScenarioId((id) => (id === scenario.id ? null : id));
-      if (fromDetails) {
+      // Skip if the user has since closed this sheet or opened another one.
+      if (fromDetails && activeDetailsIdRef.current === scenario.id) {
         // The opener row is gone; move focus to a surviving control once the
         // underlying card is no longer inert.
         detailsOpenerRef.current = null;
@@ -469,6 +475,7 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
                   Scenario Name
                 </label>
                 <input
+                  ref={nameInputRef}
                   type="text"
                   value={currentName}
                   onChange={(e) => onNameChange(e.target.value)}

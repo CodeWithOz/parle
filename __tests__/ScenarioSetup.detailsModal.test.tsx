@@ -263,4 +263,35 @@ describe('ScenarioSetup · scenario details modal', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
     expect(document.activeElement).not.toBe(screen.getByText(/saved scenarios/i).closest('button'));
   });
+
+  it('focuses the name input after "Use as template"', async () => {
+    await openList();
+    clickRow();
+    fireEvent.click(await screen.findByRole('button', { name: 'Use as template' }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByPlaceholderText(/bakery visit, hotel/i))
+    );
+  });
+
+  it('a late delete completion for A does not steal focus from an open sheet for B', async () => {
+    const other: Scenario = { ...scenario, id: 'sc-2', name: 'Hotel Check-in' };
+    let resolveDelete: (v: Scenario[]) => void = () => {};
+    vi.mocked(scenarioService.deleteScenario).mockReturnValueOnce(
+      new Promise<Scenario[]>((r) => { resolveDelete = r; })
+    );
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenario, other]);
+    renderSetup();
+    fireEvent.click(await screen.findByText(/show saved scenarios/i));
+    clickRow();
+    const dialogA = await screen.findByRole('dialog');
+    fireEvent.click(within(dialogA).getByRole('button', { name: 'Delete Bakery Visit' }));
+    fireEvent.click(within(dialogA).getByRole('button', { name: 'Close' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    fireEvent.click(screen.getByText('Hotel Check-in'));
+    const dialogB = await screen.findByRole('dialog');
+    await waitFor(() => expect(dialogB).toHaveFocus());
+    resolveDelete([other]);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByRole('dialog')).toHaveFocus();
+  });
 });

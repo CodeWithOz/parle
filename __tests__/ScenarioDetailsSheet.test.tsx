@@ -250,3 +250,16 @@ describe('ScenarioDetailsSheet · focus stability', () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 });
+
+describe('ScenarioDetailsSheet · focus containment', () => {
+  it('wraps Tab from the last control to the first and Shift+Tab back', () => {
+    setup();
+    const first = screen.getByRole('button', { name: 'Close' });
+    const last = screen.getByRole('button', { name: 'Start practicing Bakery Visit' });
+    last.focus();
+    fireEvent.keyDown(last, { key: 'Tab' });
+    expect(first).toHaveFocus();
+    fireEvent.keyDown(first, { key: 'Tab', shiftKey: true });
+    expect(last).toHaveFocus();
+  });
+});
