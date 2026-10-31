@@ -294,4 +294,17 @@ describe('ScenarioSetup · scenario details modal', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(screen.getByRole('dialog')).toHaveFocus();
   });
+
+  it('keeps focus on a surviving control when a stepless scenario is started from the modal', async () => {
+    const noSteps = { ...scenario, steps: undefined };
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([noSteps]);
+    renderSetup();
+    fireEvent.click(await screen.findByText(/show saved scenarios/i));
+    clickRow();
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start practicing Bakery Visit' }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByText(/saved scenarios/i).closest('button'))
+    );
+  });
 });

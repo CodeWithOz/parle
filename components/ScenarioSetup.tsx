@@ -173,7 +173,15 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     const opener = detailsOpenerRef.current;
     detailsOpenerRef.current = null;
     // Restore focus after the inert attribute is removed on re-render.
-    if (opener) setTimeout(() => opener.focus(), 0);
+    if (opener) {
+      setTimeout(() => {
+        // The opener row may have been hidden (e.g. the list collapsed on start).
+        const target = opener.isConnected
+          ? opener
+          : savedToggleRef.current ?? nameInputRef.current ?? headerCloseRef.current;
+        target?.focus();
+      }, 0);
+    }
   };
 
   const handleUseAsTemplate = (scenario: Scenario) => {
