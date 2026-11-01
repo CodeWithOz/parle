@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { Scenario, Character } from '../types';
 import { loadScenarios, saveScenario, deleteScenario, generateId } from '../services/scenarioService';
 import { hasApiKeyOrEnv } from '../services/apiKeyService';
@@ -158,7 +158,9 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     }
   };
 
-  activeDetailsIdRef.current = detailsScenarioId;
+  useLayoutEffect(() => {
+    activeDetailsIdRef.current = detailsScenarioId;
+  }, [detailsScenarioId]);
   const detailsScenario = detailsScenarioId
     ? savedScenarios.find((sc) => sc.id === detailsScenarioId) ?? null
     : null;
@@ -168,12 +170,12 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
     setDetailsScenarioId(scenario.id);
   };
 
-  const closeDetails = () => {
+  const closeDetails = (restoreFocus = true) => {
     setDetailsScenarioId(null);
     const opener = detailsOpenerRef.current;
     detailsOpenerRef.current = null;
     // Restore focus after the inert attribute is removed on re-render.
-    if (opener) {
+    if (opener && restoreFocus) {
       setTimeout(() => {
         // The opener row may have been hidden (e.g. the list collapsed on start).
         const target = opener.isConnected
@@ -778,9 +780,10 @@ export const ScenarioSetup: React.FC<ScenarioSetupProps> = ({
       <ScenarioDetailsSheet
         open={detailsScenario !== null}
         scenario={detailsScenario}
-        onClose={closeDetails}
+        onClose={() => closeDetails()}
         onStart={(sc) => {
-          closeDetails();
+          // Skip focus restore when the API-key gate opens over the setup.
+          closeDetails(!(geminiKeyMissing || !hasApiKeyOrEnv('gemini')));
           void handleQuickStart(sc);
         }}
         onDelete={(sc) => void performDeleteSaved(sc, true)}

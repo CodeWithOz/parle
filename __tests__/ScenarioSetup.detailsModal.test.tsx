@@ -307,4 +307,27 @@ describe('ScenarioSetup · scenario details modal', () => {
       expect(document.activeElement).toBe(screen.getByText(/saved scenarios/i).closest('button'))
     );
   });
+
+  it('Start from the modal with the Gemini key missing does not restore focus behind the overlay', async () => {
+    vi.mocked(hasApiKeyOrEnv).mockReturnValue(false);
+    vi.mocked(scenarioService.loadScenarios).mockResolvedValue([scenario]);
+    const props = renderSetup();
+    fireEvent.click(await screen.findByText(/show saved scenarios/i));
+    const row = screen.getByText('Bakery Visit').closest('[role="button"]') as HTMLElement;
+    fireEvent.click(row);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start practicing Bakery Visit' }));
+    await new Promise((r) => setTimeout(r, 20));
+    expect(props.onOpenApiKeyModal).toHaveBeenCalled();
+    expect(row).not.toHaveFocus();
+  });
+
+  it('Start from the modal with the key present still restores focus to the row', async () => {
+    await openList();
+    const row = screen.getByText('Bakery Visit').closest('[role="button"]') as HTMLElement;
+    fireEvent.click(row);
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start practicing Bakery Visit' }));
+    await waitFor(() => expect(row).toHaveFocus());
+  });
 });
